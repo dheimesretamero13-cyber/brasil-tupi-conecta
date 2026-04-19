@@ -22,6 +22,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppNavigation() {
     var tela by remember { mutableStateOf("welcome") }
+    var estudioProfId by remember { mutableStateOf("") }
+    var currentUserId by remember { mutableStateOf("") }
 
     when (tela) {
         "welcome" -> WelcomeScreen(
@@ -40,7 +42,8 @@ fun AppNavigation() {
             onConcluido = { tela = "welcome" },
         )
         "busca" -> BuscaScreen(
-            onVoltar = { tela = "welcome" }
+            onVoltar = { tela = "welcome" },
+            onEstudio = { profId -> estudioProfId = profId; tela = "estudio-vitrine" }
         )
         "perfil-profissional" -> PerfilProfissionalScreen(
             onVoltar = { tela = "welcome" }
@@ -49,10 +52,23 @@ fun AppNavigation() {
             onVoltar = { tela = "welcome" }
         )
         "dashboard-profissional" -> DashboardProfissionalScreen(
-            onSair = { tela = "welcome" }
+            onSair = { tela = "welcome" },
+            onEstudio = { tela = "estudio-dashboard" }
         )
         "dashboard-cliente" -> DashboardClienteScreen(
-            onSair = { tela = "welcome" }
+            onSair = { tela = "welcome" },
+            onEstudio = { profId -> estudioProfId = profId; tela = "estudio-vitrine" }
+        )
+        "estudio-dashboard" -> EstudioDashboardScreen(
+        userId = currentUserId ?: "",
+        onVoltar = { tela = "dashboard-profissional" }
+    )
+        "estudio-busca" -> EstudioBuscaScreen(
+            onVoltar = { tela = "welcome" }
+        )
+        "estudio-vitrine" -> EstudioVitrineScreen(
+            profissionalId = estudioProfId,
+            onVoltar = { tela = "busca" }
         )
     }
 }

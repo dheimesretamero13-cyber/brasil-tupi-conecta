@@ -39,7 +39,7 @@ val consultasMock = listOf(
 
 // ── TELA PRINCIPAL ────────────────────────────────────
 @Composable
-fun DashboardClienteScreen(onSair: () -> Unit) {
+fun DashboardClienteScreen(onSair: () -> Unit, onEstudio: ((String) -> Unit)? = null) {
     var abaSelecionada by remember { mutableStateOf("visao") }
     val pendentes = consultasMock.count { it.status == "concluida" && !it.avaliada }
 
@@ -126,7 +126,7 @@ fun DashboardClienteScreen(onSair: () -> Unit) {
         when (abaSelecionada) {
             "visao"    -> AbaVisaoGeralCliente(onNavegar = { abaSelecionada = it })
             "consultas" -> AbaConsultasCliente()
-            "busca"    -> AbaBuscaCliente()
+            "busca"    -> AbaBuscaCliente(onEstudio = onEstudio)
         }
     }
 }
@@ -570,7 +570,7 @@ fun AbaConsultasCliente() {
 
 // ── ABA: BUSCA ────────────────────────────────────────
 @Composable
-fun AbaBuscaCliente() {
+fun AbaBuscaCliente(onEstudio: ((String) -> Unit)? = null) {
     var profSelecionado by remember { mutableStateOf<ProfissionalPMP?>(null) }
     var agendando by remember { mutableStateOf<Pair<ProfissionalPMP, String>?>(null) }
 
@@ -624,7 +624,7 @@ fun AbaBuscaCliente() {
         Text("Profissionais PMP", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
 
         profissionaisMock.forEach { prof ->
-            CardProfissional(prof = prof, onClick = { profSelecionado = prof })
+            CardProfissional(prof = prof, onClick = { profSelecionado = prof }, onEstudio = onEstudio)
         }
     }
 }

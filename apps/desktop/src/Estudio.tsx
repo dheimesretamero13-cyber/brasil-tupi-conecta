@@ -80,8 +80,11 @@ export default function Estudio({ userId, profissionalId, modo, onVoltar }: Estu
     setLoading(true)
     let query = supabase
       .from('estudio')
-      .select('*, perfis(nome)')
+      .select('*, perfis(nome), profissionais!inner(is_pmp, verificado, credibilidade)')
       .eq('ativo', true)
+      .eq('profissionais.is_pmp', true)
+      .eq('profissionais.verificado', true)
+      .gte('profissionais.credibilidade', 80)
       .order('destaque', { ascending: false })
       .order('criado_em', { ascending: false })
 
@@ -89,6 +92,17 @@ export default function Estudio({ userId, profissionalId, modo, onVoltar }: Estu
       query = query.eq('profissional_id', profissionalId)
     } else if (modo === 'dashboard') {
       query = query.eq('profissional_id', userId)
+    } else if (modo === 'busca') {
+      // Apenas itens de profissionais PMP verificados
+      query = supabase
+        .from('estudio')
+        .select('*, perfis(nome), profissional_pmp:profissionais!inner(is_pmp, verificado, credibilidade)')
+        .eq('ativo', true)
+        .eq('profissional_pmp.is_pmp', true)
+        .eq('profissional_pmp.verificado', true)
+        .gte('profissional_pmp.credibilidade', 80)
+        .order('destaque', { ascending: false })
+        .order('criado_em', { ascending: false })
     }
 
     if (filtroTipo !== 'todos') query = query.eq('tipo', filtroTipo)

@@ -197,3 +197,106 @@ suspend fun getProfissionaisPMPAndroid(
         emptyList()
     }
 }
+// ── ESTÚDIO ───────────────────────────────────────────
+suspend fun getProfissionaisEstudioAndroid(
+    filtroTipo: String = "todos"
+): List<ItemEstudio> {
+    return try {
+        var url = "$SUPABASE_URL/rest/v1/estudio?select=*,perfis(nome)&ativo=eq.true&order=destaque.desc,criado_em.desc"
+        if (filtroTipo != "todos") url += "&tipo=eq.$filtroTipo"
+
+        val result = httpClient.get(url) {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Accept", "application/json")
+        }.body<List<Map<String, Any?>>>()
+
+        result.map { mapToItemEstudio(it) }
+    } catch (e: Exception) {
+        emptyList()
+    }
+}
+
+suspend fun getEstudioProfissionalAndroid(
+    profissionalId: String,
+    filtroTipo: String = "todos"
+): List<ItemEstudio> {
+    return try {
+        var url = "$SUPABASE_URL/rest/v1/estudio?select=*,perfis(nome)&ativo=eq.true&profissional_id=eq.$profissionalId&order=destaque.desc,criado_em.desc"
+        if (filtroTipo != "todos") url += "&tipo=eq.$filtroTipo"
+
+        val result = httpClient.get(url) {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Accept", "application/json")
+        }.body<List<Map<String, Any?>>>()
+
+        result.map { mapToItemEstudio(it) }
+    } catch (e: Exception) {
+        emptyList()
+    }
+}
+
+@Suppress("UNCHECKED_CAST")
+private fun mapToItemEstudio(map: Map<String, Any?>): ItemEstudio {
+    val perfis = map["perfis"] as? Map<String, Any?>
+    return ItemEstudio(
+        id = map["id"] as? String ?: "",
+        profissionalId = map["profissional_id"] as? String ?: "",
+        titulo = map["titulo"] as? String ?: "",
+        descricao = map["descricao"] as? String ?: "",
+        tipo = map["tipo"] as? String ?: "aula",
+        preco = (map["preco"] as? Number)?.toDouble() ?: 0.0,
+        precoOriginal = (map["preco_original"] as? Number)?.toDouble(),
+        capaUrl = map["capa_url"] as? String,
+        videoUrl = map["video_url"] as? String,
+        linkExterno = map["link_externo"] as? String,
+        temEntrega = map["tem_entrega"] as? Boolean ?: false,
+        destaque = map["destaque"] as? Boolean ?: false,
+        totalVendas = (map["total_vendas"] as? Number)?.toInt() ?: 0,
+        avaliacaoMedia = (map["avaliacao_media"] as? Number)?.toDouble() ?: 0.0,
+        autorNome = perfis?.get("nome") as? String ?: "",
+    )
+}
+suspend fun criarItemEstudioAndroid(
+    profissionalId: String,
+    titulo: String,
+    descricao: String,
+    tipo: String,
+    preco: Double,
+    precoOriginal: Double? = null,
+    videoUrl: String? = null,
+    arquivoUrl: String? = null,
+    linkExterno: String? = null,
+    temEntrega: Boolean = false,
+    destaque: Boolean = false,
+): Boolean {
+    return try {
+        val body = buildString {
+            append("{")
+            append("\"profissional_id\":\"$profissionalId\",")
+            append("\"titulo\":\"$titulo\",")
+            append("\"descricao\":\"$descricao\",")
+            append("\"tipo\":\"$tipo\",")
+            append("\"preco\":$preco,")
+            if (precoOriginal != null) append("\"preco_original\":$precoOriginal,")
+            if (videoUrl != null) append("\"video_url\":\"$videoUrl\",")
+            if (arquivoUrl != null) append("\"arquivo_url\":\"$arquivoUrl\",")
+            if (linkExterno != null) append("\"link_externo\":\"$linkExterno\",")
+            append("\"tem_entrega\":$temEntrega,")
+            append("\"destaque\":$destaque,")
+            append("\"ativo\":true")
+            append("}")
+        }
+        httpClient.post("$SUPABASE_URL/rest/v1/estudio") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Content-Type", "application/json")
+            header("Prefer", "return=minimal")
+            setBody(body)
+        }
+        true
+    } catch (e: Exception) {
+        false
+    }
+}

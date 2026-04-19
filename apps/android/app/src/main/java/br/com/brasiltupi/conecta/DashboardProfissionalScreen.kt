@@ -38,7 +38,7 @@ val atendimentosMock = listOf(
 
 // ── TELA PRINCIPAL ────────────────────────────────────
 @Composable
-fun DashboardProfissionalScreen(onSair: () -> Unit) {
+fun DashboardProfissionalScreen(onSair: () -> Unit, onEstudio: (() -> Unit)? = null) {
     var abaSelecionada by remember { mutableStateOf("visao") }
 
     val abas = listOf(
@@ -110,7 +110,7 @@ fun DashboardProfissionalScreen(onSair: () -> Unit) {
             "visao"         -> AbaVisaoGeralDash()
             "atendimentos"  -> AbaAtendimentosDash()
             "credibilidade" -> AbaCredibilidadeDash()
-            "urgente"       -> AbaUrgenteDash()
+            "urgente"       -> AbaUrgenteDash(onEstudio = onEstudio)
         }
     }
 }
@@ -549,7 +549,7 @@ fun AbaCredibilidadeDash() {
 
 // ── ABA: URGENTE ──────────────────────────────────────
 @Composable
-fun AbaUrgenteDash() {
+fun AbaUrgenteDash(onEstudio: (() -> Unit)? = null) {
     var ativo by remember { mutableStateOf(dadosProfissionalMock.disponivelUrgente) }
 
     Column(
@@ -680,6 +680,20 @@ fun AbaUrgenteDash() {
                     Text("✓", fontSize = 14.sp, color = Verde, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Histórico limpo — acesso integral à área urgente.", fontSize = 12.sp, color = Verde)
+                }
+            }
+            // Botão Estúdio
+            if (onEstudio != null) {
+                Button(
+                    onClick = onEstudio,
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFC49A2A),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("🎨 Acessar meu Estúdio", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }

@@ -49,7 +49,7 @@ val profissionaisMock = listOf(
 
 // ── TELA PRINCIPAL ────────────────────────────────────
 @Composable
-fun BuscaScreen(onVoltar: () -> Unit) {
+fun BuscaScreen(onVoltar: () -> Unit, onEstudio: ((String) -> Unit)? = null) {
     var busca by remember { mutableStateOf("") }
     var somenteUrgente by remember { mutableStateOf(false) }
     var profSelecionado by remember { mutableStateOf<ProfissionalPMP?>(null) }
@@ -99,7 +99,8 @@ fun BuscaScreen(onVoltar: () -> Unit) {
         PerfilPublicoScreen(
             prof = profSelecionado!!,
             onVoltar = { profSelecionado = null },
-            onAgendar = { tipo -> agendando = profSelecionado!! to tipo }
+            onAgendar = { tipo -> agendando = profSelecionado!! to tipo },
+            onEstudio = onEstudio
         )
         return
     }
@@ -244,7 +245,7 @@ fun BuscaScreen(onVoltar: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(resultado) { prof ->
-                    CardProfissional(prof = prof, onClick = { profSelecionado = prof })
+                    CardProfissional(prof = prof, onClick = { profSelecionado = prof }, onEstudio = onEstudio)
                 }
                 item { Spacer(modifier = Modifier.height(16.dp)) }
             }
@@ -254,7 +255,7 @@ fun BuscaScreen(onVoltar: () -> Unit) {
 
 // ── CARD PROFISSIONAL ─────────────────────────────────
 @Composable
-fun CardProfissional(prof: ProfissionalPMP, onClick: () -> Unit) {
+fun CardProfissional(prof: ProfissionalPMP, onClick: () -> Unit, onEstudio: ((String) -> Unit)? = null) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
@@ -355,6 +356,18 @@ fun CardProfissional(prof: ProfissionalPMP, onClick: () -> Unit) {
                     Text("Ver perfil →", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
             }
+            if (onEstudio != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { onEstudio(prof.id.toString()) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFB07D00)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFC49A2A))
+                ) {
+                    Text("🎨 Ver Estúdio", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }
@@ -365,6 +378,7 @@ fun PerfilPublicoScreen(
     prof: ProfissionalPMP,
     onVoltar: () -> Unit,
     onAgendar: (String) -> Unit,
+    onEstudio: ((String) -> Unit)? = null,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -494,6 +508,17 @@ fun PerfilPublicoScreen(
         item {
             Column(modifier = Modifier.background(Surface).padding(20.dp)) {
                 Text("Agendar consulta", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink, modifier = Modifier.padding(bottom = 14.dp))
+                if (onEstudio != null) {
+                    OutlinedButton(
+                        onClick = { onEstudio(prof.id.toString()) },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFB07D00)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFC49A2A))
+                    ) {
+                        Text("🎨 Ver Estúdio deste profissional", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
                 OpcaoConsulta(
                     titulo = "Consulta normal",
                     descricao = "Agendada com antecedência · 15 minutos",
