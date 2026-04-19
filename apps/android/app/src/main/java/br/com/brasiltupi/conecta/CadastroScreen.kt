@@ -1,5 +1,5 @@
 package br.com.brasiltupi.conecta
-
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -434,7 +434,7 @@ fun EtapasCertificado(etapa: Int, onProximo: () -> Unit) {
                 }
                 BotaoProximo(onClick = onProximo)
             }
-            4 -> EtapaRevisao(tipo = "Profissional Certificado", nome = nome, email = email, onProximo = onProximo)
+            4 -> EtapaRevisao(tipo = "Profissional Certificado", nome = nome, email = email, senha = senha, onProximo = onProximo)
         }
     }
 }
@@ -491,7 +491,7 @@ fun EtapasLiberal(etapa: Int, onProximo: () -> Unit) {
                 }
                 BotaoProximo(onClick = onProximo)
             }
-            4 -> EtapaRevisao(tipo = "Profissional Liberal", nome = nome, email = email, onProximo = onProximo)
+            4 -> EtapaRevisao(tipo = "Profissional Liberal", nome = nome, email = email, senha = senha, onProximo = onProximo)
         }
     }
 }
@@ -534,15 +534,18 @@ fun EtapasCliente(etapa: Int, onProximo: () -> Unit) {
                 CampoTexto("Cidade *", cidade, { cidade = it }, "Sua cidade")
                 BotaoProximo(onClick = onProximo)
             }
-            4 -> EtapaRevisao(tipo = "Cliente", nome = nome, email = email, onProximo = onProximo)
+            4 -> EtapaRevisao(tipo = "Cliente", nome = nome, email = email, senha = senha, onProximo = onProximo)
         }
     }
 }
 
 // ── ETAPA REVISÃO ─────────────────────────────────────
 @Composable
-fun EtapaRevisao(tipo: String, nome: String, email: String, onProximo: () -> Unit) {
+fun EtapaRevisao(tipo: String, nome: String, email: String, senha: String = "", onProximo: () -> Unit) {
     var aceito by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(false) }
+    var erro by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Revisão do cadastro", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink)
@@ -553,7 +556,7 @@ fun EtapaRevisao(tipo: String, nome: String, email: String, onProximo: () -> Uni
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(containerColor = Surface)
         ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+            Column(modifier = Modifier.padding(16.dp)) {
                 RevisaoItem("Tipo de conta", tipo)
                 HorizontalDivider(color = SurfaceOff)
                 RevisaoItem("Nome", nome.ifEmpty { "—" })
@@ -575,25 +578,59 @@ fun EtapaRevisao(tipo: String, nome: String, email: String, onProximo: () -> Uni
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                "Li e aceito os Termos de Uso e a Política de Privacidade. Declaro que as informações são verdadeiras.",
+                "Li e aceito os Termos de Uso e a Política de Privacidade.",
                 fontSize = 13.sp, color = InkSoft, lineHeight = 18.sp,
                 modifier = Modifier.padding(top = 12.dp)
             )
         }
 
+        if (erro.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFFDE8E8), RoundedCornerShape(8.dp))
+                    .padding(12.dp)
+            ) {
+                Text(erro, color = Urgente, fontSize = 13.sp)
+            }
+        }
+
         Button(
-            onClick = onProximo,
+            onClick = {
+                if (!aceito || email.isEmpty()) return@Button
+                loading = true
+                erro = ""
+                scope.launch {
+                    val tipoSupabase = when {
+                        tipo.contains("Certificado") -> "profissional_certificado"
+                        tipo.contains("Liberal") -> "profissional_liberal"
+                        else -> "cliente"
+                    }
+                    val sucesso = signUpAndroid(
+                        email = email,
+                        senha = senha.ifEmpty { "senha123" },
+                        nome = nome,
+                        telefone = "",
+                        tipo = tipoSupabase,
+                    )
+                    loading = false
+                    if (sucesso) onProximo()
+                    else erro = "Erro ao criar conta. Tente novamente."
+                }
+            },
             modifier = Modifier.fillMaxWidth().height(52.dp),
-            enabled = aceito,
+            enabled = aceito && !loading,
             colors = ButtonDefaults.buttonColors(
-                containerColor = Azul,
-                contentColor = Color.White,
-                disabledContainerColor = SurfaceOff,
-                disabledContentColor = InkMuted
+                containerColor = Azul, contentColor = Color.White,
+                disabledContainerColor = SurfaceOff, disabledContentColor = InkMuted
             ),
             shape = RoundedCornerShape(10.dp)
         ) {
-            Text("Enviar cadastro para verificação", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            if (loading) {
+                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else {
+                Text("Enviar cadastro para verificação", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }

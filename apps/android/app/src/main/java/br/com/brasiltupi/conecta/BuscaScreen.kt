@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.brasiltupi.conecta.ui.theme.*
 
-// ── DADOS MOCK ────────────────────────────────────────
+// ── DADOS MOCK (fallback) ─────────────────────────────
 data class ProfissionalPMP(
     val id: Int,
     val iniciais: String,
@@ -54,8 +54,38 @@ fun BuscaScreen(onVoltar: () -> Unit) {
     var somenteUrgente by remember { mutableStateOf(false) }
     var profSelecionado by remember { mutableStateOf<ProfissionalPMP?>(null) }
     var agendando by remember { mutableStateOf<Pair<ProfissionalPMP, String>?>(null) }
+    var profissionaisDB by remember { mutableStateOf<List<ProfissionalPMP>>(emptyList()) }
+    var loadingDB by remember { mutableStateOf(true) }
 
-    val resultado = profissionaisMock.filter { p ->
+    // Carregar do Supabase
+    LaunchedEffect(somenteUrgente) {
+        loadingDB = true
+        val dados = getProfissionaisPMPAndroid(somenteUrgente, "")
+        profissionaisDB = if (dados.isNotEmpty()) {
+            dados.map { p ->
+                ProfissionalPMP(
+                    id = p.id.hashCode(),
+                    iniciais = p.perfis?.nome?.split(" ")?.map { it[0] }?.joinToString("")?.take(2) ?: "XX",
+                    nome = p.perfis?.nome ?: "Profissional",
+                    area = p.area,
+                    cidade = "${p.perfis?.cidade ?: ""}, ${p.perfis?.estado ?: ""}",
+                    avaliacao = 5.0,
+                    atendimentos = p.credibilidade / 2,
+                    disponivelUrgente = p.disponivel_urgente,
+                    valorNormal = p.valor_normal,
+                    valorUrgente = if (p.disponivel_urgente) p.valor_urgente else null,
+                    conselho = listOfNotNull(p.conselho, p.numero_conselho).joinToString(" "),
+                    descricao = p.descricao ?: "",
+                    especialidades = listOf(p.area),
+                )
+            }
+        } else {
+            profissionaisMock
+        }
+        loadingDB = false
+    }
+
+    val resultado = profissionaisDB.filter { p ->
         val matchBusca = busca.isEmpty() ||
                 p.nome.contains(busca, ignoreCase = true) ||
                 p.area.contains(busca, ignoreCase = true) ||
@@ -178,17 +208,26 @@ fun BuscaScreen(onVoltar: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "${resultado.size} profissional${if (resultado.size != 1) "is" else ""} encontrado${if (resultado.size != 1) "s" else ""}",
+                if (loadingDB) "Carregando..."
+                else "${resultado.size} profissional${if (resultado.size != 1) "is" else ""} encontrado${if (resultado.size != 1) "s" else ""}",
                 fontSize = 13.sp, color = InkMuted
             )
-            if (busca.isNotEmpty() || somenteUrgente) {
+            if ((busca.isNotEmpty() || somenteUrgente) && !loadingDB) {
                 TextButton(onClick = { busca = ""; somenteUrgente = false }) {
                     Text("Limpar", color = Verde, fontSize = 12.sp)
                 }
             }
         }
 
-        if (resultado.isEmpty()) {
+        if (loadingDB) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = DouradoMedio)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Carregando profissionais...", fontSize = 13.sp, color = InkMuted)
+                }
+            }
+        } else if (resultado.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
