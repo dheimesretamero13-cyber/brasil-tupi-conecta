@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import './Cadastro.css'
+import { signUp } from './supabase'
 
 // ── TIPOS ──────────────────────────────────────────────
 type TipoCadastro = 'certificado' | 'liberal' | 'cliente' | null
@@ -745,7 +746,39 @@ function ClienteStep3({ form, set, next, back }: any) {
 // ── REVISÃO FINAL ──────────────────────────────────────
 function Revisao({ form, tipo, back, onSubmit }: any) {
   const [aceito, setAceito] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [erro, setErro] = useState('')
   const tipoLabel = { certificado: 'Profissional Certificado', liberal: 'Profissional Liberal', cliente: 'Cliente' }
+
+  async function handleSubmit() {
+    setLoading(true)
+    setErro('')
+    try {
+      const tipoSupabase = tipo === 'certificado'
+        ? 'profissional_certificado'
+        : tipo === 'liberal'
+        ? 'profissional_liberal'
+        : 'cliente'
+
+      await signUp(form.email, form.senha, {
+        nome: form.nome,
+        telefone: form.telefone,
+        cpf: form.cpf,
+        tipo: tipoSupabase,
+        cidade: tipo === 'cliente' ? form.cidadeCliente : form.cidade,
+        estado: tipo === 'cliente' ? form.estadoCliente : form.estado,
+      })
+      onSubmit()
+    } catch (err: any) {
+      if (err.message?.includes('already registered')) {
+        setErro('Este e-mail já está cadastrado. Tente fazer login.')
+      } else {
+        setErro('Erro ao criar conta. Tente novamente.')
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
   return (
     <div className="step-content">
       <div className="step-title-block">
@@ -801,10 +834,15 @@ function Revisao({ form, tipo, back, onSubmit }: any) {
           <span>Li e aceito os <a href="#">Termos de Uso</a> e a <a href="#">Política de Privacidade</a> da Brasil Tupi Conecta. Declaro que as informações fornecidas são verdadeiras e autênticas.</span>
         </label>
       </div>
+      {erro && (
+        <div style={{ background: '#fde8e8', border: '1px solid #c0392b', borderRadius: 6, padding: '10px 14px', fontSize: 13, color: '#c0392b', marginBottom: 8 }}>
+          {erro}
+        </div>
+      )}
       <div className="step-actions">
         <button className="btn-back" onClick={back}>← Voltar</button>
-        <button className="btn-submit" disabled={!aceito} onClick={onSubmit}>
-          Enviar cadastro para verificação
+        <button className="btn-submit" disabled={!aceito || loading} onClick={handleSubmit}>
+          {loading ? 'Enviando...' : 'Enviar cadastro para verificação'}
         </button>
       </div>
     </div>

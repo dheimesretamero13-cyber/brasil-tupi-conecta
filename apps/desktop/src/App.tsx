@@ -5,15 +5,27 @@ import Login from './Login'
 import Dashboard from './Dashboard'
 import DashboardCliente from './DashboardCliente'
 import BuscaPublica from './BuscaPublica'
+import UrgenciaDesk from './UrgenciaDesk'
+
+type Pagina = 'home' | 'cadastro' | 'login' | 'dashboard-pro' | 'dashboard-cli' | 'busca' | 'urgencia'
 
 export default function App() {
-  const [pagina, setPagina] = useState<'home' | 'cadastro' | 'login' | 'dashboard-pro' | 'dashboard-cli' | 'busca'>('home')
+  const [pagina, setPagina] = useState<Pagina>('home')
+  const [userId, setUserId] = useState('')
+  const [perfilTipo, setPerfilTipo] = useState<'profissional' | 'cliente'>('cliente')
 
-  if (pagina === 'cadastro')       return <Cadastro onVoltar={() => setPagina('home')} />
-  if (pagina === 'login')          return <Login onVoltar={() => setPagina('home')} onEntrar={tipo => setPagina(tipo === 'profissional' ? 'dashboard-pro' : 'dashboard-cli')} />
-  if (pagina === 'dashboard-pro')  return <Dashboard onSair={() => setPagina('home')} />
-  if (pagina === 'dashboard-cli')  return <DashboardCliente onSair={() => setPagina('home')} />
-  if (pagina === 'busca')          return <BuscaPublica onLogin={() => setPagina('login')} onCadastro={() => setPagina('cadastro')} />
+  function handleEntrar(tipo: 'profissional' | 'cliente', uid = '') {
+    setPerfilTipo(tipo)
+    setUserId(uid)
+    setPagina(tipo === 'profissional' ? 'dashboard-pro' : 'dashboard-cli')
+  }
+
+  if (pagina === 'cadastro')     return <Cadastro onVoltar={() => setPagina('home')} />
+  if (pagina === 'login')        return <Login onVoltar={() => setPagina('home')} onEntrar={tipo => handleEntrar(tipo)} />
+  if (pagina === 'dashboard-pro') return <Dashboard onSair={() => setPagina('home')} onUrgencia={() => setPagina('urgencia')} />
+  if (pagina === 'dashboard-cli') return <DashboardCliente onSair={() => setPagina('home')} onUrgencia={() => setPagina('urgencia')} />
+  if (pagina === 'busca')        return <BuscaPublica onLogin={() => setPagina('login')} onCadastro={() => setPagina('cadastro')} />
+  if (pagina === 'urgencia')     return <UrgenciaDesk userId={userId} perfilTipo={perfilTipo} onVoltar={() => setPagina(perfilTipo === 'profissional' ? 'dashboard-pro' : 'dashboard-cli')} />
 
   return (
     <>

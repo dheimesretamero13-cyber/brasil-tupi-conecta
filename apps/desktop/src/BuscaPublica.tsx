@@ -1,95 +1,72 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import './BuscaPublica.css'
+import { supabase } from './supabase'
 
 interface BuscaPublicaProps {
   onLogin: () => void
   onCadastro: () => void
 }
 
-// ── DADOS MOCK PMP ────────────────────────────────────
-const profissionaisPMP = [
-  {
-    id: 1, iniciais: 'MC', nome: 'Dra. Mariana Costa', area: 'Psicologia e Terapia',
-    cidade: 'São Paulo, SP', avaliacao: 5.0, atendimentos: 63,
-    conselho: 'CRP 12.345/SP', tipo: 'Certificado',
-    descricao: 'Psicóloga clínica com foco em ansiedade, burnout e relações interpessoais. Atendimento humanizado e baseado em evidências.',
-    disponivelUrgente: false, tempoResposta: '~2h', valorNormal: 120, valorUrgente: null,
-    especialidades: ['Ansiedade', 'Burnout', 'Terapia Cognitiva'],
-    avaliacoes: [
-      { cliente: 'Ana S.', nota: 5, texto: 'Profissional incrível, me ajudou muito.' },
-      { cliente: 'Pedro L.', nota: 5, texto: 'Atendimento excelente, muito atenciosa.' },
-    ]
-  },
-  {
-    id: 2, iniciais: 'RS', nome: 'Dr. Rafael Souza', area: 'Direito e Jurídico',
-    cidade: 'Campinas, SP', avaliacao: 4.9, atendimentos: 31,
-    conselho: 'OAB 98.765/SP', tipo: 'Certificado',
-    descricao: 'Advogado especialista em direito do consumidor, trabalhista e contratos. Consultas objetivas com soluções práticas.',
-    disponivelUrgente: true, tempoResposta: '~45min', valorNormal: 90, valorUrgente: 150,
-    especialidades: ['Direito do Consumidor', 'Trabalhista', 'Contratos'],
-    avaliacoes: [
-      { cliente: 'Carla M.', nota: 5, texto: 'Resolveu meu problema rapidamente.' },
-      { cliente: 'João R.', nota: 5, texto: 'Muito competente e claro nas explicações.' },
-    ]
-  },
-  {
-    id: 3, iniciais: 'SR', nome: 'Dra. Sandra Reis', area: 'Finanças e Contabilidade',
-    cidade: 'Rio de Janeiro, RJ', avaliacao: 4.9, atendimentos: 55,
-    conselho: 'CFC 54.321/RJ', tipo: 'Certificado',
-    descricao: 'Contadora e consultora financeira especializada em MEI, pequenas empresas e planejamento tributário.',
-    disponivelUrgente: true, tempoResposta: '~45min', valorNormal: 100, valorUrgente: 160,
-    especialidades: ['MEI', 'Planejamento Tributário', 'Contabilidade'],
-    avaliacoes: [
-      { cliente: 'Marcos T.', nota: 5, texto: 'Economizei muito com as dicas dela.' },
-      { cliente: 'Lúcia F.', nota: 5, texto: 'Muito profissional e pontual.' },
-    ]
-  },
-  {
-    id: 4, iniciais: 'CH', nome: 'Dr. Carlos Henrique', area: 'Saúde e Bem-estar',
-    cidade: 'São Paulo, SP', avaliacao: 4.8, atendimentos: 47,
-    conselho: 'CRM 45.231/SP', tipo: 'Certificado',
-    descricao: 'Médico clínico geral com 12 anos de experiência. Especialista em medicina preventiva e orientação de saúde.',
-    disponivelUrgente: true, tempoResposta: '~45min', valorNormal: 80, valorUrgente: 120,
-    especialidades: ['Clínica Geral', 'Medicina Preventiva', 'Check-up'],
-    avaliacoes: [
-      { cliente: 'Ana S.', nota: 5, texto: 'Atendimento muito cuidadoso.' },
-      { cliente: 'Roberto A.', nota: 5, texto: 'Explicou tudo com clareza.' },
-    ]
-  },
-  {
-    id: 5, iniciais: 'PL', nome: 'Eng. Patricia Lima', area: 'Engenharia e Tecnologia',
-    cidade: 'Belo Horizonte, MG', avaliacao: 4.7, atendimentos: 28,
-    conselho: 'CREA 33.210/MG', tipo: 'Certificado',
-    descricao: 'Engenheira civil especializada em laudos, perícias e projetos residenciais. Atendimento técnico e preciso.',
-    disponivelUrgente: false, tempoResposta: '~4h', valorNormal: 110, valorUrgente: null,
-    especialidades: ['Laudos Técnicos', 'Perícia', 'Projetos Residenciais'],
-    avaliacoes: [
-      { cliente: 'Fernando B.', nota: 5, texto: 'Laudo entregue no prazo, muito detalhado.' },
-      { cliente: 'Silvia N.', nota: 4, texto: 'Ótima profissional.' },
-    ]
-  },
-  {
-    id: 6, iniciais: 'GT', nome: 'Dr. Gustavo Torres', area: 'Educação e Tutoria',
-    cidade: 'Porto Alegre, RS', avaliacao: 4.8, atendimentos: 42,
-    conselho: '', tipo: 'Liberal',
-    descricao: 'Tutor especializado em matemática, física e preparação para vestibulares e concursos públicos.',
-    disponivelUrgente: true, tempoResposta: '~45min', valorNormal: 70, valorUrgente: 100,
-    especialidades: ['Matemática', 'Física', 'Vestibular', 'Concursos'],
-    avaliacoes: [
-      { cliente: 'Beatriz C.', nota: 5, texto: 'Passou meu filho no vestibular!' },
-      { cliente: 'Paulo M.', nota: 5, texto: 'Explicação excelente, muito didático.' },
-    ]
-  },
-]
-
 const areas = ['Todas as áreas', 'Saúde e Bem-estar', 'Direito e Jurídico',
   'Engenharia e Tecnologia', 'Educação e Tutoria', 'Finanças e Contabilidade',
   'Psicologia e Terapia', 'Arquitetura e Design', 'Comunicação e Marketing']
 
-// ── MINI CADASTRO CLIENTE ─────────────────────────────
+function useProfissionaisPMP(somenteUrgente: boolean, busca: string, area: string) {
+  const [profissionais, setProfissionais] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function carregar() {
+      setLoading(true)
+      let query = supabase
+        .from('profissionais')
+        .select('*, perfis(nome, email, cidade, estado)')
+        .eq('is_pmp', true)
+        .eq('verificado', true)
+        .gte('credibilidade', 80)
+        .order('credibilidade', { ascending: false })
+
+      if (somenteUrgente) query = query.eq('disponivel_urgente', true)
+      if (area !== 'Todas as áreas') query = query.eq('area', area)
+
+      const { data } = await query
+      if (data) {
+        const formatados = data.map((p: any) => ({
+          id: p.id,
+          iniciais: p.perfis?.nome?.split(' ').map((n: string) => n[0]).join('').slice(0, 2) || 'XX',
+          nome: p.perfis?.nome || 'Profissional',
+          area: p.area,
+          cidade: `${p.perfis?.cidade || ''}, ${p.perfis?.estado || ''}`,
+          avaliacao: 5.0,
+          atendimentos: Math.floor(p.credibilidade / 2),
+          disponivelUrgente: p.disponivel_urgente,
+          valorNormal: p.valor_normal,
+          valorUrgente: p.disponivel_urgente ? p.valor_urgente : null,
+          conselho: p.conselho ? `${p.conselho} ${p.numero_conselho}` : '',
+          descricao: p.descricao || '',
+          tempoResposta: p.disponivel_urgente ? '~45min' : '~2h',
+          especialidades: [p.area],
+        })).filter((p: any) =>
+          !busca ||
+          p.nome.toLowerCase().includes(busca.toLowerCase()) ||
+          p.area.toLowerCase().includes(busca.toLowerCase()) ||
+          p.cidade.toLowerCase().includes(busca.toLowerCase())
+        )
+        setProfissionais(formatados)
+      }
+      setLoading(false)
+    }
+    carregar()
+  }, [somenteUrgente, busca, area])
+
+  return { profissionais, loading }
+}
+
 function MiniCadastro({ profissional, tipoConsulta, onConcluido, onCancelar }: {
-  profissional: any; tipoConsulta: 'normal' | 'urgente';
-  onConcluido: () => void; onCancelar: () => void
+  profissional: any
+  tipoConsulta: 'normal' | 'urgente'
+  onConcluido: () => void
+  onCancelar: () => void
 }) {
   const [etapa, setEtapa] = useState<'conta' | 'confirmar' | 'sucesso'>('conta')
   const [nome, setNome] = useState('')
@@ -97,11 +74,13 @@ function MiniCadastro({ profissional, tipoConsulta, onConcluido, onCancelar }: {
   const [senha, setSenha] = useState('')
   const [telefone, setTelefone] = useState('')
   const [errors, setErrors] = useState<any>({})
+  const [carregando, setCarregando] = useState(false)
+  const [erro, setErro] = useState('')
 
   function maskPhone(v: string) {
-    return v.replace(/\D/g,'').slice(0,11)
-      .replace(/(\d{2})(\d)/,'($1) $2')
-      .replace(/(\d{5})(\d{1,4})$/,'$1-$2')
+    return v.replace(/\D/g, '').slice(0, 11)
+      .replace(/(\d{2})(\d)/, '($1) $2')
+      .replace(/(\d{5})(\d{1,4})$/, '$1-$2')
   }
 
   function validate() {
@@ -109,46 +88,65 @@ function MiniCadastro({ profissional, tipoConsulta, onConcluido, onCancelar }: {
     if (!nome.trim()) e.nome = 'Nome obrigatório'
     if (!email.includes('@')) e.email = 'E-mail inválido'
     if (senha.length < 6) e.senha = 'Mínimo 6 caracteres'
-    if (telefone.replace(/\D/g,'').length < 10) e.telefone = 'Telefone inválido'
+    if (telefone.replace(/\D/g, '').length < 10) e.telefone = 'Telefone inválido'
     setErrors(e)
     return Object.keys(e).length === 0
   }
 
-  if (etapa === 'sucesso') return (
-    <div className="mini-cadastro-overlay" onClick={onCancelar}>
-      <div className="mini-cadastro-card" onClick={e => e.stopPropagation()}>
-        <div className="mc-sucesso">
-          <div className="mc-sucesso-icon">✓</div>
-          <h3>Consulta solicitada!</h3>
-          <p>Conta criada e consulta {tipoConsulta === 'urgente' ? 'urgente ' : ''}agendada com <strong>{profissional.nome}</strong>.</p>
-          {tipoConsulta === 'urgente' && (
-            <div className="mc-urgente-aviso">
-              ⚡ O profissional tem até <strong>45 minutos</strong> para confirmar.
-            </div>
-          )}
-          <p className="mc-email-aviso">Enviamos os detalhes para <strong>{email}</strong>.</p>
-          <button className="btn-mc-primary" onClick={onConcluido}>Acessar minha conta</button>
+  async function handleCriarConta() {
+    if (!validate()) return
+    setCarregando(true)
+    setErro('')
+    try {
+      const { data, error } = await supabase.auth.signUp({ email, password: senha })
+      if (error) throw error
+      if (data.user) {
+        await supabase.from('perfis').insert({
+          id: data.user.id, nome, email, telefone, tipo: 'cliente'
+        })
+      }
+      setEtapa('confirmar')
+    } catch {
+      setErro('Erro ao criar conta. Tente novamente.')
+    } finally {
+      setCarregando(false)
+    }
+  }
+
+  if (etapa === 'sucesso') {
+    return (
+      <div className="mini-cadastro-overlay" onClick={onCancelar}>
+        <div className="mini-cadastro-card" onClick={e => e.stopPropagation()}>
+          <div className="mc-sucesso">
+            <div className="mc-sucesso-icon">✓</div>
+            <h3>Consulta solicitada!</h3>
+            <p>Conta criada e consulta {tipoConsulta === 'urgente' ? 'urgente ' : ''}agendada com <strong>{profissional.nome}</strong>.</p>
+            {tipoConsulta === 'urgente' && (
+              <div className="mc-urgente-aviso">
+                ⚡ O profissional tem até <strong>45 minutos</strong> para confirmar.
+              </div>
+            )}
+            <p className="mc-email-aviso">Enviamos os detalhes para <strong>{email}</strong>.</p>
+            <button className="btn-mc-primary" onClick={onConcluido}>Acessar minha conta</button>
+          </div>
         </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   return (
     <div className="mini-cadastro-overlay" onClick={onCancelar}>
       <div className="mini-cadastro-card" onClick={e => e.stopPropagation()}>
         <button className="modal-fechar" onClick={onCancelar}>✕</button>
-
-        {/* Header */}
         <div className="mc-header">
           <div className="mc-logo">Brasil Tupi <span>Conecta</span></div>
           <div className="mc-steps">
             <div className={`mc-step ${etapa === 'conta' ? 'active' : 'done'}`}>1</div>
             <div className="mc-step-line" />
-            <div className={`mc-step ${etapa === 'confirmar' ? 'active' : etapa === 'sucesso' ? 'done' : ''}`}>2</div>
+            <div className={`mc-step ${etapa === 'confirmar' ? 'active' : ''}`}>2</div>
           </div>
         </div>
 
-        {/* Resumo da consulta */}
         <div className="mc-resumo">
           <div className="mc-resumo-avatar">{profissional.iniciais}</div>
           <div>
@@ -187,8 +185,9 @@ function MiniCadastro({ profissional, tipoConsulta, onConcluido, onCancelar }: {
                 {errors.senha && <span className="mc-err">{errors.senha}</span>}
               </div>
             </div>
-            <button className="btn-mc-primary" onClick={() => validate() && setEtapa('confirmar')}>
-              Continuar →
+            {erro && <div style={{ color: '#c0392b', fontSize: 13, marginBottom: 8 }}>{erro}</div>}
+            <button className="btn-mc-primary" onClick={handleCriarConta} disabled={carregando}>
+              {carregando ? 'Criando conta...' : 'Continuar →'}
             </button>
             <div className="mc-ja-tem">
               Já tem conta? <button className="mc-link" onClick={onCancelar}>Entrar</button>
@@ -228,20 +227,17 @@ function MiniCadastro({ profissional, tipoConsulta, onConcluido, onCancelar }: {
   )
 }
 
-// ── PERFIL PÚBLICO ────────────────────────────────────
 function PerfilPublico({ prof, onVoltar, onAgendar }: {
-  prof: any; onVoltar: () => void;
+  prof: any
+  onVoltar: () => void
   onAgendar: (tipo: 'normal' | 'urgente') => void
 }) {
   return (
     <div className="perfil-publico-wrap">
       <div className="bp-container">
         <button className="btn-voltar-lista" onClick={onVoltar}>← Voltar à lista</button>
-
         <div className="perfil-publico-grid">
-          {/* COLUNA PRINCIPAL */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {/* Header */}
             <div className="pp-card">
               <div className="pp-header">
                 <div className="pp-avatar-grande">{prof.iniciais}</div>
@@ -253,13 +249,10 @@ function PerfilPublico({ prof, onVoltar, onAgendar }: {
                   <div className="pp-badges">
                     <span className="pp-badge pmp">🏆 PMP Verificado</span>
                     {prof.disponivelUrgente && <span className="pp-badge urgente">⚡ Disponível agora</span>}
-                    <span className={`pp-badge tipo ${prof.tipo === 'Certificado' ? 'cert' : 'lib'}`}>
-                      {prof.tipo === 'Certificado' ? '🎓 Certificado' : '💼 Liberal'}
-                    </span>
+                    <span className="pp-badge tipo cert">🎓 Certificado</span>
                   </div>
                 </div>
               </div>
-
               <div className="pp-stats-row">
                 <div className="pp-stat">
                   <div className="pp-stat-num">⭐ {prof.avaliacao}</div>
@@ -271,16 +264,15 @@ function PerfilPublico({ prof, onVoltar, onAgendar }: {
                 </div>
                 <div className="pp-stat">
                   <div className="pp-stat-num">0</div>
-                  <div className="pp-stat-label">Avaliações negativas</div>
+                  <div className="pp-stat-label">Negativos</div>
                 </div>
                 <div className="pp-stat">
                   <div className="pp-stat-num">{prof.tempoResposta}</div>
-                  <div className="pp-stat-label">Tempo médio de resposta</div>
+                  <div className="pp-stat-label">Tempo resposta</div>
                 </div>
               </div>
             </div>
 
-            {/* Sobre */}
             <div className="pp-card">
               <h4>Sobre</h4>
               <p className="pp-descricao">{prof.descricao}</p>
@@ -291,54 +283,24 @@ function PerfilPublico({ prof, onVoltar, onAgendar }: {
               </div>
             </div>
 
-            {/* Avaliações */}
-            <div className="pp-card">
-              <h4>Avaliações recentes</h4>
-              <div className="pp-avaliacoes">
-                {prof.avaliacoes.map((a: any, i: number) => (
-                  <div className="pp-avaliacao" key={i}>
-                    <div className="pp-av-top">
-                      <div className="pp-av-avatar">{a.cliente[0]}</div>
-                      <strong>{a.cliente}</strong>
-                      <span className="pp-av-estrelas">{'★'.repeat(a.nota)}</span>
-                    </div>
-                    <p className="pp-av-texto">"{a.texto}"</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Critérios PMP */}
             <div className="pp-card pp-criterios">
               <h4>Por que este profissional aparece aqui?</h4>
               <p>Apenas profissionais que cumprem os 3 critérios do Programa PMP são exibidos na busca pública.</p>
               <div className="pp-criterios-lista">
-                <div className="pp-criterio ok">
-                  <span className="pp-criterio-check">✓</span>
-                  <div>
-                    <strong>Mínimo de 10 atendimentos</strong>
-                    <span>{prof.atendimentos} atendimentos realizados</span>
+                {[
+                  ['Mínimo de 10 atendimentos', `${prof.atendimentos} atendimentos realizados`],
+                  ['Zero avaliações negativas', 'Histórico 100% positivo'],
+                  ['Plano PMP ativo', 'Mensalidade + porcentagem por atendimento'],
+                ].map(([titulo, detalhe]) => (
+                  <div className="pp-criterio ok" key={titulo}>
+                    <span className="pp-criterio-check">✓</span>
+                    <div><strong>{titulo}</strong><span>{detalhe}</span></div>
                   </div>
-                </div>
-                <div className="pp-criterio ok">
-                  <span className="pp-criterio-check">✓</span>
-                  <div>
-                    <strong>Zero avaliações negativas</strong>
-                    <span>Histórico 100% positivo</span>
-                  </div>
-                </div>
-                <div className="pp-criterio ok">
-                  <span className="pp-criterio-check">✓</span>
-                  <div>
-                    <strong>Plano PMP ativo</strong>
-                    <span>Mensalidade + porcentagem por atendimento</span>
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
           </div>
 
-          {/* COLUNA AGENDAR */}
           <div className="pp-agendar-col">
             <div className="pp-agendar-card">
               <h3>Agendar consulta</h3>
@@ -349,9 +311,7 @@ function PerfilPublico({ prof, onVoltar, onAgendar }: {
                     <div className="pp-opcao-preco">R$ {prof.valorNormal}</div>
                   </div>
                   <div className="pp-opcao-desc">Agendada com antecedência · 15 minutos</div>
-                  <button className="btn-agendar-normal" onClick={() => onAgendar('normal')}>
-                    Agendar →
-                  </button>
+                  <button className="btn-agendar-normal" onClick={() => onAgendar('normal')}>Agendar →</button>
                 </div>
                 {prof.disponivelUrgente && (
                   <div className="pp-opcao urgente">
@@ -360,17 +320,12 @@ function PerfilPublico({ prof, onVoltar, onAgendar }: {
                       <div className="pp-opcao-preco">R$ {prof.valorUrgente}</div>
                     </div>
                     <div className="pp-opcao-desc">Resposta em até 45 minutos · 15 minutos</div>
-                    <button className="btn-agendar-urgente" onClick={() => onAgendar('urgente')}>
-                      Solicitar agora →
-                    </button>
+                    <button className="btn-agendar-urgente" onClick={() => onAgendar('urgente')}>Solicitar agora →</button>
                   </div>
                 )}
               </div>
-              <div className="pp-agendar-aviso">
-                🔒 Sem cobranças antecipadas. Pague só após a consulta.
-              </div>
+              <div className="pp-agendar-aviso">🔒 Sem cobranças antecipadas. Pague só após a consulta.</div>
             </div>
-
             <div className="pp-ja-tem-conta">
               Já tem conta? <button className="mc-link" onClick={() => {}}>Entrar para agendar</button>
             </div>
@@ -381,67 +336,56 @@ function PerfilPublico({ prof, onVoltar, onAgendar }: {
   )
 }
 
-// ── COMPONENTE PRINCIPAL ──────────────────────────────
 export default function BuscaPublica({ onLogin, onCadastro }: BuscaPublicaProps) {
   const [busca, setBusca] = useState('')
   const [area, setArea] = useState('Todas as áreas')
   const [somenteUrgente, setSomenteUrgente] = useState(false)
   const [profSelecionado, setProfSelecionado] = useState<any>(null)
   const [agendando, setAgendando] = useState<{ prof: any; tipo: 'normal' | 'urgente' } | null>(null)
-  const [concluido, setConcluido] = useState(false)
 
-  const resultado = profissionaisPMP.filter(p => {
-    const matchBusca = !busca ||
-      p.nome.toLowerCase().includes(busca.toLowerCase()) ||
-      p.area.toLowerCase().includes(busca.toLowerCase()) ||
-      p.cidade.toLowerCase().includes(busca.toLowerCase()) ||
-      p.especialidades.some(e => e.toLowerCase().includes(busca.toLowerCase()))
-    const matchArea = area === 'Todas as áreas' || p.area === area
-    const matchUrgente = !somenteUrgente || p.disponivelUrgente
-    return matchBusca && matchArea && matchUrgente
-  })
+  const { profissionais, loading } = useProfissionaisPMP(somenteUrgente, busca, area)
 
   function handleAgendar(prof: any, tipo: 'normal' | 'urgente') {
     setProfSelecionado(null)
     setAgendando({ prof, tipo })
   }
 
-  if (profSelecionado) return (
-    <div className="bp-page">
-      <BuscaNav onLogin={onLogin} onCadastro={onCadastro} />
-      <PerfilPublico
-        prof={profSelecionado}
-        onVoltar={() => setProfSelecionado(null)}
-        onAgendar={tipo => handleAgendar(profSelecionado, tipo)}
-      />
-      {agendando && (
-        <MiniCadastro
-          profissional={agendando.prof}
-          tipoConsulta={agendando.tipo}
-          onConcluido={() => { setAgendando(null); setConcluido(true) }}
-          onCancelar={() => setAgendando(null)}
+  if (profSelecionado) {
+    return (
+      <div className="bp-page">
+        <BuscaNav onLogin={onLogin} onCadastro={onCadastro} />
+        <PerfilPublico
+          prof={profSelecionado}
+          onVoltar={() => setProfSelecionado(null)}
+          onAgendar={tipo => handleAgendar(profSelecionado, tipo)}
         />
-      )}
-    </div>
-  )
+        {agendando && (
+          <MiniCadastro
+            profissional={agendando.prof}
+            tipoConsulta={agendando.tipo}
+            onConcluido={() => setAgendando(null)}
+            onCancelar={() => setAgendando(null)}
+          />
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="bp-page">
       <BuscaNav onLogin={onLogin} onCadastro={onCadastro} />
 
-      {/* HERO */}
       <div className="bp-hero">
         <div className="bp-hero-inner">
           <div className="bp-hero-tag">Profissionais verificados</div>
           <h1>Encontre o profissional <br />certo para você.</h1>
           <p>Somente profissionais com o Selo PMP aparecem aqui — verificados, avaliados e com histórico comprovado.</p>
-
           <div className="bp-search-bar">
             <input
               className="bp-search-input"
               value={busca}
               onChange={e => setBusca(e.target.value)}
-              placeholder="Buscar por nome, área ou especialidade..."
+              placeholder="Buscar por nome, área ou cidade..."
             />
             <select className="bp-search-select" value={area} onChange={e => setArea(e.target.value)}>
               {areas.map(a => <option key={a}>{a}</option>)}
@@ -451,7 +395,6 @@ export default function BuscaPublica({ onLogin, onCadastro }: BuscaPublicaProps)
               <span>⚡ Disponível agora</span>
             </label>
           </div>
-
           <div className="bp-criterios-strip">
             <div className="bp-criterio-item">✓ Mínimo 10 atendimentos</div>
             <div className="bp-criterio-sep">·</div>
@@ -462,7 +405,6 @@ export default function BuscaPublica({ onLogin, onCadastro }: BuscaPublicaProps)
         </div>
       </div>
 
-      {/* URGENTE BANNER */}
       <div className="bp-container" style={{ marginTop: 32 }}>
         <div className="bp-urgente-banner">
           <div className="bp-urgente-left">
@@ -470,19 +412,19 @@ export default function BuscaPublica({ onLogin, onCadastro }: BuscaPublicaProps)
             <div>
               <div className="bp-urgente-titulo">Precisa de atendimento urgente?</div>
               <div className="bp-urgente-sub">
-                {profissionaisPMP.filter(p => p.disponivelUrgente).length} profissionais disponíveis agora · Resposta em até 45 minutos
+                {profissionais.filter(p => p.disponivelUrgente).length} profissionais disponíveis agora · Resposta em até 45 minutos
               </div>
             </div>
           </div>
-          <button className="btn-urgente-banner" onClick={() => setSomenteUrgente(true)}>
-            Ver disponíveis →
-          </button>
+          <button className="btn-urgente-banner" onClick={() => setSomenteUrgente(true)}>Ver disponíveis →</button>
         </div>
 
-        {/* RESULTADO */}
         <div className="bp-resultado-header">
           <div className="bp-resultado-count">
-            <strong>{resultado.length}</strong> profissional{resultado.length !== 1 ? 'is' : ''} PMP encontrado{resultado.length !== 1 ? 's' : ''}
+            {loading
+              ? 'Carregando...'
+              : <><strong>{profissionais.length}</strong> profissional{profissionais.length !== 1 ? 'is' : ''} PMP encontrado{profissionais.length !== 1 ? 's' : ''}</>
+            }
             {(busca || area !== 'Todas as áreas' || somenteUrgente) && (
               <button className="btn-limpar-bp" onClick={() => { setBusca(''); setArea('Todas as áreas'); setSomenteUrgente(false) }}>
                 Limpar filtros ✕
@@ -499,68 +441,64 @@ export default function BuscaPublica({ onLogin, onCadastro }: BuscaPublicaProps)
           </div>
         </div>
 
-        {/* CARDS */}
-        <div className="bp-grid">
-          {resultado.map(p => (
-            <div className="bp-card" key={p.id}>
-              <div className="bp-card-top">
-                <div className="bp-card-avatar">{p.iniciais}</div>
-                <div className="bp-card-badges">
-                  <span className="bp-badge-pmp">🏆 PMP</span>
-                  {p.disponivelUrgente && <span className="bp-badge-urgente">⚡ Disponível</span>}
-                </div>
-              </div>
-
-              <div className="bp-card-nome">{p.nome}</div>
-              <div className="bp-card-area">{p.area}</div>
-              <div className="bp-card-cidade">📍 {p.cidade}</div>
-
-              <div className="bp-card-stats">
-                <span>⭐ {p.avaliacao}</span>
-                <span className="bp-dot">·</span>
-                <span>{p.atendimentos} atendimentos</span>
-              </div>
-
-              <div className="bp-card-especialidades">
-                {p.especialidades.slice(0,2).map(e => (
-                  <span key={e} className="bp-especialidade-mini">{e}</span>
-                ))}
-              </div>
-
-              <div className="bp-card-precos">
-                <div className="bp-preco-item">
-                  <span>Normal</span><strong>R$ {p.valorNormal}</strong>
-                </div>
-                {p.valorUrgente && (
-                  <div className="bp-preco-item urgente">
-                    <span>⚡ Urgente</span><strong>R$ {p.valorUrgente}</strong>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--ink-muted)' }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+            <p>Carregando profissionais...</p>
+          </div>
+        ) : (
+          <div className="bp-grid">
+            {profissionais.map(p => (
+              <div className="bp-card" key={p.id}>
+                <div className="bp-card-top">
+                  <div className="bp-card-avatar">{p.iniciais}</div>
+                  <div className="bp-card-badges">
+                    <span className="bp-badge-pmp">🏆 PMP</span>
+                    {p.disponivelUrgente && <span className="bp-badge-urgente">⚡ Disponível</span>}
                   </div>
-                )}
+                </div>
+                <div className="bp-card-nome">{p.nome}</div>
+                <div className="bp-card-area">{p.area}</div>
+                <div className="bp-card-cidade">📍 {p.cidade}</div>
+                <div className="bp-card-stats">
+                  <span>⭐ {p.avaliacao}</span>
+                  <span className="bp-dot">·</span>
+                  <span>{p.atendimentos} atendimentos</span>
+                </div>
+                <div className="bp-card-especialidades">
+                  {p.especialidades.slice(0, 2).map((e: string) => (
+                    <span key={e} className="bp-especialidade-mini">{e}</span>
+                  ))}
+                </div>
+                <div className="bp-card-precos">
+                  <div className="bp-preco-item">
+                    <span>Normal</span><strong>R$ {p.valorNormal}</strong>
+                  </div>
+                  {p.valorUrgente && (
+                    <div className="bp-preco-item urgente">
+                      <span>⚡ Urgente</span><strong>R$ {p.valorUrgente}</strong>
+                    </div>
+                  )}
+                </div>
+                <div className="bp-card-acoes">
+                  <button className="btn-bp-perfil" onClick={() => setProfSelecionado(p)}>Ver perfil</button>
+                  <button className="btn-bp-agendar" onClick={() => handleAgendar(p, 'normal')}>Agendar →</button>
+                </div>
               </div>
-
-              <div className="bp-card-acoes">
-                <button className="btn-bp-perfil" onClick={() => setProfSelecionado(p)}>
-                  Ver perfil
-                </button>
-                <button className="btn-bp-agendar" onClick={() => handleAgendar(p, 'normal')}>
-                  Agendar →
+            ))}
+            {profissionais.length === 0 && (
+              <div className="bp-empty">
+                <div className="bp-empty-icon">🔍</div>
+                <h3>Nenhum profissional encontrado</h3>
+                <p>Tente outros termos ou remova alguns filtros.</p>
+                <button className="btn-limpar-bp" onClick={() => { setBusca(''); setArea('Todas as áreas'); setSomenteUrgente(false) }}>
+                  Limpar filtros
                 </button>
               </div>
-            </div>
-          ))}
-          {resultado.length === 0 && (
-            <div className="bp-empty">
-              <div className="bp-empty-icon">🔍</div>
-              <h3>Nenhum profissional encontrado</h3>
-              <p>Tente outros termos ou remova alguns filtros.</p>
-              <button className="btn-limpar-bp" onClick={() => { setBusca(''); setArea('Todas as áreas'); setSomenteUrgente(false) }}>
-                Limpar filtros
-              </button>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
-        {/* RODAPÉ INFO */}
         <div className="bp-footer-info">
           <div className="bp-footer-info-item">
             <strong>Por que só PMPs aparecem aqui?</strong>
@@ -578,7 +516,7 @@ export default function BuscaPublica({ onLogin, onCadastro }: BuscaPublicaProps)
         <MiniCadastro
           profissional={agendando.prof}
           tipoConsulta={agendando.tipo}
-          onConcluido={() => { setAgendando(null); onCadastro() }}
+          onConcluido={() => setAgendando(null)}
           onCancelar={() => setAgendando(null)}
         />
       )}
@@ -586,7 +524,6 @@ export default function BuscaPublica({ onLogin, onCadastro }: BuscaPublicaProps)
   )
 }
 
-// ── NAV DA BUSCA ──────────────────────────────────────
 function BuscaNav({ onLogin, onCadastro }: { onLogin: () => void; onCadastro: () => void }) {
   return (
     <nav className="bp-nav">

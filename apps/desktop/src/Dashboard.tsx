@@ -3,11 +3,11 @@ import './Dashboard.css'
 
 interface DashboardProps {
   onSair: () => void
+  onUrgencia?: () => void
 }
 
 type AbaType = 'visao' | 'atendimentos' | 'credibilidade' | 'urgente' | 'perfil'
 
-// ── DADOS MOCK (substituir por API real) ──────────────
 const profissional = {
   nome: 'Dr. Carlos Henrique',
   area: 'Saúde e Bem-estar',
@@ -38,7 +38,6 @@ const notificacoes = [
   { id: 4, tipo: 'sistema', texto: 'Seu perfil foi verificado com sucesso', tempo: '3 dias atrás', lida: true },
 ]
 
-// ── COMPONENTES ───────────────────────────────────────
 function CredibilidadeRing({ valor }: { valor: number }) {
   const raio = 54
   const circ = 2 * Math.PI * raio
@@ -47,8 +46,7 @@ function CredibilidadeRing({ valor }: { valor: number }) {
     <div className="cred-ring-wrap">
       <svg width="140" height="140" viewBox="0 0 140 140">
         <circle cx="70" cy="70" r={raio} fill="none" stroke="#f0f0f0" strokeWidth="10" />
-        <circle
-          cx="70" cy="70" r={raio} fill="none"
+        <circle cx="70" cy="70" r={raio} fill="none"
           stroke={valor >= 80 ? '#c49a2a' : valor >= 50 ? '#1a5c3a' : '#0c2d6b'}
           strokeWidth="10"
           strokeDasharray={`${progresso} ${circ}`}
@@ -76,7 +74,6 @@ function EstrelasFill({ n }: { n: number }) {
   )
 }
 
-// ── ABA: VISÃO GERAL ──────────────────────────────────
 function AbaVisaoGeral({ setAba }: { setAba: (a: AbaType) => void }) {
   const ganhosMes = atendimentos
     .filter(a => a.status === 'concluido')
@@ -84,7 +81,6 @@ function AbaVisaoGeral({ setAba }: { setAba: (a: AbaType) => void }) {
 
   return (
     <div className="aba-content">
-      {/* Cards de métricas */}
       <div className="metrics-grid">
         <div className="metric-card">
           <div className="metric-icon verde">📋</div>
@@ -112,7 +108,6 @@ function AbaVisaoGeral({ setAba }: { setAba: (a: AbaType) => void }) {
         </div>
       </div>
 
-      {/* Linha: credibilidade + próximos */}
       <div className="visao-row">
         <div className="visao-card">
           <div className="visao-card-header">
@@ -124,25 +119,19 @@ function AbaVisaoGeral({ setAba }: { setAba: (a: AbaType) => void }) {
             <div className="cred-info">
               <div className="cred-info-item">
                 <div className="cred-info-bar-wrap">
-                  <div className="cred-info-label-row">
-                    <span>Atendimentos</span><span>30 pts</span>
-                  </div>
+                  <div className="cred-info-label-row"><span>Atendimentos</span><span>30 pts</span></div>
                   <div className="cred-bar"><div className="cred-bar-fill" style={{ width: '60%', background: '#1a5c3a' }} /></div>
                 </div>
               </div>
               <div className="cred-info-item">
                 <div className="cred-info-bar-wrap">
-                  <div className="cred-info-label-row">
-                    <span>Avaliações</span><span>28 pts</span>
-                  </div>
+                  <div className="cred-info-label-row"><span>Avaliações</span><span>28 pts</span></div>
                   <div className="cred-bar"><div className="cred-bar-fill" style={{ width: '56%', background: '#0c2d6b' }} /></div>
                 </div>
               </div>
               <div className="cred-info-item">
                 <div className="cred-info-bar-wrap">
-                  <div className="cred-info-label-row">
-                    <span>Pontualidade</span><span>20 pts</span>
-                  </div>
+                  <div className="cred-info-label-row"><span>Pontualidade</span><span>20 pts</span></div>
                   <div className="cred-bar"><div className="cred-bar-fill" style={{ width: '40%', background: '#c49a2a' }} /></div>
                 </div>
               </div>
@@ -175,17 +164,13 @@ function AbaVisaoGeral({ setAba }: { setAba: (a: AbaType) => void }) {
                   <div className="proximo-cliente">{a.cliente}</div>
                   <div className="proximo-hora">{a.hora} · {a.tipo}</div>
                 </div>
-                <div className={`proximo-badge ${a.tipo === 'Urgente' ? 'urgente' : 'normal'}`}>
-                  {a.tipo}
-                </div>
+                <div className={`proximo-badge ${a.tipo === 'Urgente' ? 'urgente' : 'normal'}`}>{a.tipo}</div>
               </div>
             ))}
             {atendimentos.filter(a => a.status === 'agendado').length === 0 && (
               <div className="empty-state">Nenhum atendimento agendado</div>
             )}
           </div>
-
-          {/* Status urgente */}
           <div className={`urgente-status ${profissional.disponivelUrgente ? 'ativo' : 'inativo'}`}>
             <div className="urgente-status-dot" />
             <div>
@@ -201,7 +186,6 @@ function AbaVisaoGeral({ setAba }: { setAba: (a: AbaType) => void }) {
         </div>
       </div>
 
-      {/* Últimas avaliações */}
       <div className="visao-card">
         <div className="visao-card-header">
           <h3>Últimas avaliações</h3>
@@ -224,11 +208,9 @@ function AbaVisaoGeral({ setAba }: { setAba: (a: AbaType) => void }) {
   )
 }
 
-// ── ABA: ATENDIMENTOS ─────────────────────────────────
 function AbaAtendimentos() {
   const [filtro, setFiltro] = useState<'todos' | 'concluido' | 'agendado'>('todos')
   const lista = filtro === 'todos' ? atendimentos : atendimentos.filter(a => a.status === filtro)
-
   return (
     <div className="aba-content">
       <div className="aba-header-row">
@@ -243,12 +225,7 @@ function AbaAtendimentos() {
       </div>
       <div className="atendimentos-table">
         <div className="at-header">
-          <span>Cliente</span>
-          <span>Data</span>
-          <span>Tipo</span>
-          <span>Valor</span>
-          <span>Avaliação</span>
-          <span>Status</span>
+          <span>Cliente</span><span>Data</span><span>Tipo</span><span>Valor</span><span>Avaliação</span><span>Status</span>
         </div>
         {lista.map(a => (
           <div className="at-row" key={a.id}>
@@ -260,9 +237,7 @@ function AbaAtendimentos() {
             <span className={`at-tipo ${a.tipo === 'Urgente' ? 'urgente' : 'normal'}`}>{a.tipo}</span>
             <span className="at-valor">{a.valor}</span>
             <span>{a.avaliacao > 0 ? <EstrelasFill n={a.avaliacao} /> : <span className="at-sem-av">—</span>}</span>
-            <span className={`at-status ${a.status}`}>
-              {a.status === 'concluido' ? 'Concluído' : 'Agendado'}
-            </span>
+            <span className={`at-status ${a.status}`}>{a.status === 'concluido' ? 'Concluído' : 'Agendado'}</span>
           </div>
         ))}
       </div>
@@ -271,7 +246,6 @@ function AbaAtendimentos() {
   )
 }
 
-// ── ABA: CREDIBILIDADE ────────────────────────────────
 function AbaCredibilidade() {
   return (
     <div className="aba-content">
@@ -282,21 +256,11 @@ function AbaCredibilidade() {
             <CredibilidadeRing valor={profissional.credibilidade} />
           </div>
           <div className="cred-nivel">
-            <div className="cred-nivel-item">
-              <div className="cred-nivel-dot" style={{ background: '#e5e7eb' }} />
-              <span>0–49</span><strong>Iniciante</strong>
-            </div>
-            <div className="cred-nivel-item">
-              <div className="cred-nivel-dot" style={{ background: '#1a5c3a' }} />
-              <span>50–79</span><strong>Consolidado</strong>
-            </div>
-            <div className="cred-nivel-item">
-              <div className="cred-nivel-dot" style={{ background: '#c49a2a' }} />
-              <span>80–100</span><strong>Elegível PMP</strong>
-            </div>
+            <div className="cred-nivel-item"><div className="cred-nivel-dot" style={{ background: '#e5e7eb' }} /><span>0–49</span><strong>Iniciante</strong></div>
+            <div className="cred-nivel-item"><div className="cred-nivel-dot" style={{ background: '#1a5c3a' }} /><span>50–79</span><strong>Consolidado</strong></div>
+            <div className="cred-nivel-item"><div className="cred-nivel-dot" style={{ background: '#c49a2a' }} /><span>80–100</span><strong>Elegível PMP</strong></div>
           </div>
         </div>
-
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="visao-card">
             <h3>Como sua pontuação é calculada</h3>
@@ -319,7 +283,6 @@ function AbaCredibilidade() {
               ))}
             </div>
           </div>
-
           <div className="visao-card pmp-card-dash">
             <div className="pmp-card-header">
               <div>
@@ -331,9 +294,7 @@ function AbaCredibilidade() {
             </div>
             <div className="pmp-beneficios">
               {['Prioridade nas buscas', 'Melhores comissões', 'Acesso antecipado', 'Selo visível'].map(b => (
-                <div className="pmp-beneficio" key={b}>
-                  <span>→</span>{b}
-                </div>
+                <div className="pmp-beneficio" key={b}><span>→</span>{b}</div>
               ))}
             </div>
             <button className="btn-pmp" disabled={profissional.credibilidade < 80}>
@@ -346,8 +307,7 @@ function AbaCredibilidade() {
   )
 }
 
-// ── ABA: URGENTE ──────────────────────────────────────
-function AbaUrgente() {
+function AbaUrgente({ onEntrarSala }: { onEntrarSala?: () => void }) {
   const [ativo, setAtivo] = useState(profissional.disponivelUrgente)
   return (
     <div className="aba-content">
@@ -358,10 +318,7 @@ function AbaUrgente() {
               <h3>Área de Consultas Urgentes</h3>
               <p>Quando ativo, você aparece para clientes que precisam de atendimento imediato. O prazo máximo é de <strong>45 minutos</strong> para iniciar e <strong>15 minutos</strong> de duração.</p>
             </div>
-            <div
-              className={`toggle ${ativo ? 'on' : 'off'}`}
-              onClick={() => setAtivo(v => !v)}
-            >
+            <div className={`toggle ${ativo ? 'on' : 'off'}`} onClick={() => setAtivo(v => !v)}>
               <div className="toggle-knob" />
             </div>
           </div>
@@ -369,6 +326,20 @@ function AbaUrgente() {
             <span>{ativo ? '🟢' : '🔴'}</span>
             <span>{ativo ? 'Você está disponível para consultas urgentes agora' : 'Você está indisponível para consultas urgentes'}</span>
           </div>
+
+          {/* BOTÃO PARA ENTRAR NA SALA */}
+          {ativo && onEntrarSala && (
+            <button onClick={onEntrarSala} style={{
+              marginTop: 16, width: '100%',
+              background: 'linear-gradient(135deg, #d32f2f, #b71c1c)',
+              color: '#fff', border: 'none', borderRadius: 10,
+              padding: '14px 20px', fontSize: 14, fontWeight: 700,
+              cursor: 'pointer', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', gap: 10, letterSpacing: '0.02em',
+            }}>
+              ⚡ Entrar na Central de Urgências
+            </button>
+          )}
         </div>
 
         <div className="urgente-regras-grid">
@@ -378,7 +349,7 @@ function AbaUrgente() {
               {[
                 { icon: '⏱', titulo: '45 minutos', desc: 'Tempo máximo para iniciar o atendimento após a solicitação do cliente.' },
                 { icon: '📋', titulo: '15 minutos', desc: 'Duração máxima da consulta — objetiva e focada na resolução.' },
-                { icon: '⚠', titulo: 'Descumprimento', desc: 'Atrasos resultam em perda automática de pontos de credibilidade.' },
+                { icon: '⚠', titulo: 'Não é aula', desc: 'Esta área é exclusiva para crises reais, emergências de trabalho e situações urgentes.' },
                 { icon: '🚫', titulo: 'Reincidência', desc: 'Múltiplos descumprimentos resultam em suspensão da área urgente.' },
               ].map(r => (
                 <div className="regra-item" key={r.titulo}>
@@ -391,22 +362,12 @@ function AbaUrgente() {
               ))}
             </div>
           </div>
-
           <div className="visao-card">
             <h3>Seu histórico na área urgente</h3>
             <div className="urgente-historico">
-              <div className="uh-item">
-                <div className="uh-num verde">3</div>
-                <div className="uh-label">Consultas urgentes realizadas</div>
-              </div>
-              <div className="uh-item">
-                <div className="uh-num azul">100%</div>
-                <div className="uh-label">Taxa de pontualidade</div>
-              </div>
-              <div className="uh-item">
-                <div className="uh-num ouro">0</div>
-                <div className="uh-label">Descumprimentos registrados</div>
-              </div>
+              <div className="uh-item"><div className="uh-num verde">3</div><div className="uh-label">Consultas urgentes realizadas</div></div>
+              <div className="uh-item"><div className="uh-num azul">100%</div><div className="uh-label">Taxa de pontualidade</div></div>
+              <div className="uh-item"><div className="uh-num ouro">0</div><div className="uh-label">Descumprimentos registrados</div></div>
             </div>
             <div className="urgente-ok">
               <span>✓</span> Histórico limpo — você mantém acesso integral à área urgente.
@@ -418,20 +379,18 @@ function AbaUrgente() {
   )
 }
 
-// ── ABA: PERFIL ───────────────────────────────────────
 function AbaPerfil() {
   const [editando, setEditando] = useState(false)
   const [nome, setNome] = useState(profissional.nome)
   const [desc, setDesc] = useState('Médico especialista com 12 anos de experiência em clínica geral e medicina preventiva.')
   const [cidade, setCidade] = useState(profissional.cidade)
-
   return (
     <div className="aba-content">
       <div className="perfil-grid">
         <div className="visao-card perfil-card-principal">
           <div className="perfil-header">
             <div className="perfil-avatar-grande">
-              {profissional.foto ? null : profissional.nome.split(' ').map(n => n[0]).join('').slice(0,2)}
+              {profissional.nome.split(' ').map(n => n[0]).join('').slice(0,2)}
             </div>
             <div className="perfil-info-principal">
               <div className="perfil-nome">{nome}</div>
@@ -445,24 +404,15 @@ function AbaPerfil() {
               {editando ? 'Cancelar' : '✏ Editar perfil'}
             </button>
           </div>
-
           {editando ? (
             <div className="perfil-form">
-              <div className="login-field">
-                <label>Nome de exibição</label>
-                <input value={nome} onChange={e => setNome(e.target.value)} />
-              </div>
+              <div className="login-field"><label>Nome de exibição</label><input value={nome} onChange={e => setNome(e.target.value)} /></div>
               <div className="login-field">
                 <label>Descrição profissional</label>
                 <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={3} style={{ width:'100%', padding:'10px 14px', border:'1.5px solid rgba(0,0,0,0.1)', borderRadius:6, fontFamily:'inherit', fontSize:14, resize:'vertical' }} />
               </div>
-              <div className="login-field">
-                <label>Cidade / Estado</label>
-                <input value={cidade} onChange={e => setCidade(e.target.value)} />
-              </div>
-              <button className="login-btn-primary" style={{ marginTop: 8 }} onClick={() => setEditando(false)}>
-                Salvar alterações
-              </button>
+              <div className="login-field"><label>Cidade / Estado</label><input value={cidade} onChange={e => setCidade(e.target.value)} /></div>
+              <button className="login-btn-primary" style={{ marginTop: 8 }} onClick={() => setEditando(false)}>Salvar alterações</button>
             </div>
           ) : (
             <div className="perfil-descricao">
@@ -475,7 +425,6 @@ function AbaPerfil() {
             </div>
           )}
         </div>
-
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="visao-card">
             <h3>Dados profissionais</h3>
@@ -493,7 +442,6 @@ function AbaPerfil() {
               ))}
             </div>
           </div>
-
           <div className="visao-card">
             <h3>Segurança da conta</h3>
             <div className="perfil-dados">
@@ -503,10 +451,7 @@ function AbaPerfil() {
                 { label: 'Autenticação 2FA', valor: 'Desativado', acao: 'Ativar' },
               ].map(d => (
                 <div className="perfil-dado-item" key={d.label}>
-                  <div>
-                    <span className="perfil-dado-label">{d.label}</span>
-                    <span className="perfil-dado-valor">{d.valor}</span>
-                  </div>
+                  <div><span className="perfil-dado-label">{d.label}</span><span className="perfil-dado-valor">{d.valor}</span></div>
                   <button className="link-btn">{d.acao}</button>
                 </div>
               ))}
@@ -518,8 +463,7 @@ function AbaPerfil() {
   )
 }
 
-// ── COMPONENTE PRINCIPAL ──────────────────────────────
-export default function Dashboard({ onSair }: DashboardProps) {
+export default function Dashboard({ onSair, onUrgencia }: DashboardProps) {
   const [aba, setAba] = useState<AbaType>('visao')
   const [notifAberta, setNotifAberta] = useState(false)
   const naoLidas = notificacoes.filter(n => !n.lida).length
@@ -534,7 +478,6 @@ export default function Dashboard({ onSair }: DashboardProps) {
 
   return (
     <div className="dashboard-wrap">
-      {/* ── TOPBAR ── */}
       <div className="dash-topbar">
         <div className="dash-logo">Brasil Tupi <span>Conecta</span></div>
         <div className="dash-topbar-right">
@@ -570,24 +513,16 @@ export default function Dashboard({ onSair }: DashboardProps) {
       </div>
 
       <div className="dash-body">
-        {/* ── SIDEBAR ── */}
         <aside className="dash-sidebar">
           <nav className="dash-nav">
             {abas.map(a => (
-              <button
-                key={a.id}
-                className={`dash-nav-item ${aba === a.id ? 'active' : ''}`}
-                onClick={() => setAba(a.id)}
-              >
+              <button key={a.id} className={`dash-nav-item ${aba === a.id ? 'active' : ''}`} onClick={() => setAba(a.id)}>
                 <span className="dash-nav-icon">{a.icon}</span>
                 <span>{a.label}</span>
-                {a.id === 'urgente' && profissional.disponivelUrgente && (
-                  <span className="dash-nav-dot" />
-                )}
+                {a.id === 'urgente' && profissional.disponivelUrgente && <span className="dash-nav-dot" />}
               </button>
             ))}
           </nav>
-
           <div className="dash-sidebar-bottom">
             <div className="dash-cred-mini">
               <div className="dash-cred-mini-label">Credibilidade</div>
@@ -599,7 +534,6 @@ export default function Dashboard({ onSair }: DashboardProps) {
           </div>
         </aside>
 
-        {/* ── CONTEÚDO ── */}
         <main className="dash-main">
           <div className="dash-page-header">
             <div>
@@ -616,7 +550,7 @@ export default function Dashboard({ onSair }: DashboardProps) {
           {aba === 'visao'         && <AbaVisaoGeral setAba={setAba} />}
           {aba === 'atendimentos'  && <AbaAtendimentos />}
           {aba === 'credibilidade' && <AbaCredibilidade />}
-          {aba === 'urgente'       && <AbaUrgente />}
+          {aba === 'urgente'       && <AbaUrgente onEntrarSala={onUrgencia} />}
           {aba === 'perfil'        && <AbaPerfil />}
         </main>
       </div>

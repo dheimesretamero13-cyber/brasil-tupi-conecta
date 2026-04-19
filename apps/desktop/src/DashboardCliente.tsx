@@ -3,11 +3,11 @@ import './DashboardCliente.css'
 
 interface DashboardClienteProps {
   onSair: () => void
+  onUrgencia?: () => void
 }
 
 type AbaType = 'visao' | 'consultas' | 'busca' | 'perfil'
 
-// ── DADOS MOCK ────────────────────────────────────────
 const cliente = {
   nome: 'Juliana Ferreira',
   email: 'juliana@email.com',
@@ -38,14 +38,12 @@ const areas = ['Todas as áreas', 'Saúde e Bem-estar', 'Direito e Jurídico', '
   'Educação e Tutoria', 'Finanças e Contabilidade', 'Psicologia e Terapia',
   'Arquitetura e Design', 'Comunicação e Marketing', 'Consultoria Empresarial']
 
-// ── HELPERS ───────────────────────────────────────────
 function EstrelasFill({ n, interativo, onChange }: { n: number; interativo?: boolean; onChange?: (v: number) => void }) {
   const [hover, setHover] = useState(0)
   return (
     <span className="estrelas">
       {[1,2,3,4,5].map(i => (
-        <span
-          key={i}
+        <span key={i}
           style={{ color: i <= (hover || n) ? '#e8b832' : '#e5e7eb', cursor: interativo ? 'pointer' : 'default', fontSize: interativo ? 28 : 14 }}
           onMouseEnter={() => interativo && setHover(i)}
           onMouseLeave={() => interativo && setHover(0)}
@@ -56,7 +54,6 @@ function EstrelasFill({ n, interativo, onChange }: { n: number; interativo?: boo
   )
 }
 
-// ── MODAL AVALIAÇÃO ───────────────────────────────────
 function ModalAvaliacao({ consulta, onFechar }: { consulta: any; onFechar: () => void }) {
   const [nota, setNota] = useState(0)
   const [comentario, setComentario] = useState('')
@@ -89,18 +86,9 @@ function ModalAvaliacao({ consulta, onFechar }: { consulta: any; onFechar: () =>
         </div>
         <div className="modal-field">
           <label>Comentário (opcional)</label>
-          <textarea
-            value={comentario}
-            onChange={e => setComentario(e.target.value)}
-            placeholder="Descreva sua experiência..."
-            rows={3}
-          />
+          <textarea value={comentario} onChange={e => setComentario(e.target.value)} placeholder="Descreva sua experiência..." rows={3} />
         </div>
-        <button
-          className="btn-modal-primary"
-          disabled={nota === 0}
-          onClick={() => setEnviado(true)}
-        >
+        <button className="btn-modal-primary" disabled={nota === 0} onClick={() => setEnviado(true)}>
           Enviar avaliação
         </button>
       </div>
@@ -108,15 +96,13 @@ function ModalAvaliacao({ consulta, onFechar }: { consulta: any; onFechar: () =>
   )
 }
 
-// ── ABA: VISÃO GERAL ──────────────────────────────────
-function AbaVisaoGeral({ setAba }: { setAba: (a: AbaType) => void }) {
+function AbaVisaoGeral({ setAba, onUrgencia }: { setAba: (a: AbaType) => void; onUrgencia?: () => void }) {
   const pendentes = consultas.filter(c => c.status === 'concluida' && !c.avaliada)
   const proximas  = consultas.filter(c => c.status === 'agendada')
   const [avaliarConsulta, setAvaliarConsulta] = useState<any>(null)
 
   return (
     <div className="aba-content">
-      {/* Métricas */}
       <div className="cli-metrics-grid">
         <div className="cli-metric-card">
           <div className="cli-metric-icon azul">📋</div>
@@ -135,7 +121,7 @@ function AbaVisaoGeral({ setAba }: { setAba: (a: AbaType) => void }) {
           <div className="cli-metric-num">{proximas.length}</div>
           <div className="cli-metric-label">Consultas agendadas</div>
         </div>
-        <div className="cli-metric-card urgente-card" onClick={() => setAba('busca')}>
+        <div className="cli-metric-card urgente-card" onClick={onUrgencia || (() => setAba('busca'))}>
           <div className="cli-metric-icon urgente">⚡</div>
           <div className="cli-metric-num">45min</div>
           <div className="cli-metric-label">Atendimento urgente</div>
@@ -144,7 +130,6 @@ function AbaVisaoGeral({ setAba }: { setAba: (a: AbaType) => void }) {
       </div>
 
       <div className="cli-visao-row">
-        {/* Avaliações pendentes */}
         {pendentes.length > 0 && (
           <div className="cli-card">
             <div className="cli-card-header">
@@ -159,16 +144,13 @@ function AbaVisaoGeral({ setAba }: { setAba: (a: AbaType) => void }) {
                     <div className="pendente-nome">{c.profissional}</div>
                     <div className="pendente-data">{c.data} · {c.tipo}</div>
                   </div>
-                  <button className="btn-avaliar" onClick={() => setAvaliarConsulta(c)}>
-                    Avaliar
-                  </button>
+                  <button className="btn-avaliar" onClick={() => setAvaliarConsulta(c)}>Avaliar</button>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* Próximas consultas */}
         <div className="cli-card">
           <div className="cli-card-header">
             <h3>Próximas consultas</h3>
@@ -189,13 +171,10 @@ function AbaVisaoGeral({ setAba }: { setAba: (a: AbaType) => void }) {
           )) : (
             <div className="cli-empty">Nenhuma consulta agendada</div>
           )}
-          <button className="btn-buscar-prof" onClick={() => setAba('busca')}>
-            + Agendar nova consulta
-          </button>
+          <button className="btn-buscar-prof" onClick={() => setAba('busca')}>+ Agendar nova consulta</button>
         </div>
       </div>
 
-      {/* Profissionais recentes */}
       <div className="cli-card">
         <div className="cli-card-header">
           <h3>Profissionais que você consultou</h3>
@@ -213,14 +192,11 @@ function AbaVisaoGeral({ setAba }: { setAba: (a: AbaType) => void }) {
         </div>
       </div>
 
-      {avaliarConsulta && (
-        <ModalAvaliacao consulta={avaliarConsulta} onFechar={() => setAvaliarConsulta(null)} />
-      )}
+      {avaliarConsulta && <ModalAvaliacao consulta={avaliarConsulta} onFechar={() => setAvaliarConsulta(null)} />}
     </div>
   )
 }
 
-// ── ABA: CONSULTAS ────────────────────────────────────
 function AbaConsultas() {
   const [filtro, setFiltro] = useState<'todas' | 'concluida' | 'agendada'>('todas')
   const [avaliarConsulta, setAvaliarConsulta] = useState<any>(null)
@@ -238,7 +214,6 @@ function AbaConsultas() {
           ))}
         </div>
       </div>
-
       <div className="consultas-list">
         {lista.map(c => (
           <div className="consulta-item" key={c.id}>
@@ -250,9 +225,7 @@ function AbaConsultas() {
             </div>
             <div className="consulta-right">
               <span className={`tipo-badge ${c.tipo === 'Urgente' ? 'urgente' : 'normal'}`}>{c.tipo}</span>
-              <span className={`status-badge ${c.status}`}>
-                {c.status === 'concluida' ? 'Concluída' : 'Agendada'}
-              </span>
+              <span className={`status-badge ${c.status}`}>{c.status === 'concluida' ? 'Concluída' : 'Agendada'}</span>
               {c.status === 'concluida' && (
                 c.avaliada
                   ? <div className="consulta-avaliada"><EstrelasFill n={c.avaliacao} /></div>
@@ -263,16 +236,12 @@ function AbaConsultas() {
         ))}
         {lista.length === 0 && <div className="cli-empty">Nenhuma consulta encontrada</div>}
       </div>
-
-      {avaliarConsulta && (
-        <ModalAvaliacao consulta={avaliarConsulta} onFechar={() => setAvaliarConsulta(null)} />
-      )}
+      {avaliarConsulta && <ModalAvaliacao consulta={avaliarConsulta} onFechar={() => setAvaliarConsulta(null)} />}
     </div>
   )
 }
 
-// ── ABA: BUSCA ────────────────────────────────────────
-function AbaBusca() {
+function AbaBusca({ onUrgencia }: { onUrgencia?: () => void }) {
   const [busca, setBusca] = useState('')
   const [area, setArea] = useState('Todas as áreas')
   const [somentePMP, setSomentePMP] = useState(false)
@@ -289,13 +258,10 @@ function AbaBusca() {
     return matchBusca && matchArea && matchPMP && matchUrgente
   })
 
-  if (profSelecionado) return (
-    <PerfilProfissional prof={profSelecionado} onVoltar={() => setProfSelecionado(null)} />
-  )
+  if (profSelecionado) return <PerfilProfissional prof={profSelecionado} onVoltar={() => setProfSelecionado(null)} onUrgencia={onUrgencia} />
 
   return (
     <div className="aba-content">
-      {/* Urgente destaque */}
       <div className="urgente-destaque">
         <div className="urgente-destaque-left">
           <div className="urgente-destaque-icon">⚡</div>
@@ -304,19 +270,13 @@ function AbaBusca() {
             <div className="urgente-destaque-sub">Profissionais disponíveis respondem em até 45 minutos</div>
           </div>
         </div>
-        <button className="btn-urgente-busca" onClick={() => setSomenteUrgente(true)}>
-          Ver disponíveis agora
+        <button className="btn-urgente-busca" onClick={onUrgencia || (() => setSomenteUrgente(true))}>
+          Acessar área urgente →
         </button>
       </div>
 
-      {/* Filtros */}
       <div className="busca-filtros">
-        <input
-          className="busca-input"
-          value={busca}
-          onChange={e => setBusca(e.target.value)}
-          placeholder="Buscar por nome, área ou cidade..."
-        />
+        <input className="busca-input" value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar por nome, área ou cidade..." />
         <select className="busca-select" value={area} onChange={e => setArea(e.target.value)}>
           {areas.map(a => <option key={a}>{a}</option>)}
         </select>
@@ -335,7 +295,6 @@ function AbaBusca() {
         )}
       </div>
 
-      {/* Resultados */}
       <div className="busca-resultado-info">
         {resultado.length} profissional{resultado.length !== 1 ? 'is' : ''} encontrado{resultado.length !== 1 ? 's' : ''}
       </div>
@@ -354,25 +313,20 @@ function AbaBusca() {
             <div className="prof-card-area">{p.area}</div>
             <div className="prof-card-cidade">📍 {p.cidade}</div>
             <div className="prof-card-stats">
-              <span>⭐ {p.avaliacao}</span>
-              <span>·</span>
-              <span>{p.atendimentos} atendimentos</span>
+              <span>⭐ {p.avaliacao}</span><span>·</span><span>{p.atendimentos} atendimentos</span>
             </div>
             <button className="btn-ver-perfil">Ver perfil →</button>
           </div>
         ))}
         {resultado.length === 0 && (
-          <div className="cli-empty" style={{ gridColumn: '1/-1' }}>
-            Nenhum profissional encontrado com esses filtros.
-          </div>
+          <div className="cli-empty" style={{ gridColumn: '1/-1' }}>Nenhum profissional encontrado com esses filtros.</div>
         )}
       </div>
     </div>
   )
 }
 
-// ── PERFIL DO PROFISSIONAL ────────────────────────────
-function PerfilProfissional({ prof, onVoltar }: { prof: any; onVoltar: () => void }) {
+function PerfilProfissional({ prof, onVoltar, onUrgencia }: { prof: any; onVoltar: () => void; onUrgencia?: () => void }) {
   const [tipoConsulta, setTipoConsulta] = useState<'normal' | 'urgente'>('normal')
   const [agendado, setAgendado] = useState(false)
 
@@ -405,70 +359,44 @@ function PerfilProfissional({ prof, onVoltar }: { prof: any; onVoltar: () => voi
               </div>
             </div>
           </div>
-
           <div className="perfil-prof-stats">
-            <div className="pp-stat">
-              <div className="pp-stat-num">⭐ {prof.avaliacao}</div>
-              <div className="pp-stat-label">Avaliação média</div>
-            </div>
-            <div className="pp-stat">
-              <div className="pp-stat-num">{prof.atendimentos}</div>
-              <div className="pp-stat-label">Atendimentos</div>
-            </div>
-            <div className="pp-stat">
-              <div className="pp-stat-num">100%</div>
-              <div className="pp-stat-label">Pontualidade</div>
-            </div>
+            <div className="pp-stat"><div className="pp-stat-num">⭐ {prof.avaliacao}</div><div className="pp-stat-label">Avaliação média</div></div>
+            <div className="pp-stat"><div className="pp-stat-num">{prof.atendimentos}</div><div className="pp-stat-label">Atendimentos</div></div>
+            <div className="pp-stat"><div className="pp-stat-num">100%</div><div className="pp-stat-label">Pontualidade</div></div>
           </div>
-
           <div className="perfil-prof-desc">
             <h4>Sobre o profissional</h4>
-            <p>Profissional verificado com histórico comprovado na plataforma. Todos os dados foram validados pela equipe Brasil Tupi Conecta.</p>
+            <p>Profissional verificado com histórico comprovado na plataforma.</p>
           </div>
         </div>
 
         <div className="cli-card agendar-card">
           <h3>Agendar consulta</h3>
           <div className="agendar-tipo">
-            <button
-              className={`agendar-tipo-btn ${tipoConsulta === 'normal' ? 'active' : ''}`}
-              onClick={() => setTipoConsulta('normal')}
-            >
+            <button className={`agendar-tipo-btn ${tipoConsulta === 'normal' ? 'active' : ''}`} onClick={() => setTipoConsulta('normal')}>
               <div className="agendar-tipo-nome">Consulta normal</div>
               <div className="agendar-tipo-desc">Agendada com antecedência</div>
               <div className="agendar-tipo-preco">R$ 80</div>
             </button>
             {prof.disponivelUrgente && (
-              <button
-                className={`agendar-tipo-btn urgente ${tipoConsulta === 'urgente' ? 'active' : ''}`}
-                onClick={() => setTipoConsulta('urgente')}
-              >
+              <button className={`agendar-tipo-btn urgente ${tipoConsulta === 'urgente' ? 'active' : ''}`} onClick={() => setTipoConsulta('urgente')}>
                 <div className="agendar-tipo-nome">⚡ Consulta urgente</div>
                 <div className="agendar-tipo-desc">Resposta em até 45 minutos</div>
                 <div className="agendar-tipo-preco">R$ 120</div>
               </button>
             )}
           </div>
-
           {tipoConsulta === 'normal' && (
             <div className="agendar-data">
               <label>Data preferencial</label>
               <input type="date" min={new Date().toISOString().split('T')[0]} />
               <label style={{ marginTop: 12 }}>Horário</label>
-              <select>
-                <option>09:00</option><option>10:00</option><option>11:00</option>
-                <option>14:00</option><option>15:00</option><option>16:00</option>
-              </select>
+              <select><option>09:00</option><option>10:00</option><option>11:00</option><option>14:00</option><option>15:00</option><option>16:00</option></select>
             </div>
           )}
-
-          <div className="agendar-aviso">
-            <span>🔒</span>
-            <span>Pagamento seguro. Processado após a consulta.</span>
-          </div>
-
-          <button className="btn-confirmar-consulta" onClick={() => setAgendado(true)}>
-            {tipoConsulta === 'urgente' ? '⚡ Solicitar agora' : 'Confirmar agendamento'}
+          <div className="agendar-aviso"><span>🔒</span><span>Pagamento seguro. Processado após a consulta.</span></div>
+          <button className="btn-confirmar-consulta" onClick={() => tipoConsulta === 'urgente' && onUrgencia ? onUrgencia() : setAgendado(true)}>
+            {tipoConsulta === 'urgente' ? '⚡ Acessar área urgente' : 'Confirmar agendamento'}
           </button>
         </div>
       </div>
@@ -476,7 +404,6 @@ function PerfilProfissional({ prof, onVoltar }: { prof: any; onVoltar: () => voi
   )
 }
 
-// ── ABA: PERFIL CLIENTE ───────────────────────────────
 function AbaPerfil() {
   const [editando, setEditando] = useState(false)
   const [nome, setNome] = useState(cliente.nome)
@@ -488,35 +415,19 @@ function AbaPerfil() {
       <div className="cli-perfil-grid">
         <div className="cli-card">
           <div className="cli-perfil-header">
-            <div className="cli-perfil-avatar">
-              {cliente.foto ? null : cliente.nome.split(' ').map(n => n[0]).join('').slice(0,2)}
-            </div>
+            <div className="cli-perfil-avatar">{cliente.nome.split(' ').map(n => n[0]).join('').slice(0,2)}</div>
             <div className="cli-perfil-info">
               <div className="cli-perfil-nome">{nome}</div>
               <div className="cli-perfil-sub">Cliente · Membro desde {cliente.membroDesde}</div>
             </div>
-            <button className="btn-editar" onClick={() => setEditando(v => !v)}>
-              {editando ? 'Cancelar' : '✏ Editar'}
-            </button>
+            <button className="btn-editar" onClick={() => setEditando(v => !v)}>{editando ? 'Cancelar' : '✏ Editar'}</button>
           </div>
-
           {editando ? (
             <div className="cli-perfil-form">
-              <div className="modal-field">
-                <label>Nome completo</label>
-                <input value={nome} onChange={e => setNome(e.target.value)} />
-              </div>
-              <div className="modal-field">
-                <label>Telefone</label>
-                <input value={telefone} onChange={e => setTelefone(e.target.value)} />
-              </div>
-              <div className="modal-field">
-                <label>Cidade / Estado</label>
-                <input value={cidade} onChange={e => setCidade(e.target.value)} />
-              </div>
-              <button className="btn-confirmar-consulta" onClick={() => setEditando(false)}>
-                Salvar alterações
-              </button>
+              <div className="modal-field"><label>Nome completo</label><input value={nome} onChange={e => setNome(e.target.value)} /></div>
+              <div className="modal-field"><label>Telefone</label><input value={telefone} onChange={e => setTelefone(e.target.value)} /></div>
+              <div className="modal-field"><label>Cidade / Estado</label><input value={cidade} onChange={e => setCidade(e.target.value)} /></div>
+              <button className="btn-confirmar-consulta" onClick={() => setEditando(false)}>Salvar alterações</button>
             </div>
           ) : (
             <div className="cli-perfil-dados">
@@ -535,7 +446,6 @@ function AbaPerfil() {
             </div>
           )}
         </div>
-
         <div className="cli-card">
           <h3>Segurança da conta</h3>
           <div className="cli-perfil-dados">
@@ -545,10 +455,7 @@ function AbaPerfil() {
               { label: 'E-mail de recuperação', valor: cliente.email, acao: 'Alterar' },
             ].map(d => (
               <div className="cli-dado-item" key={d.label}>
-                <div>
-                  <div className="cli-dado-label">{d.label}</div>
-                  <div className="cli-dado-valor">{d.valor}</div>
-                </div>
+                <div><div className="cli-dado-label">{d.label}</div><div className="cli-dado-valor">{d.valor}</div></div>
                 <button className="link-btn">{d.acao}</button>
               </div>
             ))}
@@ -559,28 +466,25 @@ function AbaPerfil() {
   )
 }
 
-// ── COMPONENTE PRINCIPAL ──────────────────────────────
-export default function DashboardCliente({ onSair }: DashboardClienteProps) {
+export default function DashboardCliente({ onSair, onUrgencia }: DashboardClienteProps) {
   const [aba, setAba] = useState<AbaType>('visao')
   const pendentes = consultas.filter(c => c.status === 'concluida' && !c.avaliada).length
 
   const abas: { id: AbaType; label: string; icon: string }[] = [
-    { id: 'visao',    label: 'Visão geral',  icon: '🏠' },
-    { id: 'consultas',label: 'Minhas consultas', icon: '📋' },
-    { id: 'busca',    label: 'Buscar profissional', icon: '🔍' },
-    { id: 'perfil',   label: 'Meu perfil',   icon: '👤' },
+    { id: 'visao',     label: 'Visão geral',        icon: '🏠' },
+    { id: 'consultas', label: 'Minhas consultas',    icon: '📋' },
+    { id: 'busca',     label: 'Buscar profissional', icon: '🔍' },
+    { id: 'perfil',    label: 'Meu perfil',          icon: '👤' },
   ]
 
   return (
     <div className="dashboard-wrap">
-      {/* TOPBAR */}
       <div className="dash-topbar">
         <div className="dash-logo">Brasil Tupi <span>Conecta</span></div>
         <div className="dash-topbar-right">
           {pendentes > 0 && (
             <button className="notif-btn" onClick={() => setAba('consultas')} style={{ position:'relative' }}>
-              🔔
-              <span className="notif-badge">{pendentes}</span>
+              🔔<span className="notif-badge">{pendentes}</span>
             </button>
           )}
           <div className="dash-user">
@@ -595,31 +499,24 @@ export default function DashboardCliente({ onSair }: DashboardClienteProps) {
       </div>
 
       <div className="dash-body">
-        {/* SIDEBAR */}
         <aside className="dash-sidebar">
           <nav className="dash-nav">
             {abas.map(a => (
-              <button
-                key={a.id}
-                className={`dash-nav-item ${aba === a.id ? 'active' : ''}`}
-                onClick={() => setAba(a.id)}
-              >
+              <button key={a.id} className={`dash-nav-item ${aba === a.id ? 'active' : ''}`} onClick={() => setAba(a.id)}>
                 <span className="dash-nav-icon">{a.icon}</span>
                 <span>{a.label}</span>
-                {a.id === 'consultas' && pendentes > 0 && (
-                  <span className="dash-nav-badge">{pendentes}</span>
-                )}
+                {a.id === 'consultas' && pendentes > 0 && <span className="dash-nav-badge">{pendentes}</span>}
               </button>
             ))}
           </nav>
           <div className="dash-sidebar-bottom">
-            <button className="btn-urgente-sidebar" onClick={() => setAba('busca')}>
+            {/* BOTÃO URGENTE NA SIDEBAR */}
+            <button className="btn-urgente-sidebar" onClick={onUrgencia || (() => setAba('busca'))}>
               ⚡ Consulta urgente
             </button>
           </div>
         </aside>
 
-        {/* MAIN */}
         <main className="dash-main">
           <div className="dash-page-header">
             <div>
@@ -627,10 +524,9 @@ export default function DashboardCliente({ onSair }: DashboardClienteProps) {
               {aba === 'visao' && <p>Olá, {cliente.nome.split(' ')[0]}. Bem-vinda de volta.</p>}
             </div>
           </div>
-
-          {aba === 'visao'     && <AbaVisaoGeral setAba={setAba} />}
+          {aba === 'visao'     && <AbaVisaoGeral setAba={setAba} onUrgencia={onUrgencia} />}
           {aba === 'consultas' && <AbaConsultas />}
-          {aba === 'busca'     && <AbaBusca />}
+          {aba === 'busca'     && <AbaBusca onUrgencia={onUrgencia} />}
           {aba === 'perfil'    && <AbaPerfil />}
         </main>
       </div>

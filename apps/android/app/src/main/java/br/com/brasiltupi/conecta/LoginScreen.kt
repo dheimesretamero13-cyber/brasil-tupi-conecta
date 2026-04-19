@@ -19,6 +19,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.brasiltupi.conecta.ui.theme.*
+import kotlinx.coroutines.launch
 
 @Composable
 fun LoginScreen(
@@ -27,17 +28,49 @@ fun LoginScreen(
     onEntrarCliente: () -> Unit,
     onCadastro: () -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
     var tipoConta by remember { mutableStateOf("profissional") }
     var email by remember { mutableStateOf("") }
     var senha by remember { mutableStateOf("") }
     var mostrarSenha by remember { mutableStateOf(false) }
     var emailError by remember { mutableStateOf("") }
     var senhaError by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
+    var erroGeral by remember { mutableStateOf("") }
 
     fun validar(): Boolean {
         emailError = if (!email.contains("@")) "E-mail inválido" else ""
         senhaError = if (senha.length < 6) "Mínimo 6 caracteres" else ""
         return emailError.isEmpty() && senhaError.isEmpty()
+    }
+
+    fun handleLogin() {
+        if (!validar()) return
+        loading = true
+        erroGeral = ""
+        scope.launch {
+            try {
+                val perfil = signInAndroid(email, senha)
+                loading = false
+                if (perfil != null) {
+                    val isProfissional = perfil.tipo == "profissional_certificado" ||
+                            perfil.tipo == "profissional_liberal"
+                    if (isProfissional) onEntrarProfissional()
+                    else onEntrarCliente()
+                } else {
+                    // Sem perfil cadastrado — redireciona pelo tipo selecionado
+                    if (currentUserId != null) {
+                        if (tipoConta == "profissional") onEntrarProfissional()
+                        else onEntrarCliente()
+                    } else {
+                        erroGeral = "E-mail ou senha incorretos."
+                    }
+                }
+            } catch (e: Exception) {
+                loading = false
+                erroGeral = "E-mail ou senha incorretos."
+            }
+        }
     }
 
     Column(
@@ -50,7 +83,6 @@ fun LoginScreen(
     ) {
         Spacer(modifier = Modifier.height(48.dp))
 
-        // Botão voltar
         Row(modifier = Modifier.fillMaxWidth()) {
             TextButton(onClick = onVoltar) {
                 Text("← Voltar", color = InkMuted, fontSize = 14.sp)
@@ -59,13 +91,11 @@ fun LoginScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Logo
         Text("Brasil Tupi", fontSize = 26.sp, fontWeight = FontWeight.Black, color = Azul)
         Text("Conecta", fontSize = 26.sp, fontWeight = FontWeight.Black, color = Verde)
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Título
         Text(
             "Entrar na plataforma",
             fontSize = 22.sp, fontWeight = FontWeight.Bold,
@@ -113,7 +143,7 @@ fun LoginScreen(
             Spacer(modifier = Modifier.height(6.dp))
             OutlinedTextField(
                 value = email,
-                onValueChange = { email = it; emailError = "" },
+                onValueChange = { email = it; emailError = ""; erroGeral = "" },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("seu@email.com", color = InkMuted) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
@@ -147,7 +177,7 @@ fun LoginScreen(
             }
             OutlinedTextField(
                 value = senha,
-                onValueChange = { senha = it; senhaError = "" },
+                onValueChange = { senha = it; senhaError = ""; erroGeral = "" },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Sua senha", color = InkMuted) },
                 visualTransformation = if (mostrarSenha) VisualTransformation.None else PasswordVisualTransformation(),
@@ -161,10 +191,7 @@ fun LoginScreen(
                 ),
                 trailingIcon = {
                     TextButton(onClick = { mostrarSenha = !mostrarSenha }) {
-                        Text(
-                            if (mostrarSenha) "Ocultar" else "Ver",
-                            color = InkMuted, fontSize = 12.sp
-                        )
+                        Text(if (mostrarSenha) "Ocultar" else "Ver", color = InkMuted, fontSize = 12.sp)
                     }
                 },
                 singleLine = true
@@ -176,27 +203,44 @@ fun LoginScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // Erro geral
+        if (erroGeral.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFFDE8E8), RoundedCornerShape(8.dp))
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(erroGeral, color = Urgente, fontSize = 13.sp)
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
         // Botão entrar
         Button(
-            onClick = {
-                if (validar()) {
-                    if (tipoConta == "profissional") onEntrarProfissional()
-                    else onEntrarCliente()
-                }
-            },
+            onClick = { handleLogin() },
             modifier = Modifier.fillMaxWidth().height(52.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
             shape = RoundedCornerShape(10.dp),
+            enabled = !loading
         ) {
-            Text(
-                "Entrar como ${if (tipoConta == "profissional") "profissional" else "cliente"}",
-                fontSize = 15.sp, fontWeight = FontWeight.Bold
-            )
+            if (loading) {
+                CircularProgressIndicator(
+                    color = Color.White,
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text(
+                    "Entrar como ${if (tipoConta == "profissional") "profissional" else "cliente"}",
+                    fontSize = 15.sp, fontWeight = FontWeight.Bold
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Segurança
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -210,7 +254,6 @@ fun LoginScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Link cadastro
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Não tem conta? ", fontSize = 13.sp, color = InkMuted)
             TextButton(onClick = onCadastro) {
