@@ -6,26 +6,30 @@ import Dashboard from './Dashboard'
 import DashboardCliente from './DashboardCliente'
 import BuscaPublica from './BuscaPublica'
 import UrgenciaDesk from './UrgenciaDesk'
+import Estudio from './Estudio'
 
-type Pagina = 'home' | 'cadastro' | 'login' | 'dashboard-pro' | 'dashboard-cli' | 'busca' | 'urgencia'
+type Pagina = 'home' | 'cadastro' | 'login' | 'dashboard-pro' | 'dashboard-cli' | 'busca' | 'urgencia' | 'estudio' | 'estudio-busca' | 'estudio-vitrine'
 
 export default function App() {
   const [pagina, setPagina] = useState<Pagina>('home')
   const [userId, setUserId] = useState('')
   const [perfilTipo, setPerfilTipo] = useState<'profissional' | 'cliente'>('cliente')
-
+const [estudioProfId, setEstudioProfId] = useState('')
   function handleEntrar(tipo: 'profissional' | 'cliente', uid = '') {
     setPerfilTipo(tipo)
     setUserId(uid)
     setPagina(tipo === 'profissional' ? 'dashboard-pro' : 'dashboard-cli')
   }
 
-  if (pagina === 'cadastro')     return <Cadastro onVoltar={() => setPagina('home')} />
-  if (pagina === 'login')        return <Login onVoltar={() => setPagina('home')} onEntrar={tipo => handleEntrar(tipo)} />
-  if (pagina === 'dashboard-pro') return <Dashboard onSair={() => setPagina('home')} onUrgencia={() => setPagina('urgencia')} />
-  if (pagina === 'dashboard-cli') return <DashboardCliente onSair={() => setPagina('home')} onUrgencia={() => setPagina('urgencia')} />
-  if (pagina === 'busca')        return <BuscaPublica onLogin={() => setPagina('login')} onCadastro={() => setPagina('cadastro')} />
-  if (pagina === 'urgencia')     return <UrgenciaDesk userId={userId} perfilTipo={perfilTipo} onVoltar={() => setPagina(perfilTipo === 'profissional' ? 'dashboard-pro' : 'dashboard-cli')} />
+  if (pagina === 'cadastro')      return <Cadastro onVoltar={() => setPagina('home')} />
+  if (pagina === 'login')         return <Login onVoltar={() => setPagina('home')} onEntrar={tipo => handleEntrar(tipo)} />
+  if (pagina === 'dashboard-pro') return <Dashboard onSair={() => setPagina('home')} onUrgencia={() => setPagina('urgencia')} onEstudio={() => setPagina('estudio')} />
+  if (pagina === 'dashboard-cli') return <DashboardCliente onSair={() => setPagina('home')} onUrgencia={() => setPagina('urgencia')} onEstudio={(id) => { setEstudioProfId(id); setPagina('estudio-vitrine') }} />
+  if (pagina === 'busca') return <BuscaPublica onLogin={() => setPagina('login')} onCadastro={() => setPagina('cadastro')} onEstudio={(id) => { setEstudioProfId(id); setPagina('estudio-vitrine') }} />
+if (pagina === 'estudio-vitrine') return <Estudio userId={userId} profissionalId={estudioProfId} modo="vitrine" onVoltar={() => setPagina('busca')} />
+  if (pagina === 'urgencia')      return <UrgenciaDesk userId={userId} perfilTipo={perfilTipo} onVoltar={() => setPagina(perfilTipo === 'profissional' ? 'dashboard-pro' : 'dashboard-cli')} />
+  if (pagina === 'estudio')       return <Estudio userId={userId} modo="dashboard" onVoltar={() => setPagina('dashboard-pro')} />
+  if (pagina === 'estudio-busca') return <Estudio userId={userId} modo="busca" onVoltar={() => setPagina('home')} />
 
   return (
     <>
@@ -38,6 +42,7 @@ export default function App() {
           <a href="#cliente" className="nav-link">Para clientes</a>
           <a href="#urgente" className="nav-link">Consultas urgentes</a>
           <a href="#pmp" className="nav-link">Programa PMP</a>
+          <a href="#estudio" className="nav-link" onClick={e => { e.preventDefault(); setPagina('estudio-busca') }}>Estúdio</a>
           <a href="#login" className="nav-link" onClick={e => { e.preventDefault(); setPagina('login') }}>Entrar</a>
           <a href="#cadastro" className="nav-cta" onClick={e => { e.preventDefault(); setPagina('cadastro') }}>Criar perfil</a>
         </div>
@@ -197,6 +202,50 @@ export default function App() {
               Esta não é uma área aberta para todos. <strong>O profissional precisa assinar o acordo de conduta
               e manter sua credibilidade ativa</strong> para permanecer nela.
             </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── ESTÚDIO ── */}
+      <div className="urgente-section" id="estudio" style={{ background: '#fdf8f0' }}>
+        <div className="urgente-inner">
+          <div className="label">Conhecimento que gera renda</div>
+          <h2 className="title">Estúdio:<br />seu conhecimento em produtos</h2>
+          <p className="body-text">
+            Transforme sua expertise em aulas, cursos, PDFs e produtos. Venda diretamente na plataforma
+            e alcance clientes que já confiam em você.
+          </p>
+          <div className="urgente-grid">
+            <div className="urgente-card">
+              <div className="urgente-number" style={{ color: '#c49a2a' }}>🎓</div>
+              <div className="urgente-unit">Aulas e cursos</div>
+              <h4>Ensine o que sabe</h4>
+              <p>Publique aulas em vídeo, PDFs e cursos completos diretamente no seu perfil.</p>
+            </div>
+            <div className="urgente-card">
+              <div className="urgente-number" style={{ color: '#c49a2a' }}>📦</div>
+              <div className="urgente-unit">Produtos físicos e digitais</div>
+              <h4>Venda seu acervo</h4>
+              <p>Livros, e-books, planilhas, templates — tudo em um só lugar.</p>
+            </div>
+            <div className="urgente-card">
+              <div className="urgente-number" style={{ color: '#c49a2a' }}>8%</div>
+              <div className="urgente-unit">comissão reduzida</div>
+              <h4>Itens completos ganham mais</h4>
+              <p>Configure título, descrição, preço e mídia para obter a menor comissão da plataforma.</p>
+            </div>
+          </div>
+          <div style={{ textAlign: 'center', marginTop: 24 }}>
+            <button
+              onClick={() => setPagina('estudio-busca')}
+              style={{
+                background: '#c49a2a', color: '#fff', border: 'none',
+                padding: '14px 32px', borderRadius: 10, fontSize: 15,
+                fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              Explorar Estúdios →
+            </button>
           </div>
         </div>
       </div>

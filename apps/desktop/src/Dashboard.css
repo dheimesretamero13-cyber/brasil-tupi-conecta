@@ -116,7 +116,6 @@
 @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.5} }
 
 .dash-sidebar-bottom { padding: 16px 16px; }
-.dash-cred-mini { }
 .dash-cred-mini-label { font-size: 11px; color: var(--ink-muted, #6b7280); margin-bottom: 6px; }
 .dash-cred-mini-bar {
   height: 4px; background: var(--border, rgba(0,0,0,0.08));
@@ -369,7 +368,6 @@
 
 /* ── URGENTE PAGE ── */
 .urgente-page { display: flex; flex-direction: column; gap: 20px; }
-.urgente-toggle-card { }
 .urgente-toggle-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 20px; }
 .urgente-toggle-header h3 { font-family: var(--serif, 'Fraunces', Georgia, serif); font-size: 20px; font-weight: 700; color: var(--ink, #111827); margin-bottom: 8px; }
 .urgente-toggle-header p { font-size: 14px; color: var(--ink-muted, #6b7280); line-height: 1.7; }

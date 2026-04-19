@@ -4,6 +4,7 @@ import './DashboardCliente.css'
 interface DashboardClienteProps {
   onSair: () => void
   onUrgencia?: () => void
+  onEstudio?: (profissionalId: string) => void
 }
 
 type AbaType = 'visao' | 'consultas' | 'busca' | 'perfil'
@@ -241,7 +242,7 @@ function AbaConsultas() {
   )
 }
 
-function AbaBusca({ onUrgencia }: { onUrgencia?: () => void }) {
+function AbaBusca({ onUrgencia, onEstudio }: { onUrgencia?: () => void; onEstudio?: (id: string) => void }) {
   const [busca, setBusca] = useState('')
   const [area, setArea] = useState('Todas as áreas')
   const [somentePMP, setSomentePMP] = useState(false)
@@ -258,7 +259,7 @@ function AbaBusca({ onUrgencia }: { onUrgencia?: () => void }) {
     return matchBusca && matchArea && matchPMP && matchUrgente
   })
 
-  if (profSelecionado) return <PerfilProfissional prof={profSelecionado} onVoltar={() => setProfSelecionado(null)} onUrgencia={onUrgencia} />
+  if (profSelecionado) return <PerfilProfissional prof={profSelecionado} onVoltar={() => setProfSelecionado(null)} onUrgencia={onUrgencia} onEstudio={onEstudio} />
 
   return (
     <div className="aba-content">
@@ -326,7 +327,7 @@ function AbaBusca({ onUrgencia }: { onUrgencia?: () => void }) {
   )
 }
 
-function PerfilProfissional({ prof, onVoltar, onUrgencia }: { prof: any; onVoltar: () => void; onUrgencia?: () => void }) {
+function PerfilProfissional({ prof, onVoltar, onUrgencia, onEstudio }: { prof: any; onVoltar: () => void; onUrgencia?: () => void; onEstudio?: (id: string) => void }) {
   const [tipoConsulta, setTipoConsulta] = useState<'normal' | 'urgente'>('normal')
   const [agendado, setAgendado] = useState(false)
 
@@ -372,6 +373,11 @@ function PerfilProfissional({ prof, onVoltar, onUrgencia }: { prof: any; onVolta
 
         <div className="cli-card agendar-card">
           <h3>Agendar consulta</h3>
+          {onEstudio && (
+  <button onClick={() => onEstudio(String(prof.id))} style={{ width: '100%', marginBottom: 14, background: '#fdf3d8', border: '1px solid #c49a2a', color: '#b07d00', borderRadius: 8, padding: '10px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+    🎨 Ver Estúdio deste profissional
+  </button>
+)}
           <div className="agendar-tipo">
             <button className={`agendar-tipo-btn ${tipoConsulta === 'normal' ? 'active' : ''}`} onClick={() => setTipoConsulta('normal')}>
               <div className="agendar-tipo-nome">Consulta normal</div>
@@ -466,7 +472,7 @@ function AbaPerfil() {
   )
 }
 
-export default function DashboardCliente({ onSair, onUrgencia }: DashboardClienteProps) {
+export default function DashboardCliente({ onSair, onUrgencia, onEstudio }: DashboardClienteProps) {
   const [aba, setAba] = useState<AbaType>('visao')
   const pendentes = consultas.filter(c => c.status === 'concluida' && !c.avaliada).length
 
@@ -526,7 +532,7 @@ export default function DashboardCliente({ onSair, onUrgencia }: DashboardClient
           </div>
           {aba === 'visao'     && <AbaVisaoGeral setAba={setAba} onUrgencia={onUrgencia} />}
           {aba === 'consultas' && <AbaConsultas />}
-          {aba === 'busca'     && <AbaBusca onUrgencia={onUrgencia} />}
+          {aba === 'busca' && <AbaBusca onUrgencia={onUrgencia} onEstudio={onEstudio} />}
           {aba === 'perfil'    && <AbaPerfil />}
         </main>
       </div>

@@ -5,6 +5,7 @@ import { supabase } from './supabase'
 interface BuscaPublicaProps {
   onLogin: () => void
   onCadastro: () => void
+  onEstudio?: (profissionalId: string) => void
 }
 
 const areas = ['Todas as áreas', 'Saúde e Bem-estar', 'Direito e Jurídico',
@@ -227,10 +228,11 @@ function MiniCadastro({ profissional, tipoConsulta, onConcluido, onCancelar }: {
   )
 }
 
-function PerfilPublico({ prof, onVoltar, onAgendar }: {
+function PerfilPublico({ prof, onVoltar, onAgendar, onEstudio }: {
   prof: any
   onVoltar: () => void
   onAgendar: (tipo: 'normal' | 'urgente') => void
+  onEstudio?: (id: string) => void
 }) {
   return (
     <div className="perfil-publico-wrap">
@@ -304,6 +306,11 @@ function PerfilPublico({ prof, onVoltar, onAgendar }: {
           <div className="pp-agendar-col">
             <div className="pp-agendar-card">
               <h3>Agendar consulta</h3>
+              {onEstudio && (
+  <button onClick={() => onEstudio(prof.id)} style={{ width: '100%', marginBottom: 14, background: '#fdf3d8', border: '1px solid #c49a2a', color: '#b07d00', borderRadius: 8, padding: '10px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+    🎨 Ver Estúdio deste profissional
+  </button>
+)}
               <div className="pp-opcoes">
                 <div className="pp-opcao normal">
                   <div className="pp-opcao-header">
@@ -336,7 +343,7 @@ function PerfilPublico({ prof, onVoltar, onAgendar }: {
   )
 }
 
-export default function BuscaPublica({ onLogin, onCadastro }: BuscaPublicaProps) {
+export default function BuscaPublica({ onLogin, onCadastro, onEstudio }: BuscaPublicaProps) {
   const [busca, setBusca] = useState('')
   const [area, setArea] = useState('Todas as áreas')
   const [somenteUrgente, setSomenteUrgente] = useState(false)
@@ -355,10 +362,11 @@ export default function BuscaPublica({ onLogin, onCadastro }: BuscaPublicaProps)
       <div className="bp-page">
         <BuscaNav onLogin={onLogin} onCadastro={onCadastro} />
         <PerfilPublico
-          prof={profSelecionado}
-          onVoltar={() => setProfSelecionado(null)}
-          onAgendar={tipo => handleAgendar(profSelecionado, tipo)}
-        />
+  prof={profSelecionado}
+  onVoltar={() => setProfSelecionado(null)}
+  onAgendar={tipo => handleAgendar(profSelecionado, tipo)}
+  onEstudio={onEstudio}
+/>
         {agendando && (
           <MiniCadastro
             profissional={agendando.prof}
@@ -481,10 +489,19 @@ export default function BuscaPublica({ onLogin, onCadastro }: BuscaPublicaProps)
                   )}
                 </div>
                 <div className="bp-card-acoes">
-                  <button className="btn-bp-perfil" onClick={() => setProfSelecionado(p)}>Ver perfil</button>
-                  <button className="btn-bp-agendar" onClick={() => handleAgendar(p, 'normal')}>Agendar →</button>
-                </div>
-              </div>
+  <button className="btn-bp-perfil" onClick={() => setProfSelecionado(p)}>Ver perfil</button>
+  <button className="btn-bp-agendar" onClick={() => handleAgendar(p, 'normal')}>Agendar →</button>
+</div>
+{onEstudio && (
+  <button
+    className="btn-bp-estudio"
+    onClick={() => onEstudio(p.id)}
+    style={{ width: '100%', marginTop: 8, background: '#fdf3d8', border: '1px solid #c49a2a', color: '#b07d00', borderRadius: 8, padding: '8px 0', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+  >
+    🎨 Ver Estúdio
+  </button>
+)}
+</div>
             ))}
             {profissionais.length === 0 && (
               <div className="bp-empty">

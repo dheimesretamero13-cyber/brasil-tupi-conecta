@@ -4,6 +4,7 @@ import './Dashboard.css'
 interface DashboardProps {
   onSair: () => void
   onUrgencia?: () => void
+  onEstudio?: () => void
 }
 
 type AbaType = 'visao' | 'atendimentos' | 'credibilidade' | 'urgente' | 'perfil'
@@ -307,7 +308,7 @@ function AbaCredibilidade() {
   )
 }
 
-function AbaUrgente({ onEntrarSala }: { onEntrarSala?: () => void }) {
+function AbaUrgente({ onEntrarSala, onEstudio }: { onEntrarSala?: () => void; onEstudio?: () => void }) {
   const [ativo, setAtivo] = useState(profissional.disponivelUrgente)
   return (
     <div className="aba-content">
@@ -327,7 +328,6 @@ function AbaUrgente({ onEntrarSala }: { onEntrarSala?: () => void }) {
             <span>{ativo ? 'Você está disponível para consultas urgentes agora' : 'Você está indisponível para consultas urgentes'}</span>
           </div>
 
-          {/* BOTÃO PARA ENTRAR NA SALA */}
           {ativo && onEntrarSala && (
             <button onClick={onEntrarSala} style={{
               marginTop: 16, width: '100%',
@@ -340,7 +340,20 @@ function AbaUrgente({ onEntrarSala }: { onEntrarSala?: () => void }) {
               ⚡ Entrar na Central de Urgências
             </button>
           )}
-        </div>
+
+          {onEstudio && (
+            <button onClick={onEstudio} style={{
+              marginTop: 10, width: '100%',
+              background: 'linear-gradient(135deg, #c49a2a, #b07d00)',
+              color: '#fff', border: 'none', borderRadius: 10,
+              padding: '14px 20px', fontSize: 14, fontWeight: 700,
+              cursor: 'pointer',
+            }}>
+              🎨 Acessar meu Estúdio
+            </button>
+          )}
+
+        </div>{/* ← fecha urgente-toggle-card */}
 
         <div className="urgente-regras-grid">
           <div className="visao-card">
@@ -463,7 +476,7 @@ function AbaPerfil() {
   )
 }
 
-export default function Dashboard({ onSair, onUrgencia }: DashboardProps) {
+export default function Dashboard({ onSair, onUrgencia, onEstudio }: DashboardProps) {
   const [aba, setAba] = useState<AbaType>('visao')
   const [notifAberta, setNotifAberta] = useState(false)
   const naoLidas = notificacoes.filter(n => !n.lida).length
@@ -550,7 +563,7 @@ export default function Dashboard({ onSair, onUrgencia }: DashboardProps) {
           {aba === 'visao'         && <AbaVisaoGeral setAba={setAba} />}
           {aba === 'atendimentos'  && <AbaAtendimentos />}
           {aba === 'credibilidade' && <AbaCredibilidade />}
-          {aba === 'urgente'       && <AbaUrgente onEntrarSala={onUrgencia} />}
+          {aba === 'urgente' && <AbaUrgente onEntrarSala={onUrgencia} onEstudio={onEstudio} />}
           {aba === 'perfil'        && <AbaPerfil />}
         </main>
       </div>
