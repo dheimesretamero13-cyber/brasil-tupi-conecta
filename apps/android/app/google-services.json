@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "935650264389",
+    "project_id": "brasil-tupi-conecta",
+    "storage_bucket": "brasil-tupi-conecta.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:935650264389:android:c415a86c9375f6779dea2c",
+        "android_client_info": {
+          "package_name": "br.com.brasiltupi.conecta"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCCJOG3GoYovhXZNEzjzae5QnQZD_NviO4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
