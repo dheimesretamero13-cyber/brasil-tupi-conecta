@@ -25,9 +25,34 @@ fun AppNavigation() {
 
     when (tela) {
         "welcome" -> WelcomeScreen(
-            onEntrar   = { tela = "welcome" },
-            onCadastro = { tela = "welcome" },
-            onBuscar   = { tela = "welcome" },
+            onEntrar   = { tela = "login" },
+            onCadastro = { tela = "cadastro" },
+            onBuscar   = { tela = "busca" },
+        )
+        "login" -> LoginScreen(
+            onVoltar             = { tela = "welcome" },
+            onEntrarProfissional = { tela = "dashboard-profissional" },
+            onEntrarCliente      = { tela = "dashboard-cliente" },
+            onCadastro           = { tela = "cadastro" },
+        )
+        "cadastro" -> CadastroScreen(
+            onVoltar    = { tela = "welcome" },
+            onConcluido = { tela = "welcome" },
+        )
+        "busca" -> BuscaScreen(
+            onVoltar = { tela = "welcome" }
+        )
+        "perfil-profissional" -> PerfilProfissionalScreen(
+            onVoltar = { tela = "welcome" }
+        )
+        "perfil-cliente" -> PerfilClienteScreen(
+            onVoltar = { tela = "welcome" }
+        )
+        "dashboard-profissional" -> DashboardProfissionalScreen(
+            onSair = { tela = "welcome" }
+        )
+        "dashboard-cliente" -> DashboardClienteScreen(
+            onSair = { tela = "welcome" }
         )
     }
 }
