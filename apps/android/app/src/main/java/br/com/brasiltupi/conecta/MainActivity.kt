@@ -33,8 +33,8 @@ fun AppNavigation() {
         )
         "login" -> LoginScreen(
             onVoltar             = { tela = "welcome" },
-            onEntrarProfissional = { tela = "dashboard-profissional" },
-            onEntrarCliente      = { tela = "dashboard-cliente" },
+            onEntrarProfissional = { userId -> currentUserId = userId; tela = "dashboard-profissional" },
+            onEntrarCliente      = { userId -> currentUserId = userId; tela = "dashboard-cliente" },
             onCadastro           = { tela = "cadastro" },
         )
         "cadastro" -> CadastroScreen(
@@ -46,18 +46,22 @@ fun AppNavigation() {
             onEstudio = { profId -> estudioProfId = profId; tela = "estudio-vitrine" }
         )
         "perfil-profissional" -> PerfilProfissionalScreen(
-            onVoltar = { tela = "welcome" }
+            onVoltar = { tela = "dashboard-profissional" },
+            userId = currentUserId
         )
         "perfil-cliente" -> PerfilClienteScreen(
-            onVoltar = { tela = "welcome" }
+            onVoltar = { tela = "dashboard-cliente" },
+            userId = currentUserId
         )
         "dashboard-profissional" -> DashboardProfissionalScreen(
             onSair = { tela = "welcome" },
-            onEstudio = { tela = "estudio-dashboard" }
+            onEstudio = { tela = "estudio-dashboard" },
+            onPerfil = { tela = "perfil-profissional" }
         )
         "dashboard-cliente" -> DashboardClienteScreen(
             onSair = { tela = "welcome" },
-            onEstudio = { profId -> estudioProfId = profId; tela = "estudio-vitrine" }
+            onEstudio = { profId -> estudioProfId = profId; tela = "estudio-vitrine" },
+            onPerfil = { tela = "perfil-cliente" }
         )
         "estudio-dashboard" -> EstudioDashboardScreen(
         userId = currentUserId ?: "",

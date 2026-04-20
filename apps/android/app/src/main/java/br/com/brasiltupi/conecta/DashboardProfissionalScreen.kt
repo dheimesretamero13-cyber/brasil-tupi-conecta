@@ -38,7 +38,7 @@ val atendimentosMock = listOf(
 
 // ── TELA PRINCIPAL ────────────────────────────────────
 @Composable
-fun DashboardProfissionalScreen(onSair: () -> Unit, onEstudio: (() -> Unit)? = null) {
+fun DashboardProfissionalScreen(onSair: () -> Unit, onEstudio: (() -> Unit)? = null, onPerfil: (() -> Unit)? = null) {
     var abaSelecionada by remember { mutableStateOf("visao") }
 
     val abas = listOf(
@@ -46,6 +46,7 @@ fun DashboardProfissionalScreen(onSair: () -> Unit, onEstudio: (() -> Unit)? = n
         "atendimentos" to "Atendimentos",
         "credibilidade" to "Credibilidade",
         "urgente" to "Urgente",
+        "perfil" to "Meu Perfil",
     )
 
     Column(
@@ -65,9 +66,18 @@ fun DashboardProfissionalScreen(onSair: () -> Unit, onEstudio: (() -> Unit)? = n
         ) {
             Column {
                 Text("Brasil Tupi", fontSize = 16.sp, fontWeight = FontWeight.Black, color = Azul)
-                Text("Conecta", fontSize = 16.sp, fontWeight = FontWeight.Black, color = Verde, modifier = Modifier.offset(y = (-4).dp))
+                Text(
+                    "Conecta",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Verde,
+                    modifier = Modifier.offset(y = (-4).dp)
+                )
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Box(
                     modifier = Modifier
                         .size(36.dp)
@@ -107,10 +117,17 @@ fun DashboardProfissionalScreen(onSair: () -> Unit, onEstudio: (() -> Unit)? = n
         }
         // Conteúdo
         when (abaSelecionada) {
-            "visao"         -> AbaVisaoGeralDash()
-            "atendimentos"  -> AbaAtendimentosDash()
+            "visao" -> AbaVisaoGeralDash()
+            "atendimentos" -> AbaAtendimentosDash()
             "credibilidade" -> AbaCredibilidadeDash()
-            "urgente"       -> AbaUrgenteDash(onEstudio = onEstudio)
+            "urgente" -> AbaUrgenteDash(onEstudio = onEstudio)
+            "perfil" -> {
+                if (onPerfil != null) {
+                    LaunchedEffect(Unit) { onPerfil() }
+                } else {
+                    AbaPerfilProfissional()
+                }
+            }
         }
     }
 }

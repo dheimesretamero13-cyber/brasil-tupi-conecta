@@ -29,7 +29,7 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
     var filtroTipo by remember { mutableStateOf("todos") }
     var criando by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
-
+    var nomeUsuario by remember { mutableStateOf("EU") }
     var formTitulo by remember { mutableStateOf("") }
     var formDescricao by remember { mutableStateOf("") }
     var formTipo by remember { mutableStateOf("aula") }
@@ -92,6 +92,10 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
             toast = null
         }
     }
+    LaunchedEffect(userId) {
+        val perfil = getPerfilAndroid(userId)
+        nomeUsuario = perfil?.nome?.split(" ")?.map { it[0] }?.joinToString("")?.take(2)?.uppercase() ?: "EU"
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF8F7F4))) {
@@ -112,17 +116,28 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column {
-                            Text("🎨 Meu Estúdio", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            Text("Gerencie seus cursos, aulas e produtos", fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f))
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .background(
+                                            Brush.linearGradient(listOf(Color(0xFFC49A2A), Color(0xFFE8B832))),
+                                            RoundedCornerShape(50)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        nomeUsuario,
+                                        fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White
+                                    )
+                                }
+                                Column {
+                                    Text("Meu Estúdio", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                    Text("Gerencie seus cursos, aulas e produtos", fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f))
+                                }
+                            }
                         }
-                        Button(
-                            onClick = { criando = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC49A2A), contentColor = Color.White),
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
-                        ) {
-                            Text("+ Novo", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        }
+
                     }
                 }
             }
@@ -171,7 +186,7 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
             } else if (itens.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
-                        Text("🎨", fontSize = 56.sp)
+                        Text("+", fontSize = 56.sp)
                         Spacer(modifier = Modifier.height(16.dp))
                         Text("Seu Estúdio está vazio", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF111827))
                         Text("Publique seu primeiro item e comece a vender.", fontSize = 13.sp, color = Color(0xFF6B7280), textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))

@@ -39,7 +39,7 @@ val consultasMock = listOf(
 
 // ── TELA PRINCIPAL ────────────────────────────────────
 @Composable
-fun DashboardClienteScreen(onSair: () -> Unit, onEstudio: ((String) -> Unit)? = null) {
+fun DashboardClienteScreen(onSair: () -> Unit, onEstudio: ((String) -> Unit)? = null, onPerfil: (() -> Unit)? = null) {
     var abaSelecionada by remember { mutableStateOf("visao") }
     val pendentes = consultasMock.count { it.status == "concluida" && !it.avaliada }
 
@@ -47,12 +47,14 @@ fun DashboardClienteScreen(onSair: () -> Unit, onEstudio: ((String) -> Unit)? = 
         "visao" to "Visão Geral",
         "consultas" to "Consultas",
         "busca" to "Buscar",
+        "perfil" to "Meu Perfil",
     )
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(SurfaceWarm)
+            .verticalScroll(rememberScrollState())
     ) {
         // Topbar
         Row(
@@ -127,6 +129,7 @@ fun DashboardClienteScreen(onSair: () -> Unit, onEstudio: ((String) -> Unit)? = 
             "visao"    -> AbaVisaoGeralCliente(onNavegar = { abaSelecionada = it })
             "consultas" -> AbaConsultasCliente()
             "busca"    -> AbaBuscaCliente(onEstudio = onEstudio)
+            "perfil"   -> { if (onPerfil != null) { LaunchedEffect(Unit) { onPerfil() } } }
         }
     }
 }
@@ -140,8 +143,7 @@ fun AbaVisaoGeralCliente(onNavegar: (String) -> Unit) {
 
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .fillMaxWidth()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -447,8 +449,7 @@ fun AbaConsultasCliente() {
 
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .fillMaxWidth()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -595,8 +596,7 @@ fun AbaBuscaCliente(onEstudio: ((String) -> Unit)? = null) {
 
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .fillMaxWidth()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {

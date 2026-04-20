@@ -5,41 +5,45 @@ import io.ktor.client.call.*
 import io.ktor.client.engine.android.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
-import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-// ── CONFIGURAÇÃO ──────────────────────────────────────
 private const val SUPABASE_URL = "https://qfzdchrlbqcvewjivaqz.supabase.co"
 private const val SUPABASE_KEY = "sb_publishable_SM-UHBh_5lzTSBZ2YPUIYw_Sw1i8qeq"
 
-private val json = Json {
-    ignoreUnknownKeys = true
-    isLenient = true
-}
+private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
 val httpClient = HttpClient(Android) {
-    install(ContentNegotiation) {
-        json(json)
-    }
+    install(ContentNegotiation) { json(json) }
 }
 
-// Token de sessão atual
 var currentToken: String? = null
 var currentUserId: String? = null
 
 // ── MODELOS ───────────────────────────────────────────
 @Serializable
-data class PerfilModel(
+data class PerfilUsuario(
     val id: String,
     val nome: String,
     val email: String,
+    val tipo: String,
     val telefone: String? = null,
     val cpf: String? = null,
-    val tipo: String,
     val cidade: String? = null,
     val estado: String? = null,
+    val foto_url: String? = null,
+    val capa_url: String? = null,
+)
+
+@Serializable
+data class PerfilNested(
+    val nome: String? = null,
+    val email: String? = null,
+    val cidade: String? = null,
+    val estado: String? = null,
+    val foto_url: String? = null,
+    val capa_url: String? = null,
 )
 
 @Serializable
@@ -55,7 +59,7 @@ data class ProfissionalComPerfil(
     val valor_normal: Int = 80,
     val valor_urgente: Int? = null,
     val verificado: Boolean = false,
-    val perfis: PerfilModel? = null,
+    val perfis: PerfilNested? = null,
 )
 
 @Serializable
@@ -71,7 +75,7 @@ data class AuthResponse(
 data class AuthUser(val id: String)
 
 // ── AUTH ──────────────────────────────────────────────
-suspend fun signInAndroid(email: String, senha: String): PerfilModel? {
+suspend fun signInAndroid(email: String, senha: String): PerfilUsuario? {
     return try {
         val response = httpClient.post("$SUPABASE_URL/auth/v1/token?grant_type=password") {
             header("apikey", SUPABASE_KEY)
@@ -84,9 +88,7 @@ suspend fun signInAndroid(email: String, senha: String): PerfilModel? {
 
         if (currentUserId != null) getPerfilAndroid(currentUserId!!)
         else null
-    } catch (e: Exception) {
-        null
-    }
+    } catch (e: Exception) { null }
 }
 
 suspend fun signUpAndroid(
@@ -110,7 +112,7 @@ suspend fun signUpAndroid(
         currentUserId = response.user?.id
 
         if (currentUserId != null) {
-            inserirPerfil(PerfilModel(
+            inserirPerfil(PerfilUsuario(
                 id = currentUserId!!,
                 nome = nome,
                 email = email,
@@ -122,9 +124,7 @@ suspend fun signUpAndroid(
             ))
             true
         } else false
-    } catch (e: Exception) {
-        false
-    }
+    } catch (e: Exception) { false }
 }
 
 suspend fun signOutAndroid() {
@@ -139,21 +139,17 @@ suspend fun signOutAndroid() {
 }
 
 // ── PERFIS ────────────────────────────────────────────
-suspend fun getPerfilAndroid(userId: String): PerfilModel? {
+suspend fun getPerfilAndroid(userId: String): PerfilUsuario? {
     return try {
-        httpClient.get("$SUPABASE_URL/rest/v1/perfis") {
+        httpClient.get("$SUPABASE_URL/rest/v1/perfis?id=eq.$userId&select=*") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
-            parameter("id", "eq.$userId")
-            parameter("select", "*")
             header("Accept", "application/json")
-        }.body<List<PerfilModel>>().firstOrNull()
-    } catch (e: Exception) {
-        null
-    }
+        }.body<List<PerfilUsuario>>().firstOrNull()
+    } catch (e: Exception) { null }
 }
 
-private suspend fun inserirPerfil(perfil: PerfilModel) {
+private suspend fun inserirPerfil(perfil: PerfilUsuario) {
     try {
         httpClient.post("$SUPABASE_URL/rest/v1/perfis") {
             header("apikey", SUPABASE_KEY)
@@ -171,12 +167,11 @@ suspend fun getProfissionaisPMPAndroid(
     busca: String = "",
 ): List<ProfissionalComPerfil> {
     return try {
-        var selectQuery = "*, perfis(nome,email,cidade,estado)"
         val result = httpClient.get("$SUPABASE_URL/rest/v1/profissionais") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Accept", "application/json")
-            parameter("select", selectQuery)
+            parameter("select", "*, perfis(nome,email,cidade,estado,foto_url,capa_url)")
             parameter("is_pmp", "eq.true")
             parameter("verificado", "eq.true")
             parameter("credibilidade", "gte.80")
@@ -193,48 +188,32 @@ suspend fun getProfissionaisPMPAndroid(
                     area.contains(busca, ignoreCase = true) ||
                     cidade.contains(busca, ignoreCase = true)
         }
-    } catch (e: Exception) {
-        emptyList()
-    }
+    } catch (e: Exception) { emptyList() }
 }
+
 // ── ESTÚDIO ───────────────────────────────────────────
-suspend fun getProfissionaisEstudioAndroid(
-    filtroTipo: String = "todos"
-): List<ItemEstudio> {
+suspend fun getProfissionaisEstudioAndroid(filtroTipo: String = "todos"): List<ItemEstudio> {
     return try {
-        var url = "$SUPABASE_URL/rest/v1/estudio?select=*,perfis(nome)&ativo=eq.true&order=destaque.desc,criado_em.desc"
+        var url = "$SUPABASE_URL/rest/v1/estudio?select=*,perfis(nome,foto_url,capa_url)&ativo=eq.true&order=destaque.desc,criado_em.desc"
         if (filtroTipo != "todos") url += "&tipo=eq.$filtroTipo"
-
-        val result = httpClient.get(url) {
+        httpClient.get(url) {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Accept", "application/json")
-        }.body<List<Map<String, Any?>>>()
-
-        result.map { mapToItemEstudio(it) }
-    } catch (e: Exception) {
-        emptyList()
-    }
+        }.body<List<Map<String, Any?>>>().map { mapToItemEstudio(it) }
+    } catch (e: Exception) { emptyList() }
 }
 
-suspend fun getEstudioProfissionalAndroid(
-    profissionalId: String,
-    filtroTipo: String = "todos"
-): List<ItemEstudio> {
+suspend fun getEstudioProfissionalAndroid(profissionalId: String, filtroTipo: String = "todos"): List<ItemEstudio> {
     return try {
-        var url = "$SUPABASE_URL/rest/v1/estudio?select=*,perfis(nome)&ativo=eq.true&profissional_id=eq.$profissionalId&order=destaque.desc,criado_em.desc"
+        var url = "$SUPABASE_URL/rest/v1/estudio?select=*,perfis(nome,foto_url,capa_url)&ativo=eq.true&profissional_id=eq.$profissionalId&order=destaque.desc,criado_em.desc"
         if (filtroTipo != "todos") url += "&tipo=eq.$filtroTipo"
-
-        val result = httpClient.get(url) {
+        httpClient.get(url) {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Accept", "application/json")
-        }.body<List<Map<String, Any?>>>()
-
-        result.map { mapToItemEstudio(it) }
-    } catch (e: Exception) {
-        emptyList()
-    }
+        }.body<List<Map<String, Any?>>>().map { mapToItemEstudio(it) }
+    } catch (e: Exception) { emptyList() }
 }
 
 @Suppress("UNCHECKED_CAST")
@@ -256,20 +235,16 @@ private fun mapToItemEstudio(map: Map<String, Any?>): ItemEstudio {
         totalVendas = (map["total_vendas"] as? Number)?.toInt() ?: 0,
         avaliacaoMedia = (map["avaliacao_media"] as? Number)?.toDouble() ?: 0.0,
         autorNome = perfis?.get("nome") as? String ?: "",
+        autorFotoUrl = perfis?.get("foto_url") as? String,
+        autorCapaUrl = perfis?.get("capa_url") as? String,
     )
 }
+
 suspend fun criarItemEstudioAndroid(
-    profissionalId: String,
-    titulo: String,
-    descricao: String,
-    tipo: String,
-    preco: Double,
-    precoOriginal: Double? = null,
-    videoUrl: String? = null,
-    arquivoUrl: String? = null,
-    linkExterno: String? = null,
-    temEntrega: Boolean = false,
-    destaque: Boolean = false,
+    profissionalId: String, titulo: String, descricao: String, tipo: String,
+    preco: Double, precoOriginal: Double? = null, videoUrl: String? = null,
+    arquivoUrl: String? = null, linkExterno: String? = null,
+    temEntrega: Boolean = false, destaque: Boolean = false,
 ): Boolean {
     return try {
         val body = buildString {
@@ -296,7 +271,45 @@ suspend fun criarItemEstudioAndroid(
             setBody(body)
         }
         true
+    } catch (e: Exception) { false }
+}
+
+// ── UPLOAD DE IMAGEM ──────────────────────────────────
+suspend fun uploadImagemSupabase(
+    context: android.content.Context,
+    uri: android.net.Uri,
+    bucket: String,
+    userId: String
+): String? {
+    return try {
+        val bytes = context.contentResolver.openInputStream(uri)?.readBytes() ?: return null
+        val fileName = "$userId/${System.currentTimeMillis()}.jpg"
+        httpClient.put("$SUPABASE_URL/storage/v1/object/$bucket/$fileName") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Content-Type", "image/jpeg")
+            setBody(bytes)
+        }
+        "$SUPABASE_URL/storage/v1/object/public/$bucket/$fileName"
     } catch (e: Exception) {
-        false
+        android.util.Log.e("Upload", "Erro: ${e.message}")
+        null
     }
+}
+
+suspend fun salvarFotoPerfilAndroid(userId: String, fotoUrl: String? = null, capaUrl: String? = null): Boolean {
+    return try {
+        val campos = mutableListOf<String>()
+        if (fotoUrl != null) campos.add("\"foto_url\":\"$fotoUrl\"")
+        if (capaUrl != null) campos.add("\"capa_url\":\"$capaUrl\"")
+        val body = "{${campos.joinToString(",")}}"
+        httpClient.patch("$SUPABASE_URL/rest/v1/perfis?id=eq.$userId") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Content-Type", "application/json")
+            header("Prefer", "return=minimal")
+            setBody(body)
+        }
+        true
+    } catch (e: Exception) { false }
 }

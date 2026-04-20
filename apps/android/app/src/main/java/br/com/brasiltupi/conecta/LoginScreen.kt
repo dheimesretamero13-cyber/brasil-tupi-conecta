@@ -24,8 +24,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun LoginScreen(
     onVoltar: () -> Unit,
-    onEntrarProfissional: () -> Unit,
-    onEntrarCliente: () -> Unit,
+    onEntrarProfissional: (String) -> Unit,
+    onEntrarCliente: (String) -> Unit,
     onCadastro: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -52,16 +52,16 @@ fun LoginScreen(
             try {
                 val perfil = signInAndroid(email, senha)
                 loading = false
+                val uid = currentUserId ?: ""
                 if (perfil != null) {
                     val isProfissional = perfil.tipo == "profissional_certificado" ||
                             perfil.tipo == "profissional_liberal"
-                    if (isProfissional) onEntrarProfissional()
-                    else onEntrarCliente()
+                    if (isProfissional) onEntrarProfissional(uid)
+                    else onEntrarCliente(uid)
                 } else {
-                    // Sem perfil cadastrado — redireciona pelo tipo selecionado
-                    if (currentUserId != null) {
-                        if (tipoConta == "profissional") onEntrarProfissional()
-                        else onEntrarCliente()
+                    if (uid.isNotEmpty()) {
+                        if (tipoConta == "profissional") onEntrarProfissional(uid)
+                        else onEntrarCliente(uid)
                     } else {
                         erroGeral = "E-mail ou senha incorretos."
                     }
@@ -96,38 +96,18 @@ fun LoginScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Text(
-            "Entrar na plataforma",
-            fontSize = 22.sp, fontWeight = FontWeight.Bold,
-            color = Ink, textAlign = TextAlign.Center
-        )
-        Text(
-            "Acesse sua conta para continuar.",
-            fontSize = 14.sp, color = InkMuted,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 6.dp)
-        )
+        Text("Entrar na plataforma", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Ink, textAlign = TextAlign.Center)
+        Text("Acesse sua conta para continuar.", fontSize = 14.sp, color = InkMuted, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp))
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Tabs tipo de conta
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(SurfaceOff, RoundedCornerShape(10.dp))
-                .padding(4.dp)
-        ) {
+        Row(modifier = Modifier.fillMaxWidth().background(SurfaceOff, RoundedCornerShape(10.dp)).padding(4.dp)) {
             listOf("profissional" to "Sou profissional", "cliente" to "Sou cliente").forEach { (tipo, label) ->
                 Button(
                     onClick = { tipoConta = tipo },
                     modifier = Modifier.weight(1f).height(40.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (tipoConta == tipo) Surface else Color.Transparent,
-                        contentColor = if (tipoConta == tipo) Verde else InkMuted
-                    ),
-                    elevation = ButtonDefaults.buttonElevation(
-                        defaultElevation = if (tipoConta == tipo) 2.dp else 0.dp
-                    ),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (tipoConta == tipo) Surface else Color.Transparent, contentColor = if (tipoConta == tipo) Verde else InkMuted),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = if (tipoConta == tipo) 2.dp else 0.dp),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -137,7 +117,6 @@ fun LoginScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Campo email
         Column(modifier = Modifier.fillMaxWidth()) {
             Text("E-mail", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
             Spacer(modifier = Modifier.height(6.dp))
@@ -149,31 +128,18 @@ fun LoginScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                 isError = emailError.isNotEmpty(),
                 shape = RoundedCornerShape(8.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Verde,
-                    unfocusedBorderColor = Color(0xFFE0E0E0),
-                    errorBorderColor = Urgente
-                ),
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0), errorBorderColor = Urgente),
                 singleLine = true
             )
-            if (emailError.isNotEmpty()) {
-                Text(emailError, color = Urgente, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
-            }
+            if (emailError.isNotEmpty()) Text(emailError, color = Urgente, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Campo senha
         Column(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Senha", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
-                TextButton(onClick = {}) {
-                    Text("Esqueci minha senha", color = Verde, fontSize = 12.sp)
-                }
+                TextButton(onClick = {}) { Text("Esqueci minha senha", color = Verde, fontSize = 12.sp) }
             }
             OutlinedTextField(
                 value = senha,
@@ -184,11 +150,7 @@ fun LoginScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 isError = senhaError.isNotEmpty(),
                 shape = RoundedCornerShape(8.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Verde,
-                    unfocusedBorderColor = Color(0xFFE0E0E0),
-                    errorBorderColor = Urgente
-                ),
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0), errorBorderColor = Urgente),
                 trailingIcon = {
                     TextButton(onClick = { mostrarSenha = !mostrarSenha }) {
                         Text(if (mostrarSenha) "Ocultar" else "Ver", color = InkMuted, fontSize = 12.sp)
@@ -196,28 +158,18 @@ fun LoginScreen(
                 },
                 singleLine = true
             )
-            if (senhaError.isNotEmpty()) {
-                Text(senhaError, color = Urgente, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
-            }
+            if (senhaError.isNotEmpty()) Text(senhaError, color = Urgente, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Erro geral
         if (erroGeral.isNotEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFFFDE8E8), RoundedCornerShape(8.dp))
-                    .padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(modifier = Modifier.fillMaxWidth().background(Color(0xFFFDE8E8), RoundedCornerShape(8.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(erroGeral, color = Urgente, fontSize = 13.sp)
             }
             Spacer(modifier = Modifier.height(12.dp))
         }
 
-        // Botão entrar
         Button(
             onClick = { handleLogin() },
             modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -226,29 +178,15 @@ fun LoginScreen(
             enabled = !loading
         ) {
             if (loading) {
-                CircularProgressIndicator(
-                    color = Color.White,
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp
-                )
+                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
             } else {
-                Text(
-                    "Entrar como ${if (tipoConta == "profissional") "profissional" else "cliente"}",
-                    fontSize = 15.sp, fontWeight = FontWeight.Bold
-                )
+                Text("Entrar como ${if (tipoConta == "profissional") "profissional" else "cliente"}", fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(VerdeClaro, RoundedCornerShape(8.dp))
-                .padding(12.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(modifier = Modifier.fillMaxWidth().background(VerdeClaro, RoundedCornerShape(8.dp)).padding(12.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             Text("🔒  Conexão segura e criptografada", fontSize = 12.sp, color = Verde)
         }
 

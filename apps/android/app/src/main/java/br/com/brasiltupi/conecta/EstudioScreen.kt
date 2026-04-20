@@ -22,7 +22,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.brasiltupi.conecta.ui.theme.*
 import kotlinx.coroutines.launch
-
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 // ── MODELOS ───────────────────────────────────────────
 data class ItemEstudio(
     val id: String,
@@ -40,6 +41,8 @@ data class ItemEstudio(
     val totalVendas: Int = 0,
     val avaliacaoMedia: Double = 0.0,
     val autorNome: String = "",
+    val autorFotoUrl: String? = null,
+    val autorCapaUrl: String? = null,
 )
 
 val tipoIconMap = mapOf(
@@ -493,40 +496,52 @@ fun EstudioVitrineScreen(profissionalId: String, onVoltar: () -> Unit) {
         return
     }
 
+    val nomeProf = itens.firstOrNull()?.autorNome ?: ""
+    val fotoProf = itens.firstOrNull()?.autorFotoUrl
+
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF8F7F4))) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Brush.linearGradient(listOf(Color(0xFF0C2D6B), Color(0xFF1A5C3A))))
-                .padding(horizontal = 20.dp)
-                .padding(top = 52.dp, bottom = 24.dp)
-        ) {
+        // Header — fechado corretamente antes dos filtros
+        Box(modifier = Modifier.fillMaxWidth()
+            .background(Brush.linearGradient(listOf(Color(0xFF0C2D6B), Color(0xFF1A5C3A))))
+            .padding(horizontal = 20.dp).padding(top = 52.dp, bottom = 24.dp)) {
             Column {
                 TextButton(onClick = onVoltar) {
                     Text("← Voltar", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
                 }
-                Text("🎨 Estúdio do Profissional", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(top = 8.dp))
-                Text("Tudo que este profissional criou para você.", fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f), modifier = Modifier.padding(top = 4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.padding(top = 8.dp)) {
+                    Box(modifier = Modifier.size(52.dp).background(Color(0xFFC49A2A), RoundedCornerShape(50)),
+                        contentAlignment = Alignment.Center) {
+                        if (fotoProf != null) {
+                            AsyncImage(model = fotoProf, contentDescription = null,
+                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(50)),
+                                contentScale = ContentScale.Crop)
+                        } else {
+                            Text(
+                                if (nomeProf.isNotEmpty()) nomeProf.split(" ").map { it[0] }.joinToString("").take(2).uppercase() else "?",
+                                fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                    Column {
+                        Text("Estúdio", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        if (nomeProf.isNotEmpty()) Text("de $nomeProf", fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f))
+                        else Text("do profissional", fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f))
+                    }
+                }
             }
-        }
+        } // <-- Box do header fechado aqui
 
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        // Filtros — FORA do Box do header
+        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(tiposFiltro) { (tipo, label) ->
-                FilterChip(
-                    selected = filtroTipo == tipo,
-                    onClick = { filtroTipo = tipo },
+                FilterChip(selected = filtroTipo == tipo, onClick = { filtroTipo = tipo },
                     label = { Text(label, fontSize = 12.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Verde,
-                        selectedLabelColor = Color.White,
-                    )
-                )
+                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Verde, selectedLabelColor = Color.White))
             }
         }
 
+        // Conteúdo — FORA do Box do header
         if (loading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color(0xFFC49A2A))
@@ -534,20 +549,14 @@ fun EstudioVitrineScreen(profissionalId: String, onVoltar: () -> Unit) {
         } else if (itens.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("🎨", fontSize = 48.sp)
                     Spacer(modifier = Modifier.height(16.dp))
                     Text("Estúdio vazio", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF111827))
                     Text("Este profissional ainda não publicou itens.", fontSize = 13.sp, color = Color(0xFF6B7280), modifier = Modifier.padding(top = 6.dp))
                 }
             }
         } else {
-            LazyColumn(
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(itens) { item ->
-                    CardEstudio(item = item, onClick = { itemSelecionado = item })
-                }
+            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(itens) { item -> CardEstudio(item = item, onClick = { itemSelecionado = item }) }
             }
         }
     }
