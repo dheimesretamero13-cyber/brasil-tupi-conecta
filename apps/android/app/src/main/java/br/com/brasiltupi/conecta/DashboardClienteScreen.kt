@@ -16,7 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.brasiltupi.conecta.ui.theme.*
 
-// ── DADOS MOCK ────────────────────────────────────────
+// ── DADOS MOCK (fallback) ─────────────────────────────
 data class ConsultaCliente(
     val id: Int,
     val profissional: String,
@@ -39,9 +39,28 @@ val consultasMock = listOf(
 
 // ── TELA PRINCIPAL ────────────────────────────────────
 @Composable
-fun DashboardClienteScreen(onSair: () -> Unit, onEstudio: ((String) -> Unit)? = null, onPerfil: (() -> Unit)? = null) {
+fun DashboardClienteScreen(
+    onSair: () -> Unit,
+    onEstudio: ((String) -> Unit)? = null,
+    onPerfil: (() -> Unit)? = null
+) {
     var abaSelecionada by remember { mutableStateOf("visao") }
     val pendentes = consultasMock.count { it.status == "concluida" && !it.avaliada }
+
+    // Dados reais do Supabase
+    var nomeUsuario by remember { mutableStateOf("") }
+    var iniciais by remember { mutableStateOf("") }
+
+    LaunchedEffect(currentUserId) {
+        val uid = currentUserId ?: return@LaunchedEffect
+        val perfil = getPerfilAndroid(uid)
+        if (perfil != null) {
+            nomeUsuario = perfil.nome
+            iniciais = perfil.nome.split(" ").map { it[0] }.joinToString("").take(2).uppercase()
+        }
+    }
+
+    val primeiroNome = nomeUsuario.split(" ").firstOrNull() ?: "Cliente"
 
     val abas = listOf(
         "visao" to "Visão Geral",
@@ -94,7 +113,7 @@ fun DashboardClienteScreen(onSair: () -> Unit, onEstudio: ((String) -> Unit)? = 
                         .background(Verde, RoundedCornerShape(50)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("JF", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(iniciais.ifEmpty { "?" }, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
                 TextButton(onClick = onSair) {
                     Text("Sair", color = InkMuted, fontSize = 13.sp)
@@ -126,25 +145,23 @@ fun DashboardClienteScreen(onSair: () -> Unit, onEstudio: ((String) -> Unit)? = 
 
         // Conteúdo
         when (abaSelecionada) {
-            "visao"    -> AbaVisaoGeralCliente(onNavegar = { abaSelecionada = it })
+            "visao"     -> AbaVisaoGeralCliente(onNavegar = { abaSelecionada = it }, primeiroNome = primeiroNome)
             "consultas" -> AbaConsultasCliente()
-            "busca"    -> AbaBuscaCliente(onEstudio = onEstudio)
-            "perfil"   -> { if (onPerfil != null) { LaunchedEffect(Unit) { onPerfil() } } }
+            "busca"     -> AbaBuscaCliente(onEstudio = onEstudio)
+            "perfil"    -> { if (onPerfil != null) { LaunchedEffect(Unit) { onPerfil() } } }
         }
     }
 }
 
 // ── ABA: VISÃO GERAL ──────────────────────────────────
 @Composable
-fun AbaVisaoGeralCliente(onNavegar: (String) -> Unit) {
+fun AbaVisaoGeralCliente(onNavegar: (String) -> Unit, primeiroNome: String = "Cliente") {
     val pendentes = consultasMock.filter { it.status == "concluida" && !it.avaliada }
     val proximas  = consultasMock.filter { it.status == "agendada" }
     var avaliarConsulta by remember { mutableStateOf<ConsultaCliente?>(null) }
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Saudação
@@ -154,7 +171,7 @@ fun AbaVisaoGeralCliente(onNavegar: (String) -> Unit) {
             colors = CardDefaults.cardColors(containerColor = Verde)
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
-                Text("Olá, Juliana! 👋", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text("Olá, $primeiroNome! 👋", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 Text(
                     "Você tem ${proximas.size} consulta(s) agendada(s).",
                     fontSize = 13.sp, color = Color.White.copy(alpha = 0.75f),
@@ -224,9 +241,7 @@ fun AbaVisaoGeralCliente(onNavegar: (String) -> Unit) {
                     ) {
                         Text("Avaliações pendentes", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                         Box(
-                            modifier = Modifier
-                                .size(22.dp)
-                                .background(Urgente, RoundedCornerShape(50)),
+                            modifier = Modifier.size(22.dp).background(Urgente, RoundedCornerShape(50)),
                             contentAlignment = Alignment.Center
                         ) {
                             Text("${pendentes.size}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
@@ -239,9 +254,7 @@ fun AbaVisaoGeralCliente(onNavegar: (String) -> Unit) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .background(UrgenteClaro, RoundedCornerShape(50)),
+                                modifier = Modifier.size(36.dp).background(UrgenteClaro, RoundedCornerShape(50)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -308,9 +321,7 @@ fun AbaVisaoGeralCliente(onNavegar: (String) -> Unit) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .background(VerdeClaro, RoundedCornerShape(10.dp)),
+                                modifier = Modifier.size(44.dp).background(VerdeClaro, RoundedCornerShape(10.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -325,10 +336,7 @@ fun AbaVisaoGeralCliente(onNavegar: (String) -> Unit) {
                             }
                             Box(
                                 modifier = Modifier
-                                    .background(
-                                        if (c.tipo == "Urgente") UrgenteClaro else VerdeClaro,
-                                        RoundedCornerShape(20.dp)
-                                    )
+                                    .background(if (c.tipo == "Urgente") UrgenteClaro else VerdeClaro, RoundedCornerShape(20.dp))
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
                                 Text(c.tipo, fontSize = 10.sp, fontWeight = FontWeight.Bold,
@@ -342,12 +350,8 @@ fun AbaVisaoGeralCliente(onNavegar: (String) -> Unit) {
         }
     }
 
-    // Modal avaliação
     if (avaliarConsulta != null) {
-        ModalAvaliacao(
-            consulta = avaliarConsulta!!,
-            onFechar = { avaliarConsulta = null }
-        )
+        ModalAvaliacao(consulta = avaliarConsulta!!, onFechar = { avaliarConsulta = null })
     }
 }
 
@@ -371,9 +375,7 @@ fun ModalAvaliacao(consulta: ConsultaCliente, onFechar: () -> Unit) {
             if (enviado) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                     Box(
-                        modifier = Modifier
-                            .size(56.dp)
-                            .background(Verde, RoundedCornerShape(50)),
+                        modifier = Modifier.size(56.dp).background(Verde, RoundedCornerShape(50)),
                         contentAlignment = Alignment.Center
                     ) {
                         Text("✓", fontSize = 24.sp, color = Color.White, fontWeight = FontWeight.Bold)
@@ -386,22 +388,12 @@ fun ModalAvaliacao(consulta: ConsultaCliente, onFechar: () -> Unit) {
                 }
             } else {
                 Column {
-                    Text(
-                        "Como foi sua consulta com ${consulta.profissional}?",
-                        fontSize = 13.sp, color = InkMuted
-                    )
+                    Text("Como foi sua consulta com ${consulta.profissional}?", fontSize = 13.sp, color = InkMuted)
                     Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                         (1..5).forEach { i ->
                             TextButton(onClick = { nota = i }) {
-                                Text(
-                                    "★",
-                                    fontSize = 32.sp,
-                                    color = if (i <= nota) DouradoMedio else Color(0xFFE5E7EB)
-                                )
+                                Text("★", fontSize = 32.sp, color = if (i <= nota) DouradoMedio else Color(0xFFE5E7EB))
                             }
                         }
                     }
@@ -427,9 +419,7 @@ fun ModalAvaliacao(consulta: ConsultaCliente, onFechar: () -> Unit) {
         },
         dismissButton = {
             if (!enviado) {
-                TextButton(onClick = onFechar) {
-                    Text("Cancelar", color = InkMuted, fontSize = 13.sp)
-                }
+                TextButton(onClick = onFechar) { Text("Cancelar", color = InkMuted, fontSize = 13.sp) }
             }
         }
     )
@@ -447,31 +437,18 @@ fun AbaConsultasCliente() {
         else        -> consultasMock
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Filtros
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+    Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("todas" to "Todas", "concluida" to "Concluídas", "agendada" to "Agendadas").forEach { (id, label) ->
                 FilterChip(
                     selected = filtro == id,
                     onClick = { filtro = id },
                     label = { Text(label, fontSize = 12.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Verde,
-                        selectedLabelColor = Color.White,
-                    )
+                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Verde, selectedLabelColor = Color.White)
                 )
             }
         }
 
-        // Lista
         lista.forEach { c ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -480,14 +457,9 @@ fun AbaConsultasCliente() {
                 elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .background(AzulClaro, RoundedCornerShape(50)),
+                            modifier = Modifier.size(44.dp).background(AzulClaro, RoundedCornerShape(50)),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -511,10 +483,7 @@ fun AbaConsultasCliente() {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Box(
                                 modifier = Modifier
-                                    .background(
-                                        if (c.tipo == "Urgente") UrgenteClaro else VerdeClaro,
-                                        RoundedCornerShape(20.dp)
-                                    )
+                                    .background(if (c.tipo == "Urgente") UrgenteClaro else VerdeClaro, RoundedCornerShape(20.dp))
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
                                 Text(c.tipo, fontSize = 10.sp, fontWeight = FontWeight.Bold,
@@ -522,10 +491,7 @@ fun AbaConsultasCliente() {
                             }
                             Box(
                                 modifier = Modifier
-                                    .background(
-                                        if (c.status == "concluida") VerdeClaro else AzulClaro,
-                                        RoundedCornerShape(20.dp)
-                                    )
+                                    .background(if (c.status == "concluida") VerdeClaro else AzulClaro, RoundedCornerShape(20.dp))
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
                                 Text(
@@ -562,10 +528,7 @@ fun AbaConsultasCliente() {
     }
 
     if (avaliarConsulta != null) {
-        ModalAvaliacao(
-            consulta = avaliarConsulta!!,
-            onFechar = { avaliarConsulta = null }
-        )
+        ModalAvaliacao(consulta = avaliarConsulta!!, onFechar = { avaliarConsulta = null })
     }
 }
 
@@ -594,13 +557,7 @@ fun AbaBuscaCliente(onEstudio: ((String) -> Unit)? = null) {
         return
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Banner urgente
+    Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Card(
             onClick = {},
             modifier = Modifier.fillMaxWidth(),
@@ -620,7 +577,6 @@ fun AbaBuscaCliente(onEstudio: ((String) -> Unit)? = null) {
             }
         }
 
-        // Lista de PMPs
         Text("Profissionais PMP", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
 
         profissionaisMock.forEach { prof ->

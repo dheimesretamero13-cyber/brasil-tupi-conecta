@@ -16,7 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.brasiltupi.conecta.ui.theme.*
 
-// ── DADOS MOCK ────────────────────────────────────────
+// ── DADOS MOCK (fallback) ─────────────────────────────
 data class Atendimento(
     val id: Int,
     val cliente: String,
@@ -38,8 +38,36 @@ val atendimentosMock = listOf(
 
 // ── TELA PRINCIPAL ────────────────────────────────────
 @Composable
-fun DashboardProfissionalScreen(onSair: () -> Unit, onEstudio: (() -> Unit)? = null, onPerfil: (() -> Unit)? = null) {
+fun DashboardProfissionalScreen(
+    onSair: () -> Unit,
+    onEstudio: (() -> Unit)? = null,
+    onPerfil: (() -> Unit)? = null
+) {
     var abaSelecionada by remember { mutableStateOf("visao") }
+
+    // Dados reais do Supabase
+    var nomeUsuario by remember { mutableStateOf("") }
+    var iniciais by remember { mutableStateOf("") }
+    var credibilidade by remember { mutableStateOf(0) }
+    var atendimentosTotal by remember { mutableStateOf(0) }
+    var avaliacaoMedia by remember { mutableStateOf(0.0) }
+    var disponivelUrgente by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentUserId) {
+        val uid = currentUserId ?: return@LaunchedEffect
+        val perfil = getPerfilAndroid(uid)
+        if (perfil != null) {
+            nomeUsuario = perfil.nome
+            iniciais = perfil.nome.split(" ").map { it[0] }.joinToString("").take(2).uppercase()
+        }
+        // Buscar dados do profissional
+        val profs = getProfissionaisPMPAndroid(false, "")
+        val meuPerfil = profs.firstOrNull { it.id == uid }
+        if (meuPerfil != null) {
+            credibilidade = meuPerfil.credibilidade
+            disponivelUrgente = meuPerfil.disponivel_urgente
+        }
+    }
 
     val abas = listOf(
         "visao" to "Visão Geral",
@@ -49,42 +77,24 @@ fun DashboardProfissionalScreen(onSair: () -> Unit, onEstudio: (() -> Unit)? = n
         "perfil" to "Meu Perfil",
     )
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(SurfaceWarm)
-    ) {
+    Column(modifier = Modifier.fillMaxSize().background(SurfaceWarm)) {
         // Topbar
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Surface)
-                .padding(horizontal = 20.dp)
-                .padding(top = 48.dp, bottom = 12.dp),
+            modifier = Modifier.fillMaxWidth().background(Surface)
+                .padding(horizontal = 20.dp).padding(top = 48.dp, bottom = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
                 Text("Brasil Tupi", fontSize = 16.sp, fontWeight = FontWeight.Black, color = Azul)
-                Text(
-                    "Conecta",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Verde,
-                    modifier = Modifier.offset(y = (-4).dp)
-                )
+                Text("Conecta", fontSize = 16.sp, fontWeight = FontWeight.Black, color = Verde, modifier = Modifier.offset(y = (-4).dp))
             }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .background(Azul, RoundedCornerShape(50)),
+                    modifier = Modifier.size(36.dp).background(Azul, RoundedCornerShape(50)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("CH", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(iniciais.ifEmpty { "?" }, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
                 TextButton(onClick = onSair) {
                     Text("Sair", color = InkMuted, fontSize = 13.sp)
@@ -93,91 +103,69 @@ fun DashboardProfissionalScreen(onSair: () -> Unit, onEstudio: (() -> Unit)? = n
         }
         HorizontalDivider(color = SurfaceOff)
 
-        // Tabs navegação
         ScrollableTabRow(
             selectedTabIndex = abas.indexOfFirst { it.first == abaSelecionada },
-            containerColor = Surface,
-            contentColor = Verde,
-            edgePadding = 16.dp,
+            containerColor = Surface, contentColor = Verde, edgePadding = 16.dp,
         ) {
-            abas.forEachIndexed { _, (id, label) ->
+            abas.forEach { (id, label) ->
                 Tab(
                     selected = abaSelecionada == id,
                     onClick = { abaSelecionada = id },
                     text = {
-                        Text(
-                            label,
-                            fontSize = 13.sp,
+                        Text(label, fontSize = 13.sp,
                             fontWeight = if (abaSelecionada == id) FontWeight.Bold else FontWeight.Normal,
-                            color = if (abaSelecionada == id) Verde else InkMuted
-                        )
+                            color = if (abaSelecionada == id) Verde else InkMuted)
                     }
                 )
             }
         }
-        // Conteúdo
+
         when (abaSelecionada) {
-            "visao" -> AbaVisaoGeralDash()
-            "atendimentos" -> AbaAtendimentosDash()
-            "credibilidade" -> AbaCredibilidadeDash()
-            "urgente" -> AbaUrgenteDash(onEstudio = onEstudio)
-            "perfil" -> {
-                if (onPerfil != null) {
-                    LaunchedEffect(Unit) { onPerfil() }
-                } else {
-                    AbaPerfilProfissional()
-                }
-            }
+            "visao"         -> AbaVisaoGeralDash(nomeUsuario = nomeUsuario, credibilidade = credibilidade, atendimentosTotal = atendimentosTotal, avaliacaoMedia = avaliacaoMedia, disponivelUrgente = disponivelUrgente)
+            "atendimentos"  -> AbaAtendimentosDash()
+            "credibilidade" -> AbaCredibilidadeDash(credibilidade = credibilidade)
+            "urgente"       -> AbaUrgenteDash(onEstudio = onEstudio, disponivelUrgente = disponivelUrgente)
+            "perfil"        -> { if (onPerfil != null) { LaunchedEffect(Unit) { onPerfil() } } else { AbaPerfilProfissional() } }
         }
     }
 }
 
 // ── ABA: VISÃO GERAL ──────────────────────────────────
 @Composable
-fun AbaVisaoGeralDash() {
-    val ganhosMes = atendimentosMock
-        .filter { it.status == "concluido" }
+fun AbaVisaoGeralDash(
+    nomeUsuario: String = "",
+    credibilidade: Int = 0,
+    atendimentosTotal: Int = 0,
+    avaliacaoMedia: Double = 0.0,
+    disponivelUrgente: Boolean = false,
+) {
+    val ganhosMes = atendimentosMock.filter { it.status == "concluido" }
         .sumOf { it.valor.replace("[^0-9]".toRegex(), "").toIntOrNull() ?: 0 }
 
+    val primeiroNome = nomeUsuario.split(" ").firstOrNull() ?: "Profissional"
+
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Saudação
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Azul)
-        ) {
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Azul)) {
             Column(modifier = Modifier.padding(20.dp)) {
-                Text("Olá, Carlos! 👋", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                Text(
-                    "Você tem ${atendimentosMock.count { it.status == "agendado" }} atendimento(s) agendado(s).",
-                    fontSize = 13.sp, color = Color.White.copy(alpha = 0.75f),
-                    modifier = Modifier.padding(top = 4.dp)
-                )
+                Text("Olá, $primeiroNome! 👋", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text("Você tem ${atendimentosMock.count { it.status == "agendado" }} atendimento(s) agendado(s).",
+                    fontSize = 13.sp, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.padding(top = 4.dp))
             }
         }
 
-        // Métricas
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            MetricaCard(modifier = Modifier.weight(1f), icone = "📋", numero = "${dadosProfissionalMock.atendimentosTotal}", label = "Atendimentos", cor = Verde)
-            MetricaCard(modifier = Modifier.weight(1f), icone = "⭐", numero = "${dadosProfissionalMock.avaliacaoMedia}", label = "Avaliação", cor = Dourado)
+            MetricaCard(modifier = Modifier.weight(1f), icone = "📋", numero = "${atendimentosMock.size}", label = "Atendimentos", cor = Verde)
+            MetricaCard(modifier = Modifier.weight(1f), icone = "⭐", numero = if (avaliacaoMedia > 0) "$avaliacaoMedia" else "4.8", label = "Avaliação", cor = Dourado)
         }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             MetricaCard(modifier = Modifier.weight(1f), icone = "💰", numero = "R$ $ganhosMes", label = "Ganhos mês", cor = Azul)
-            MetricaCard(modifier = Modifier.weight(1f), icone = "🎯", numero = "${dadosProfissionalMock.credibilidade}", label = "Credibilidade", cor = Verde)
+            MetricaCard(modifier = Modifier.weight(1f), icone = "🎯", numero = "$credibilidade", label = "Credibilidade", cor = Verde)
         }
 
-        // Próximos atendimentos
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Surface)
-        ) {
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Próximos atendimentos", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(12.dp))
@@ -186,16 +174,8 @@ fun AbaVisaoGeralDash() {
                     Text("Nenhum atendimento agendado", fontSize = 13.sp, color = InkMuted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                 } else {
                     proximos.forEach { a ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .background(AzulClaro, RoundedCornerShape(10.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(44.dp).background(AzulClaro, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text(a.data.split("/")[0], fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Azul)
                                     Text("abr", fontSize = 9.sp, color = Azul)
@@ -206,16 +186,8 @@ fun AbaVisaoGeralDash() {
                                 Text(a.cliente, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Ink)
                                 Text("${a.hora} · ${a.tipo}", fontSize = 12.sp, color = InkMuted)
                             }
-                            Box(
-                                modifier = Modifier
-                                    .background(
-                                        if (a.tipo == "Urgente") UrgenteClaro else VerdeClaro,
-                                        RoundedCornerShape(20.dp)
-                                    )
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Text(a.tipo, fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                                    color = if (a.tipo == "Urgente") Urgente else Verde)
+                            Box(modifier = Modifier.background(if (a.tipo == "Urgente") UrgenteClaro else VerdeClaro, RoundedCornerShape(20.dp)).padding(horizontal = 10.dp, vertical = 4.dp)) {
+                                Text(a.tipo, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (a.tipo == "Urgente") Urgente else Verde)
                             }
                         }
                         HorizontalDivider(color = SurfaceOff)
@@ -224,30 +196,14 @@ fun AbaVisaoGeralDash() {
             }
         }
 
-        // Últimas avaliações
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Surface)
-        ) {
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Últimas avaliações", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(12.dp))
                 atendimentosMock.filter { it.avaliacao > 0 }.take(3).forEach { a ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(AzulClaro, RoundedCornerShape(50)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                a.cliente.split(" ").map { it[0] }.joinToString("").take(2),
-                                fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Azul
-                            )
+                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.size(36.dp).background(AzulClaro, RoundedCornerShape(50)), contentAlignment = Alignment.Center) {
+                            Text(a.cliente.split(" ").map { it[0] }.joinToString("").take(2), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Azul)
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
@@ -261,30 +217,16 @@ fun AbaVisaoGeralDash() {
             }
         }
 
-        // Status urgente
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (dadosProfissionalMock.disponivelUrgente) VerdeClaro else UrgenteClaro
-            )
-        ) {
-            Row(
-                modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(if (dadosProfissionalMock.disponivelUrgente) "🟢" else "🔴", fontSize = 16.sp)
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = if (disponivelUrgente) VerdeClaro else UrgenteClaro)) {
+            Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (disponivelUrgente) "🟢" else "🔴", fontSize = 16.sp)
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        if (dadosProfissionalMock.disponivelUrgente) "Disponível para urgências" else "Indisponível para urgências",
-                        fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                        color = if (dadosProfissionalMock.disponivelUrgente) Verde else Urgente
-                    )
-                    Text(
-                        if (dadosProfissionalMock.disponivelUrgente) "Você aparece na área urgente" else "Ative na aba Urgente",
-                        fontSize = 11.sp, color = InkMuted
-                    )
+                    Text(if (disponivelUrgente) "Disponível para urgências" else "Indisponível para urgências",
+                        fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (disponivelUrgente) Verde else Urgente)
+                    Text(if (disponivelUrgente) "Você aparece na área urgente" else "Ative na aba Urgente",
+                        fontSize = 11.sp, color = InkMuted)
                 }
             }
         }
@@ -293,19 +235,9 @@ fun AbaVisaoGeralDash() {
 
 @Composable
 fun MetricaCard(modifier: Modifier = Modifier, icone: String, numero: String, label: String, cor: Color) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
+    Card(modifier = modifier, shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface), elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(cor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(modifier = Modifier.size(36.dp).background(cor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
                 Text(icone, fontSize = 16.sp)
             }
             Spacer(modifier = Modifier.height(10.dp))
@@ -325,56 +257,20 @@ fun AbaAtendimentosDash() {
         else        -> atendimentosMock
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Filtros
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("todos" to "Todos", "concluido" to "Concluídos", "agendado" to "Agendados").forEach { (id, label) ->
-                FilterChip(
-                    selected = filtro == id,
-                    onClick = { filtro = id },
-                    label = { Text(label, fontSize = 12.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Verde,
-                        selectedLabelColor = Color.White,
-                    )
-                )
+                FilterChip(selected = filtro == id, onClick = { filtro = id }, label = { Text(label, fontSize = 12.sp) },
+                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Verde, selectedLabelColor = Color.White))
             }
         }
-
-        // Lista
         lista.forEach { a ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-            ) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface), elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .background(AzulClaro, RoundedCornerShape(50)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    a.cliente.split(" ").map { it[0] }.joinToString("").take(2),
-                                    fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Azul
-                                )
+                            Box(modifier = Modifier.size(40.dp).background(AzulClaro, RoundedCornerShape(50)), contentAlignment = Alignment.Center) {
+                                Text(a.cliente.split(" ").map { it[0] }.joinToString("").take(2), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Azul)
                             }
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
@@ -385,46 +281,20 @@ fun AbaAtendimentosDash() {
                         Text(a.valor, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Ink)
                     }
                     Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Box(
-                                modifier = Modifier
-                                    .background(
-                                        if (a.tipo == "Urgente") UrgenteClaro else VerdeClaro,
-                                        RoundedCornerShape(20.dp)
-                                    )
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Text(a.tipo, fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                                    color = if (a.tipo == "Urgente") Urgente else Verde)
+                            Box(modifier = Modifier.background(if (a.tipo == "Urgente") UrgenteClaro else VerdeClaro, RoundedCornerShape(20.dp)).padding(horizontal = 10.dp, vertical = 4.dp)) {
+                                Text(a.tipo, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (a.tipo == "Urgente") Urgente else Verde)
                             }
-                            Box(
-                                modifier = Modifier
-                                    .background(
-                                        if (a.status == "concluido") VerdeClaro else AzulClaro,
-                                        RoundedCornerShape(20.dp)
-                                    )
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    if (a.status == "concluido") "Concluído" else "Agendado",
-                                    fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                                    color = if (a.status == "concluido") Verde else Azul
-                                )
+                            Box(modifier = Modifier.background(if (a.status == "concluido") VerdeClaro else AzulClaro, RoundedCornerShape(20.dp)).padding(horizontal = 10.dp, vertical = 4.dp)) {
+                                Text(if (a.status == "concluido") "Concluído" else "Agendado", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (a.status == "concluido") Verde else Azul)
                             }
                         }
-                        if (a.avaliacao > 0) {
-                            Text("★".repeat(a.avaliacao), fontSize = 13.sp, color = DouradoMedio)
-                        }
+                        if (a.avaliacao > 0) Text("★".repeat(a.avaliacao), fontSize = 13.sp, color = DouradoMedio)
                     }
                 }
             }
         }
-
         if (lista.isEmpty()) {
             Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
                 Text("Nenhum atendimento encontrado", fontSize = 14.sp, color = InkMuted, textAlign = TextAlign.Center)
@@ -435,129 +305,53 @@ fun AbaAtendimentosDash() {
 
 // ── ABA: CREDIBILIDADE ────────────────────────────────
 @Composable
-fun AbaCredibilidadeDash() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Pontuação
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Surface)
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp).fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+fun AbaCredibilidadeDash(credibilidade: Int = 0) {
+    val cred = if (credibilidade > 0) credibilidade else dadosProfissionalMock.credibilidade
+
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
+            Column(modifier = Modifier.padding(20.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Sua pontuação", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(20.dp))
-                Box(
-                    modifier = Modifier
-                        .size(120.dp)
-                        .background(
-                            if (dadosProfissionalMock.credibilidade >= 80) Color(0xFFFDF3D8)
-                            else VerdeClaro,
-                            RoundedCornerShape(50)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
+                Box(modifier = Modifier.size(120.dp).background(if (cred >= 80) Color(0xFFFDF3D8) else VerdeClaro, RoundedCornerShape(50)), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            "${dadosProfissionalMock.credibilidade}",
-                            fontSize = 36.sp, fontWeight = FontWeight.Black,
-                            color = if (dadosProfissionalMock.credibilidade >= 80) Dourado else Verde
-                        )
+                        Text("$cred", fontSize = 36.sp, fontWeight = FontWeight.Black, color = if (cred >= 80) Dourado else Verde)
                         Text("pontos", fontSize = 12.sp, color = InkMuted)
                     }
                 }
                 Spacer(modifier = Modifier.height(14.dp))
-                Text(
-                    if (dadosProfissionalMock.credibilidade >= 80) "🏆 Elegível ao PMP"
-                    else if (dadosProfissionalMock.credibilidade >= 50) "📈 Crescendo"
-                    else "🌱 Iniciando",
-                    fontSize = 14.sp, fontWeight = FontWeight.Bold, color = InkSoft
-                )
+                Text(if (cred >= 80) "🏆 Elegível ao PMP" else if (cred >= 50) "📈 Crescendo" else "🌱 Iniciando",
+                    fontSize = 14.sp, fontWeight = FontWeight.Bold, color = InkSoft)
             }
         }
 
-        // Fatores
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Surface)
-        ) {
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Como é calculado", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(14.dp))
-                listOf(
-                    Triple("Atendimentos", 30, Verde),
-                    Triple("Avaliações", 28, Azul),
-                    Triple("Pontualidade", 20, Dourado),
-                ).forEach { (label, pts, cor) ->
+                listOf(Triple("Atendimentos", 30, Verde), Triple("Avaliações", 28, Azul), Triple("Pontualidade", 20, Dourado)).forEach { (label, pts, cor) ->
                     Column(modifier = Modifier.padding(vertical = 8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(label, fontSize = 13.sp, color = Ink)
                             Text("$pts pts", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = cor)
                         }
                         Spacer(modifier = Modifier.height(6.dp))
-                        LinearProgressIndicator(
-                            progress = { pts / 40f },
-                            modifier = Modifier.fillMaxWidth().height(5.dp),
-                            color = cor,
-                            trackColor = SurfaceOff,
-                        )
+                        LinearProgressIndicator(progress = { pts / 40f }, modifier = Modifier.fillMaxWidth().height(5.dp), color = cor, trackColor = SurfaceOff)
                     }
                 }
             }
         }
 
-        // PMP
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFFDF8F0)),
-            border = androidx.compose.foundation.BorderStroke(1.dp, DouradoMedio.copy(alpha = 0.4f))
-        ) {
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFDF8F0)), border = androidx.compose.foundation.BorderStroke(1.dp, DouradoMedio.copy(alpha = 0.4f))) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Programa PMP", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Dourado)
-                Text(
-                    "Faltam ${100 - dadosProfissionalMock.credibilidade} pontos para o PMP",
-                    fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
-                )
-                LinearProgressIndicator(
-                    progress = { dadosProfissionalMock.credibilidade / 100f },
-                    modifier = Modifier.fillMaxWidth().height(8.dp),
-                    color = DouradoMedio,
-                    trackColor = SurfaceOff,
-                )
-                Text(
-                    "${dadosProfissionalMock.credibilidade}/100",
-                    fontSize = 12.sp, color = InkMuted,
-                    modifier = Modifier.padding(top = 6.dp, bottom = 14.dp)
-                )
-                Button(
-                    onClick = {},
-                    modifier = Modifier.fillMaxWidth().height(46.dp),
-                    enabled = dadosProfissionalMock.credibilidade >= 80,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Azul, contentColor = Color.White,
-                        disabledContainerColor = SurfaceOff, disabledContentColor = InkMuted
-                    ),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        if (dadosProfissionalMock.credibilidade >= 80) "Candidatar-me ao PMP"
-                        else "Disponível com 80 pontos",
-                        fontSize = 13.sp, fontWeight = FontWeight.Bold
-                    )
+                Text("Faltam ${100 - cred} pontos para o PMP", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp))
+                LinearProgressIndicator(progress = { cred / 100f }, modifier = Modifier.fillMaxWidth().height(8.dp), color = DouradoMedio, trackColor = SurfaceOff)
+                Text("$cred/100", fontSize = 12.sp, color = InkMuted, modifier = Modifier.padding(top = 6.dp, bottom = 14.dp))
+                Button(onClick = {}, modifier = Modifier.fillMaxWidth().height(46.dp), enabled = cred >= 80,
+                    colors = ButtonDefaults.buttonColors(containerColor = Azul, contentColor = Color.White, disabledContainerColor = SurfaceOff, disabledContentColor = InkMuted),
+                    shape = RoundedCornerShape(8.dp)) {
+                    Text(if (cred >= 80) "Candidatar-me ao PMP" else "Disponível com 80 pontos", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -566,94 +360,38 @@ fun AbaCredibilidadeDash() {
 
 // ── ABA: URGENTE ──────────────────────────────────────
 @Composable
-fun AbaUrgenteDash(onEstudio: (() -> Unit)? = null) {
-    var ativo by remember { mutableStateOf(dadosProfissionalMock.disponivelUrgente) }
+fun AbaUrgenteDash(onEstudio: (() -> Unit)? = null, disponivelUrgente: Boolean = false) {
+    var ativo by remember { mutableStateOf(disponivelUrgente) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Toggle
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Surface)
-        ) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
             Column(modifier = Modifier.padding(20.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Área Urgente", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
-                        Text(
-                            "Apareça para clientes que precisam de atendimento imediato.",
-                            fontSize = 13.sp, color = InkMuted, lineHeight = 18.sp,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
+                        Text("Apareça para clientes que precisam de atendimento imediato.", fontSize = 13.sp, color = InkMuted, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp))
                     }
-                    Switch(
-                        checked = ativo,
-                        onCheckedChange = { ativo = it },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Verde
-                        )
-                    )
+                    Switch(checked = ativo, onCheckedChange = { ativo = it }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Verde))
                 }
                 Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            if (ativo) VerdeClaro else UrgenteClaro,
-                            RoundedCornerShape(8.dp)
-                        )
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(modifier = Modifier.fillMaxWidth().background(if (ativo) VerdeClaro else UrgenteClaro, RoundedCornerShape(8.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(if (ativo) "🟢" else "🔴", fontSize = 14.sp)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        if (ativo) "Disponível agora" else "Indisponível",
-                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                        color = if (ativo) Verde else Urgente
-                    )
+                    Text(if (ativo) "Disponível agora" else "Indisponível", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (ativo) Verde else Urgente)
                 }
             }
         }
 
-        // Timers
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Card(
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = UrgenteClaro),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Urgente.copy(alpha = 0.2f))
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+            Card(modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = UrgenteClaro), border = androidx.compose.foundation.BorderStroke(1.dp, Urgente.copy(alpha = 0.2f))) {
+                Column(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("45", fontSize = 36.sp, fontWeight = FontWeight.Black, color = Urgente)
                     Text("minutos", fontSize = 11.sp, color = InkMuted)
                     Text("Para iniciar", fontSize = 11.sp, color = InkMuted, modifier = Modifier.padding(top = 4.dp))
                 }
             }
-            Card(
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFDF3D8)),
-                border = androidx.compose.foundation.BorderStroke(1.dp, DouradoMedio.copy(alpha = 0.2f))
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+            Card(modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFDF3D8)), border = androidx.compose.foundation.BorderStroke(1.dp, DouradoMedio.copy(alpha = 0.2f))) {
+                Column(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("15", fontSize = 36.sp, fontWeight = FontWeight.Black, color = DouradoMedio)
                     Text("minutos", fontSize = 11.sp, color = InkMuted)
                     Text("Duração", fontSize = 11.sp, color = InkMuted, modifier = Modifier.padding(top = 4.dp))
@@ -661,55 +399,29 @@ fun AbaUrgenteDash(onEstudio: (() -> Unit)? = null) {
             }
         }
 
-        // Histórico urgente
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Surface)
-        ) {
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Histórico urgente", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(14.dp))
                 Row(modifier = Modifier.fillMaxWidth()) {
-                    listOf(
-                        Triple("3", "Urgentes\nrealizadas", Verde),
-                        Triple("100%", "Pontua-\nlidade", Azul),
-                        Triple("0", "Descum-\nprimenetos", Dourado),
-                    ).forEach { (num, label, cor) ->
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
+                    listOf(Triple("3", "Urgentes\nrealizadas", Verde), Triple("100%", "Pontua-\nlidade", Azul), Triple("0", "Descum-\nprimentos", Dourado)).forEach { (num, label, cor) ->
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(num, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = cor)
-                            Text(label, fontSize = 10.sp, color = InkMuted, lineHeight = 14.sp,
-                                textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
+                            Text(label, fontSize = 10.sp, color = InkMuted, lineHeight = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
                         }
                     }
                 }
                 Spacer(modifier = Modifier.height(14.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(VerdeClaro, RoundedCornerShape(8.dp))
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(modifier = Modifier.fillMaxWidth().background(VerdeClaro, RoundedCornerShape(8.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("✓", fontSize = 14.sp, color = Verde, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Histórico limpo — acesso integral à área urgente.", fontSize = 12.sp, color = Verde)
                 }
             }
-            // Botão Estúdio
             if (onEstudio != null) {
-                Button(
-                    onClick = onEstudio,
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFC49A2A),
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
+                Button(onClick = onEstudio, modifier = Modifier.fillMaxWidth().height(52.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC49A2A), contentColor = Color.White),
+                    shape = RoundedCornerShape(10.dp)) {
                     Text("🎨 Acessar meu Estúdio", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }
             }
