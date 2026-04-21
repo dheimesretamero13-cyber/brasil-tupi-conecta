@@ -1,5 +1,6 @@
 package br.com.brasiltupi.conecta
-
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -7,7 +8,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,7 +20,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.brasiltupi.conecta.ui.theme.*
-
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 // ── DADOS MOCK (fallback) ─────────────────────────────
 data class ProfissionalPMP(
     val id: Int,
@@ -424,26 +425,92 @@ fun OpcaoConsulta(titulo: String, descricao: String, preco: String, corPreco: Co
 // ── TELA DE AGENDAMENTO ───────────────────────────────
 @Composable
 fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onConcluido: () -> Unit) {
-    var nome by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    var telefone by remember { mutableStateOf("") }
-    var senha by remember { mutableStateOf("") }
-    var etapa by remember { mutableStateOf(1) }
+    val scope = rememberCoroutineScope()
 
-    Column(modifier = Modifier.fillMaxSize().background(SurfaceWarm).verticalScroll(rememberScrollState()).padding(24.dp)) {
+    var nome     by remember { mutableStateOf("") }
+    var email    by remember { mutableStateOf("") }
+    var telefone by remember { mutableStateOf("") }
+    var senha    by remember { mutableStateOf("") }
+    var etapa    by remember { mutableStateOf(1) }
+    var resultadoAcesso   by remember { mutableStateOf<ResultadoAcesso?>(null) }
+    var verificandoAcesso by remember { mutableStateOf(false) }
+    var loading           by remember { mutableStateOf(false) }
+    var erro              by remember { mutableStateOf("") }
+    var sucesso           by remember { mutableStateOf(false) }
+    var consultaIdGerado  by remember { mutableStateOf<String?>(null) }
+
+    val dataHoje = remember {
+        val c = java.util.Calendar.getInstance()
+        "%02d/%02d/%04d".format(c.get(java.util.Calendar.DAY_OF_MONTH), c.get(java.util.Calendar.MONTH) + 1, c.get(java.util.Calendar.YEAR))
+    }
+    val horaAtual = remember {
+        val c = java.util.Calendar.getInstance()
+        "%02d:%02d".format(c.get(java.util.Calendar.HOUR_OF_DAY), c.get(java.util.Calendar.MINUTE))
+    }
+
+    if (sucesso) {
+        Column(
+            modifier = Modifier.fillMaxSize().background(SurfaceWarm).padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier.size(72.dp).background(VerdeClaro, RoundedCornerShape(50)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("✓", fontSize = 32.sp, color = Verde, fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.height(20.dp))
+            Text("Agendamento confirmado!", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink, textAlign = TextAlign.Center)
+            Text(
+                "Sua consulta com ${prof.nome} foi registrada com sucesso.",
+                fontSize = 14.sp, color = InkMuted, textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+            )
+            if (consultaIdGerado != null) {
+                Text("ID: $consultaIdGerado", fontSize = 11.sp, color = InkMuted)
+            }
+            Spacer(modifier = Modifier.height(28.dp))
+            Button(
+                onClick = onConcluido,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("Voltar ao início", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        return
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize().background(SurfaceWarm)
+            .verticalScroll(rememberScrollState()).padding(24.dp)
+    ) {
         Spacer(modifier = Modifier.height(48.dp))
         TextButton(onClick = onVoltar) { Text("← Voltar", color = InkMuted, fontSize = 13.sp) }
         Spacer(modifier = Modifier.height(12.dp))
 
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Surface)
+        ) {
             Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(44.dp).background(Azul, RoundedCornerShape(50)), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier.size(44.dp).background(Azul, RoundedCornerShape(50)),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(prof.iniciais, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(prof.nome, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Ink)
-                    Text(if (tipo == "urgente") "⚡ Urgente · R$ ${prof.valorUrgente}" else "Normal · R$ ${prof.valorNormal}", fontSize = 12.sp, color = if (tipo == "urgente") Urgente else InkMuted)
+                    Text(
+                        if (tipo == "urgente") "⚡ Urgente · R$ ${prof.valorUrgente}"
+                        else "Normal · R$ ${prof.valorNormal}",
+                        fontSize = 12.sp, color = if (tipo == "urgente") Urgente else InkMuted
+                    )
                 }
             }
         }
@@ -452,7 +519,10 @@ fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onC
 
         if (etapa == 1) {
             Text("Criar conta gratuita", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink)
-            Text("Você será cadastrado como cliente automaticamente.", fontSize = 13.sp, color = InkMuted, modifier = Modifier.padding(top = 4.dp, bottom = 20.dp))
+            Text(
+                "Você será cadastrado como cliente automaticamente.",
+                fontSize = 13.sp, color = InkMuted, modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
+            )
             CampoTexto("Nome completo *", nome, { nome = it }, "Seu nome completo")
             Spacer(modifier = Modifier.height(12.dp))
             CampoTexto("E-mail *", email, { email = it }, "seu@email.com", keyboardType = KeyboardType.Email)
@@ -462,10 +532,16 @@ fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onC
             CampoTexto("Criar senha *", senha, { senha = it }, "Mínimo 6 caracteres", senha = true)
             Spacer(modifier = Modifier.height(20.dp))
             BotaoProximo("Continuar →") { etapa = 2 }
+
         } else {
             Text("Confirmar agendamento", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink)
             Spacer(modifier = Modifier.height(16.dp))
-            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = Surface)
+            ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     RevisaoItem("Profissional", prof.nome)
                     HorizontalDivider(color = SurfaceOff)
@@ -473,19 +549,187 @@ fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onC
                     HorizontalDivider(color = SurfaceOff)
                     RevisaoItem("Valor", if (tipo == "urgente") "R$ ${prof.valorUrgente}" else "R$ ${prof.valorNormal}")
                     HorizontalDivider(color = SurfaceOff)
+                    RevisaoItem("Data", "$dataHoje às $horaAtual")
+                    HorizontalDivider(color = SurfaceOff)
                     RevisaoItem("Sua conta", email.ifEmpty { "—" })
                 }
             }
+
             Spacer(modifier = Modifier.height(14.dp))
-            Row(modifier = Modifier.fillMaxWidth().background(VerdeClaro, RoundedCornerShape(8.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+
+            Row(
+                modifier = Modifier.fillMaxWidth().background(VerdeClaro, RoundedCornerShape(8.dp)).padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text("🔒", fontSize = 14.sp)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Sem cobranças antecipadas.", fontSize = 12.sp, color = Verde)
             }
+
+            if (erro.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(Color(0xFFFDE8E8), RoundedCornerShape(8.dp)).padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(erro, color = Urgente, fontSize = 13.sp)
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = onConcluido, modifier = Modifier.fillMaxWidth().height(52.dp), colors = ButtonDefaults.buttonColors(containerColor = if (tipo == "urgente") Urgente else Verde, contentColor = Color.White), shape = RoundedCornerShape(10.dp)) {
-                Text(if (tipo == "urgente") "⚡ Confirmar agora" else "Confirmar agendamento", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+
+            Button(
+                onClick = {
+                    verificandoAcesso = true
+                    erro = ""
+                    scope.launch {
+                        try {
+                            val uid: String = if (currentUserId != null) {
+                                currentUserId!!
+                            } else {
+                                val ok = signUpAndroid(
+                                    email    = email,
+                                    senha    = senha.ifEmpty { "senha123" },
+                                    nome     = nome,
+                                    telefone = telefone,
+                                    tipo     = "cliente",
+                                )
+                                if (!ok || currentUserId == null) {
+                                    erro = "Erro ao criar conta. Tente novamente."
+                                    verificandoAcesso = false
+                                    return@launch
+                                }
+                                currentUserId!!
+                            }
+
+                            val resultado = verificarAcessoAgendamento(uid, prof.supabaseId)
+                            verificandoAcesso = false
+
+                            if (!resultado.acesso) {
+                                resultadoAcesso = resultado
+                                return@launch
+                            }
+
+                            loading = true
+                            val valor = (if (tipo == "urgente") prof.valorUrgente else prof.valorNormal)?.toDouble() ?: 0.0
+                            val id = criarAgendamento(
+                                clienteId = uid,
+                                profId    = prof.supabaseId,
+                                data      = dataHoje,
+                                hora      = horaAtual,
+                                tipo      = tipo,
+                                valor     = valor,
+                            )
+                            loading = false
+                            if (id != null) {
+                                consultaIdGerado = id
+                                sucesso = true
+                            } else {
+                                erro = "Erro ao confirmar agendamento. Tente novamente."
+                            }
+                        } catch (e: Exception) {
+                            loading = false
+                            verificandoAcesso = false
+                            erro = "Erro inesperado: ${e.message}"
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                enabled  = !loading && !verificandoAcesso,
+                colors   = ButtonDefaults.buttonColors(
+                    containerColor = if (tipo == "urgente") Urgente else Verde,
+                    contentColor   = Color.White
+                ),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                if (loading || verificandoAcesso) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                } else {
+                    Text(
+                        if (tipo == "urgente") "⚡ Confirmar agora" else "Confirmar agendamento",
+                        fontSize = 15.sp, fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
+    }
+
+    // ── AlertDialog de bloqueio de acesso ─────────────
+    resultadoAcesso?.let { resultado ->
+        val (titulo, descricao) = when (resultado.motivo) {
+            "sem_plano"       -> "Sem plano ativo" to "Assine um plano para agendar consultas ou pague uma taxa avulsa."
+            "limite_atingido" -> "Limite atingido" to "Você usou ${resultado.profs_usados}/${resultado.limite} profissionais do plano ${resultado.plano_atual?.replaceFirstChar { it.uppercase() }}."
+            else              -> "Acesso bloqueado" to "Não foi possível verificar seu acesso."
+        }
+        AlertDialog(
+            onDismissRequest = { resultadoAcesso = null },
+            containerColor   = Color.White,
+            shape            = RoundedCornerShape(16.dp),
+            title = { Text(titulo, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink) },
+            text  = {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().background(UrgenteClaro, RoundedCornerShape(8.dp)).padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("🔒", fontSize = 16.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(descricao, fontSize = 13.sp, color = Urgente, lineHeight = 18.sp)
+                    }
+                    if (resultado.motivo == "limite_atingido") {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        listOf(
+                            Triple("Bronze", "Até 10 profissionais/mês", "R$ 59,90"),
+                            Triple("Ouro",   "Ilimitado",                "R$ 99,90"),
+                        ).forEach { (nome, desc, preco) ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                shape    = RoundedCornerShape(10.dp),
+                                colors   = CardDefaults.cardColors(containerColor = VerdeClaro),
+                                border   = androidx.compose.foundation.BorderStroke(1.dp, Verde.copy(alpha = 0.3f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text("⭐ Plano $nome", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Verde)
+                                        Text(desc, fontSize = 11.sp, color = InkMuted)
+                                    }
+                                    Text(preco, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Verde)
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape    = RoundedCornerShape(10.dp),
+                        colors   = CardDefaults.cardColors(containerColor = AzulClaro),
+                        border   = androidx.compose.foundation.BorderStroke(1.dp, Azul.copy(alpha = 0.2f))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text("💳 Pagamento avulso", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Azul)
+                            Text("Taxa única para esta consulta específica.", fontSize = 11.sp, color = InkMuted)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { resultadoAcesso = null },
+                    colors  = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
+                    shape   = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Ver planos", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { resultadoAcesso = null }) {
+                    Text("Agora não", color = InkMuted, fontSize = 13.sp)
+                }
+            }
+        )
     }
 }

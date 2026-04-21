@@ -40,7 +40,17 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
     var formLinkExterno by remember { mutableStateOf("") }
     var formTemEntrega by remember { mutableStateOf(false) }
     var formDestaque by remember { mutableStateOf(false) }
+    var itemParaExcluir by remember { mutableStateOf<ItemEstudio?>(null) }
+    var itemParaEditar by remember { mutableStateOf<ItemEstudio?>(null) }
+    var excluindo by remember { mutableStateOf(false) }
 
+// Espelha a lista para remoção otimista
+    val itensVisiveis = remember { mutableStateListOf<ItemEstudio>() }
+
+    LaunchedEffect(itens) {
+        itensVisiveis.clear()
+        itensVisiveis.addAll(itens)
+    }
     fun resetForm() {
         formTitulo = ""; formDescricao = ""; formTipo = "aula"
         formPreco = ""; formPrecoOriginal = ""; formVideoUrl = ""
@@ -94,7 +104,8 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
     }
     LaunchedEffect(userId) {
         val perfil = getPerfilAndroid(userId)
-        nomeUsuario = perfil?.nome?.split(" ")?.map { it[0] }?.joinToString("")?.take(2)?.uppercase() ?: "EU"
+        nomeUsuario =
+            perfil?.nome?.split(" ")?.map { it[0] }?.joinToString("")?.take(2)?.uppercase() ?: "EU"
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -116,24 +127,43 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
                                 Box(
                                     modifier = Modifier
                                         .size(48.dp)
                                         .background(
-                                            Brush.linearGradient(listOf(Color(0xFFC49A2A), Color(0xFFE8B832))),
+                                            Brush.linearGradient(
+                                                listOf(
+                                                    Color(0xFFC49A2A),
+                                                    Color(0xFFE8B832)
+                                                )
+                                            ),
                                             RoundedCornerShape(50)
                                         ),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
                                         nomeUsuario,
-                                        fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
                                     )
                                 }
                                 Column {
-                                    Text("Meu Estúdio", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                                    Text("Gerencie seus cursos, aulas e produtos", fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f))
+                                    Text(
+                                        "Meu Estúdio",
+                                        fontSize = 22.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                    Text(
+                                        "Gerencie seus cursos, aulas e produtos",
+                                        fontSize = 13.sp,
+                                        color = Color.White.copy(alpha = 0.7f)
+                                    )
                                 }
                             }
                         }
@@ -185,17 +215,38 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
                 }
             } else if (itens.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(32.dp)
+                    ) {
                         Text("+", fontSize = 56.sp)
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("Seu Estúdio está vazio", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF111827))
-                        Text("Publique seu primeiro item e comece a vender.", fontSize = 13.sp, color = Color(0xFF6B7280), textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
+                        Text(
+                            "Seu Estúdio está vazio",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF111827)
+                        )
+                        Text(
+                            "Publique seu primeiro item e comece a vender.",
+                            fontSize = 13.sp,
+                            color = Color(0xFF6B7280),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 8.dp, bottom = 20.dp)
+                        )
                         Button(
                             onClick = { criando = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Verde,
+                                contentColor = Color.White
+                            ),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("+ Criar primeiro item", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                "+ Criar primeiro item",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
@@ -204,38 +255,124 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    items(itens) { item ->
+                    items(itensVisiveis, key = { it.id }) { item ->
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = Color.White),
                             elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(14.dp).fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(56.dp)
-                                        .background(Color(0xFFF0F4FF), RoundedCornerShape(10.dp)),
-                                    contentAlignment = Alignment.Center
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(tipoIconMap[item.tipo] ?: "📦", fontSize = 26.sp)
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(item.titulo, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF111827), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(tipoLabelMap[item.tipo] ?: item.tipo, fontSize = 11.sp, color = Color(0xFF6B7280))
+                                    Box(
+                                        modifier = Modifier.size(56.dp).background(
+                                            Color(0xFFF0F4FF),
+                                            RoundedCornerShape(10.dp)
+                                        ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(tipoIconMap[item.tipo] ?: "📦", fontSize = 26.sp)
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            item.titulo,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF111827),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            tipoLabelMap[item.tipo] ?: item.tipo,
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF6B7280)
+                                        )
+                                        Text(
+                                            "${item.totalVendas} vendas · R$ ${"%.2f".format(item.preco)}${if (item.destaque) " · ⭐" else ""}",
+                                            fontSize = 11.sp, color = Color(0xFF9CA3AF)
+                                        )
+                                    }
                                     Text(
-                                        "${item.totalVendas} vendas · R$ ${"%.2f".format(item.preco)}${if (item.destaque) " · ⭐" else ""}",
-                                        fontSize = 11.sp, color = Color(0xFF9CA3AF)
+                                        "R$ ${"%.0f".format(item.preco)}",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Verde
                                     )
                                 }
-                                Text(
-                                    "R$ ${"%.0f".format(item.preco)}",
-                                    fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Verde
+
+                                // ── Botões de ação ────────────────────────
+                                HorizontalDivider(
+                                    color = Color(0xFFF3F4F6),
+                                    modifier = Modifier.padding(vertical = 10.dp)
                                 )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Editar
+                                    OutlinedButton(
+                                        onClick = {
+                                            // Pré-preenche form com dados do item
+                                            formTitulo = item.titulo
+                                            formDescricao = item.descricao
+                                            formTipo = item.tipo
+                                            formPreco = item.preco.toInt().toString()
+                                            formPrecoOriginal =
+                                                item.precoOriginal?.toInt()?.toString() ?: ""
+                                            formVideoUrl = item.videoUrl ?: ""
+                                            formLinkExterno = item.linkExterno ?: ""
+                                            formTemEntrega = item.temEntrega
+                                            formDestaque = item.destaque
+                                            itemParaEditar = item
+                                            criando = true   // reutiliza o mesmo modal
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Azul),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp,
+                                            Azul.copy(alpha = 0.4f)
+                                        ),
+                                        contentPadding = PaddingValues(
+                                            horizontal = 14.dp,
+                                            vertical = 6.dp
+                                        )
+                                    ) {
+                                        Text(
+                                            "✏️ Editar",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(8.dp))
+
+                                    // Excluir
+                                    Button(
+                                        onClick = { itemParaExcluir = item },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(
+                                                0xFFFDE8E8
+                                            ), contentColor = Urgente
+                                        ),
+                                        contentPadding = PaddingValues(
+                                            horizontal = 14.dp,
+                                            vertical = 6.dp
+                                        ),
+                                        elevation = ButtonDefaults.buttonElevation(0.dp)
+                                    ) {
+                                        Text(
+                                            "🗑 Excluir",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -259,8 +396,51 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
 
     if (criando) {
         EstudioNovoItemScreen(
-            onCancelar = { criando = false; resetForm() },
-            onPublicar = { salvarItem() },
+            onCancelar = { criando = false; itemParaEditar = null; resetForm() },
+            onPublicar = {
+                val editando = itemParaEditar
+                if (editando != null) {
+                    // ── Salvar edição ──
+                    if (formTitulo.isEmpty() || formPreco.isEmpty()) {
+                        toast = "Preencha título e preço."; return@EstudioNovoItemScreen
+                    }
+                    scope.launch {
+                        val dados = buildMap<String, Any> {
+                            put("titulo", formTitulo)
+                            put("descricao", formDescricao)
+                            put("tipo", formTipo)
+                            put("preco", formPreco.toDoubleOrNull() ?: 0.0)
+                            if (formPrecoOriginal.isNotEmpty()) put(
+                                "preco_original",
+                                formPrecoOriginal.toDoubleOrNull() ?: 0.0
+                            )
+                            if (formVideoUrl.isNotEmpty()) put("video_url", formVideoUrl)
+                            if (formLinkExterno.isNotEmpty()) put("link_externo", formLinkExterno)
+                            put("tem_entrega", formTemEntrega)
+                            put("destaque", formDestaque)
+                        }
+                        val ok = editarItemEstudio(editando.id, dados)
+                        if (ok) {
+                            // Atualiza lista local imediatamente
+                            val idx = itensVisiveis.indexOfFirst { it.id == editando.id }
+                            if (idx >= 0) itensVisiveis[idx] = editando.copy(
+                                titulo = formTitulo,
+                                descricao = formDescricao,
+                                tipo = formTipo,
+                                preco = formPreco.toDoubleOrNull() ?: editando.preco,
+                                temEntrega = formTemEntrega,
+                                destaque = formDestaque,
+                            )
+                            toast = "✅ Item atualizado!"
+                        } else {
+                            toast = "❌ Erro ao editar. Tente novamente."
+                        }
+                        criando = false; itemParaEditar = null; resetForm()
+                    }
+                } else {
+                    salvarItem()
+                }
+            },
             formTitulo = formTitulo, onTitulo = { formTitulo = it },
             formDescricao = formDescricao, onDescricao = { formDescricao = it },
             formTipo = formTipo, onTipo = { formTipo = it },
@@ -270,6 +450,87 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
             formLinkExterno = formLinkExterno, onLinkExterno = { formLinkExterno = it },
             formTemEntrega = formTemEntrega, onTemEntrega = { formTemEntrega = it },
             formDestaque = formDestaque, onDestaque = { formDestaque = it },
+        )
+    }
+    itemParaExcluir?.let { item ->
+        AlertDialog(
+            onDismissRequest = { if (!excluindo) itemParaExcluir = null },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(16.dp),
+            title = {
+                Text(
+                    "Excluir item",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF111827)
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        "Tem certeza que deseja excluir:",
+                        fontSize = 13.sp,
+                        color = Color(0xFF6B7280)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "\"${item.titulo}\"",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF111827)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .background(Color(0xFFFDE8E8), RoundedCornerShape(8.dp)).padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("⚠️", fontSize = 13.sp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Esta ação não pode ser desfeita.", fontSize = 12.sp, color = Urgente)
+                    }
+                }
+
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        excluindo = true
+                        scope.launch {
+                            val ok = excluirItemEstudio(item.id)
+                            excluindo = false
+                            if (ok) {
+                                itensVisiveis.removeIf { it.id == item.id }
+                                toast = "🗑 Item excluído."
+                            } else {
+                                toast = "❌ Erro ao excluir. Tente novamente."
+                            }
+                            itemParaExcluir = null
+                        }
+                    },
+                    enabled = !excluindo,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Urgente,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    if (excluindo) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text("Excluir", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { itemParaExcluir = null }, enabled = !excluindo) {
+                    Text("Cancelar", color = Color(0xFF6B7280), fontSize = 13.sp)
+                }
+            }
         )
     }
 }

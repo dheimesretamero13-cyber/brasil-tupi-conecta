@@ -1,5 +1,6 @@
 package br.com.brasiltupi.conecta
-
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -361,7 +362,10 @@ fun AbaCredibilidadeDash(credibilidade: Int = 0) {
 // ── ABA: URGENTE ──────────────────────────────────────
 @Composable
 fun AbaUrgenteDash(onEstudio: (() -> Unit)? = null, disponivelUrgente: Boolean = false) {
-    var ativo by remember { mutableStateOf(disponivelUrgente) }
+    val scope = rememberCoroutineScope()
+    var ativo by remember(disponivelUrgente) { mutableStateOf(disponivelUrgente) }
+    var atualizando by remember { mutableStateOf(false) }
+    var erroToggle by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
@@ -371,13 +375,45 @@ fun AbaUrgenteDash(onEstudio: (() -> Unit)? = null, disponivelUrgente: Boolean =
                         Text("Área Urgente", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                         Text("Apareça para clientes que precisam de atendimento imediato.", fontSize = 13.sp, color = InkMuted, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp))
                     }
-                    Switch(checked = ativo, onCheckedChange = { ativo = it }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Verde))
+                    if (atualizando) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Verde, strokeWidth = 2.dp)
+                    } else {
+                        Switch(
+                            checked = ativo,
+                            onCheckedChange = { novoValor ->
+                                val anteriorValor = ativo
+                                ativo = novoValor          // optimistic update
+                                atualizando = true
+                                erroToggle = false
+                                scope.launch {
+                                    val uid = currentUserId
+                                    val sucesso = if (uid != null) {
+                                        atualizarDisponibilidadeUrgente(uid, novoValor)
+                                    } else false
+                                    atualizando = false
+                                    if (!sucesso) {
+                                        ativo = anteriorValor  // rollback
+                                        erroToggle = true
+                                    }
+                                }
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Verde)
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(modifier = Modifier.fillMaxWidth().background(if (ativo) VerdeClaro else UrgenteClaro, RoundedCornerShape(8.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(if (ativo) "🟢" else "🔴", fontSize = 14.sp)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(if (ativo) "Disponível agora" else "Indisponível", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (ativo) Verde else Urgente)
+                }
+                if (erroToggle) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth().background(Color(0xFFFDE8E8), RoundedCornerShape(8.dp)).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("⚠️", fontSize = 13.sp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Falha na conexão. Estado revertido.", fontSize = 12.sp, color = Urgente)
+                    }
                 }
             }
         }

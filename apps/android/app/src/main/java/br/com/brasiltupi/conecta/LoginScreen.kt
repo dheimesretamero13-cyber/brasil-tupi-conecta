@@ -37,6 +37,9 @@ fun LoginScreen(
     var senhaError by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var erroGeral by remember { mutableStateOf("") }
+    var mostrarModalRecover by remember { mutableStateOf(false) }
+    var emailRecover by remember { mutableStateOf("") }
+    var recoverMsg by remember { mutableStateOf("") }
 
     fun validar(): Boolean {
         emailError = if (!email.contains("@")) "E-mail inválido" else ""
@@ -139,7 +142,9 @@ fun LoginScreen(
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Senha", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
-                TextButton(onClick = {}) { Text("Esqueci minha senha", color = Verde, fontSize = 12.sp) }
+                TextButton(onClick = { mostrarModalRecover = true; emailRecover = email; recoverMsg = "" }) {
+                    Text("Esqueci minha senha", color = Verde, fontSize = 12.sp)
+                }
             }
             OutlinedTextField(
                 value = senha,
@@ -200,5 +205,50 @@ fun LoginScreen(
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+    }
+    if (mostrarModalRecover) {
+        AlertDialog(
+            onDismissRequest = { mostrarModalRecover = false },
+            containerColor = Surface,
+            shape = RoundedCornerShape(16.dp),
+            title = { Text("Recuperar senha", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink) },
+            text = {
+                Column {
+                    Text("Digite seu e-mail para receber o link de recuperação.", fontSize = 13.sp, color = InkMuted)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = emailRecover,
+                        onValueChange = { emailRecover = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("seu@email.com") },
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
+                    )
+                    if (recoverMsg.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(recoverMsg, fontSize = 12.sp, color = Verde)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            val ok = resetSenhaAndroid(emailRecover)
+                            recoverMsg = if (ok) "E-mail enviado! Verifique sua caixa de entrada." else "Erro ao enviar. Tente novamente."
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Enviar", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { mostrarModalRecover = false }) {
+                    Text("Fechar", color = InkMuted, fontSize = 13.sp)
+                }
+            }
+        )
     }
 }
