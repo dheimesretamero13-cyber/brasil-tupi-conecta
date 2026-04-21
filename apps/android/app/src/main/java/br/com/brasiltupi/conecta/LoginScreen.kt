@@ -52,28 +52,42 @@ fun LoginScreen(
         loading = true
         erroGeral = ""
         scope.launch {
-            try {
-                val perfil = signInAndroid(email, senha)
-                loading = false
-                val uid = currentUserId ?: ""
-                if (perfil != null) {
-                    val isProfissional = perfil.tipo == "profissional_certificado" ||
-                            perfil.tipo == "profissional_liberal"
+            when (val resultado = signInAndroid(email.trim(), senha)) {
+                is AuthResult.Sucesso -> {
+                    loading = false
+                    val uid = currentUserId ?: ""
+                    val isProfissional = resultado.perfil.tipo == "profissional_certificado" ||
+                            resultado.perfil.tipo == "profissional_liberal"
                     if (isProfissional) onEntrarProfissional(uid)
-                    else onEntrarCliente(uid)} else {
+                    else onEntrarCliente(uid)
+                }
+                is AuthResult.SenhaErrada,
+                is AuthResult.EmailNaoEncontrado -> {
+                    loading = false
+                    erroGeral = "E-mail ou senha incorretos."
+                }
+                is AuthResult.SemInternet -> {
+                    loading = false
+                    erroGeral = "Sem conexão. Verifique sua internet e tente novamente."
+                }
+                is AuthResult.Desconhecido -> {
+                    loading = false
+                    // Token foi gerado mas perfil não veio no Sucesso — tenta buscar
+                    val uid = currentUserId ?: ""
                     if (uid.isNotEmpty()) {
                         val perfilReal = getPerfilAndroid(uid)
                         val ehProfissional = perfilReal?.tipo == "profissional_certificado" ||
                                 perfilReal?.tipo == "profissional_liberal"
-                        if (ehProfissional) onEntrarProfissional(uid)
-                        else onEntrarCliente(uid)
+                        if (perfilReal != null) {
+                            if (ehProfissional) onEntrarProfissional(uid)
+                            else onEntrarCliente(uid)
+                        } else {
+                            erroGeral = "Não foi possível carregar seu perfil."
+                        }
                     } else {
-                        erroGeral = "E-mail ou senha incorretos."
+                        erroGeral = "Erro inesperado. Tente novamente."
                     }
                 }
-            } catch (e: Exception) {
-                loading = false
-                erroGeral = "E-mail ou senha incorretos."
             }
         }
     }
@@ -111,7 +125,10 @@ fun LoginScreen(
                 Button(
                     onClick = { tipoConta = tipo },
                     modifier = Modifier.weight(1f).height(40.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = if (tipoConta == tipo) Surface else Color.Transparent, contentColor = if (tipoConta == tipo) Verde else InkMuted),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (tipoConta == tipo) Surface else Color.Transparent,
+                        contentColor   = if (tipoConta == tipo) Verde else InkMuted,
+                    ),
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = if (tipoConta == tipo) 2.dp else 0.dp),
                     shape = RoundedCornerShape(8.dp)
                 ) {
@@ -133,7 +150,11 @@ fun LoginScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                 isError = emailError.isNotEmpty(),
                 shape = RoundedCornerShape(8.dp),
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0), errorBorderColor = Urgente),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor   = Verde,
+                    unfocusedBorderColor = Color(0xFFE0E0E0),
+                    errorBorderColor     = Urgente,
+                ),
                 singleLine = true
             )
             if (emailError.isNotEmpty()) Text(emailError, color = Urgente, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
@@ -142,7 +163,11 @@ fun LoginScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         Column(modifier = Modifier.fillMaxWidth()) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text("Senha", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
                 TextButton(onClick = { mostrarModalRecover = true; emailRecover = email; recoverMsg = "" }) {
                     Text("Esqueci minha senha", color = Verde, fontSize = 12.sp)
@@ -157,7 +182,11 @@ fun LoginScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 isError = senhaError.isNotEmpty(),
                 shape = RoundedCornerShape(8.dp),
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0), errorBorderColor = Urgente),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor   = Verde,
+                    unfocusedBorderColor = Color(0xFFE0E0E0),
+                    errorBorderColor     = Urgente,
+                ),
                 trailingIcon = {
                     TextButton(onClick = { mostrarSenha = !mostrarSenha }) {
                         Text(if (mostrarSenha) "Ocultar" else "Ver", color = InkMuted, fontSize = 12.sp)
@@ -171,7 +200,13 @@ fun LoginScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         if (erroGeral.isNotEmpty()) {
-            Row(modifier = Modifier.fillMaxWidth().background(Color(0xFFFDE8E8), RoundedCornerShape(8.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFFDE8E8), RoundedCornerShape(8.dp))
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(erroGeral, color = Urgente, fontSize = 13.sp)
             }
             Spacer(modifier = Modifier.height(12.dp))
@@ -187,13 +222,23 @@ fun LoginScreen(
             if (loading) {
                 CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
             } else {
-                Text("Entrar como ${if (tipoConta == "profissional") "profissional" else "cliente"}", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Entrar como ${if (tipoConta == "profissional") "profissional" else "cliente"}",
+                    fontSize = 15.sp, fontWeight = FontWeight.Bold
+                )
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Row(modifier = Modifier.fillMaxWidth().background(VerdeClaro, RoundedCornerShape(8.dp)).padding(12.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(VerdeClaro, RoundedCornerShape(8.dp))
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text("🔒  Conexão segura e criptografada", fontSize = 12.sp, color = Verde)
         }
 
@@ -208,6 +253,7 @@ fun LoginScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
     }
+
     if (mostrarModalRecover) {
         AlertDialog(
             onDismissRequest = { mostrarModalRecover = false },
@@ -237,7 +283,8 @@ fun LoginScreen(
                     onClick = {
                         scope.launch {
                             val ok = resetSenhaAndroid(emailRecover)
-                            recoverMsg = if (ok) "E-mail enviado! Verifique sua caixa de entrada." else "Erro ao enviar. Tente novamente."
+                            recoverMsg = if (ok) "E-mail enviado! Verifique sua caixa de entrada."
+                            else "Erro ao enviar. Tente novamente."
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),

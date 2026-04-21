@@ -17,6 +17,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.brasiltupi.conecta.ui.theme.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 // ── DADOS ─────────────────────────────────────────────
 @Serializable
@@ -55,13 +57,15 @@ fun DashboardClienteScreen(
 
     LaunchedEffect(userId) {
         if (userId == null) return@LaunchedEffect
-        val consultasDeferred = kotlinx.coroutines.async { buscarConsultasCliente(userId) }
-        val perfilDeferred    = kotlinx.coroutines.async { getPerfilAndroid(userId) }
-        consultas = consultasDeferred.await()
-        val perfil = perfilDeferred.await()
-        if (perfil != null) {
-            nomeUsuario = perfil.nome
-            iniciais    = perfil.nome.split(" ").map { it[0] }.joinToString("").take(2).uppercase()
+        coroutineScope {
+            val consultasDeferred = async { buscarConsultasCliente(userId) }
+            val perfilDeferred    = async { getPerfilAndroid(userId) }
+            consultas = consultasDeferred.await()
+            val perfil = perfilDeferred.await()
+            if (perfil != null) {
+                nomeUsuario = perfil.nome
+                iniciais    = perfil.nome.split(" ").map { it[0] }.joinToString("").take(2).uppercase()
+            }
         }
         loading = false
     }
@@ -952,19 +956,22 @@ fun AbaBuscaCliente(onEstudio: ((String) -> Unit)? = null) {
                 CardProfissionalReal(
                     prof      = prof,
                     onClick   = {
+                        val nomeProf = prof.perfis?.nome ?: "Profissional"
                         profSelecionado = ProfissionalPMP(
-                            id               = prof.id,
-                            nome             = prof.perfis?.nome ?: "",
+                            id               = prof.id.hashCode(),
+                            supabaseId       = prof.id,
+                            iniciais         = nomeProf.split(" ").map { it[0] }.joinToString("").take(2).uppercase(),
+                            nome             = nomeProf,
                             area             = prof.area,
-                            credibilidade    = prof.credibilidade,
-                            isPmp            = prof.is_pmp,
+                            cidade           = "${prof.perfis?.cidade ?: ""}, ${prof.perfis?.estado ?: ""}",
+                            avaliacao        = 5.0,
+                            atendimentos     = prof.credibilidade / 2,
                             disponivelUrgente = prof.disponivel_urgente,
                             valorNormal      = prof.valor_normal,
-                            valorUrgente     = prof.valor_urgente ?: prof.valor_normal,
-                            verificado       = prof.verificado,
+                            valorUrgente     = prof.valor_urgente,
+                            conselho         = listOfNotNull(prof.conselho, prof.numero_conselho).joinToString(" "),
                             descricao        = prof.descricao ?: "",
-                            cidade           = prof.perfis?.cidade ?: "",
-                            fotoUrl          = prof.perfis?.foto_url,
+                            especialidades   = listOf(prof.area),
                         )
                     },
                     onEstudio = onEstudio

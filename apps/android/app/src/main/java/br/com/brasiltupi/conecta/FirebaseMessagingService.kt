@@ -9,7 +9,8 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
-
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 class BrasilTupiMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
@@ -40,18 +41,7 @@ class BrasilTupiMessagingService : FirebaseMessagingService() {
             return
         }
         kotlinx.coroutines.GlobalScope.launch {
-            try {
-                httpClient.patch("${"https://qfzdchrlbqcvewjivaqz.supabase.co"}/rest/v1/perfis?id=eq.$uid") {
-                    header("apikey", "sb_publishable_SM-UHBh_5lzTSBZ2YPUIYw_Sw1i8qeq")
-                    header("Authorization", "Bearer ${currentToken ?: "sb_publishable_SM-UHBh_5lzTSBZ2YPUIYw_Sw1i8qeq"}")
-                    header("Content-Type", "application/json")
-                    header("Prefer", "return=minimal")
-                    setBody("{\"fcm_token\":\"$token\"}")
-                }
-                android.util.Log.d("FCM", "Token salvo com sucesso")
-            } catch (e: Exception) {
-                android.util.Log.e("FCM", "Erro ao salvar token: ${e.message}")
-            }
+            salvarFcmTokenAndroid(uid, token)
         }
     }
 

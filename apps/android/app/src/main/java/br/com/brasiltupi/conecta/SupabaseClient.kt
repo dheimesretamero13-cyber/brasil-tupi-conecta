@@ -22,6 +22,15 @@ val httpClient = HttpClient(Android) {
 var currentToken: String? = null
 var currentUserId: String? = null
 
+// ── RESULTADO DE AUTH (sealed class) ─────────────────
+sealed class AuthResult {
+    data class Sucesso(val perfil: PerfilUsuario) : AuthResult()
+    object SenhaErrada : AuthResult()
+    object EmailNaoEncontrado : AuthResult()
+    object SemInternet : AuthResult()
+    object Desconhecido : AuthResult()
+}
+
 // ── MODELOS ───────────────────────────────────────────
 @Serializable
 data class PerfilUsuario(
@@ -35,6 +44,7 @@ data class PerfilUsuario(
     val estado: String? = null,
     val foto_url: String? = null,
     val capa_url: String? = null,
+    @SerialName("criado_em") val criadoEm: String? = null,
 )
 
 @Serializable
@@ -70,19 +80,21 @@ data class AuthRequest(val email: String, val password: String)
 data class AuthResponse(
     val access_token: String? = null,
     val user: AuthUser? = null,
+    val error_code: String? = null,
+    val msg: String? = null,
+    val message: String? = null,
+    val error: String? = null,
 )
 
 @Serializable
 data class AuthUser(val id: String)
 
 // ── DTOs INTERNOS: CONSULTA COM JOINs ────────────────
-// perfis nested dentro de profissionais
 @Serializable
 private data class PerfilNestedSimples(
     val nome: String? = null,
 )
 
-// profissionais nested dentro de consultas
 @Serializable
 private data class ProfissionalNested(
     val area: String? = null,
@@ -90,13 +102,11 @@ private data class ProfissionalNested(
     val perfis: PerfilNestedSimples? = null,
 )
 
-// avaliacoes nested dentro de consultas (left join -> lista de 0 ou 1 item)
 @Serializable
 private data class AvaliacaoNested(
     val nota: Int? = null,
 )
 
-// linha principal da tabela consultas com os JOINs
 @Serializable
 private data class ConsultaSupabase(
     val id: String,
@@ -109,17 +119,84 @@ private data class ConsultaSupabase(
     val avaliacoes: List<AvaliacaoNested>? = null,
 )
 
+// ── REQUEST DTOs (substituem buildString) ─────────────
+// Cada função de escrita tem seu próprio DTO privado.
+// @Serializable garante escape correto de caracteres especiais —
+// um titulo com aspas ("Curso \"Avançado\"") não quebra o JSON.
+
+@Serializable
+private data class CriarItemEstudioRequest(
+    val profissional_id: String,
+    val titulo: String,
+    val descricao: String,
+    val tipo: String,
+    val preco: Double,
+    val preco_original: Double? = null,
+    val video_url: String? = null,
+    val arquivo_url: String? = null,
+    val link_externo: String? = null,
+    val tem_entrega: Boolean = false,
+    val destaque: Boolean = false,
+    val ativo: Boolean = true,
+)
+
+@Serializable
+private data class GravarAvaliacaoRequest(
+    val consulta_id: String,
+    val cliente_id: String,
+    val profissional_id: String,
+    val nota: Int,
+    val comentario: String? = null,
+)
+
+@Serializable
+private data class AtualizarPerfilProfissionalRequest(
+    val id: String,
+    val descricao: String,
+    val area: String,
+    val conselho: String,
+    val numero_conselho: String,
+    val valor_normal: Int,
+    val valor_urgente: Int,
+)
+
+@Serializable
+private data class CriarAgendamentoRequest(
+    val cliente_id: String,
+    val profissional_id: String,
+    val tipo: String,
+    val status: String = "agendada",
+    val data_agendada: String,
+    val valor: Int,
+)
+
+@Serializable
+private data class CriarPedidoRequest(
+    val consulta_id: String,
+    val cliente_id: String,
+    val profissional_id: String,
+    val valor: Double,
+    val status: String = "pendente",
+    val tipo: String,
+)
+
+@Serializable
+private data class EnviarMensagemRequest(
+    val remetente_id: String,
+    val destinatario_id: String,
+    val texto: String,
+)
+
+// ── HELPERS ───────────────────────────────────────────
 // Compatível com API 24+: parse manual do timestamptz do Supabase
 // Formato esperado: "2025-04-20T14:30:00+00:00" ou "2025-04-20T14:30:00.000000+00:00"
 private fun parseTimestamptz(raw: String?): Pair<String, String> {
     if (raw == null) return "--" to "--"
     return try {
-        // Pega apenas a parte antes do fuso: "2025-04-20T14:30:00"
         val semFuso = raw.substringBefore("+").substringBefore("Z").take(19)
-        val partes  = semFuso.split("T")
-        val dateParts = partes[0].split("-") // [yyyy, MM, dd]
-        val timeParts = partes.getOrNull(1)?.split(":")  // [HH, mm, ss]
-
+        val partes = semFuso.split("T")
+        val dateParts = partes[0].split("-")
+        val timeParts = partes.getOrNull(1)?.split(":")
         val data = "${dateParts[2]}/${dateParts[1]}/${dateParts[0]}"
         val hora = "${timeParts?.get(0) ?: "00"}:${timeParts?.get(1) ?: "00"}"
         data to hora
@@ -128,10 +205,25 @@ private fun parseTimestamptz(raw: String?): Pair<String, String> {
     }
 }
 
+// Formata "2025-03-15T..." → "Março 2025" para exibição de "Membro desde"
+fun formatarMembroDesde(criadoEm: String?): String {
+    if (criadoEm == null) return "--"
+    return try {
+        val partes = criadoEm.substringBefore("T").split("-")
+        val ano = partes[0]
+        val mes = when (partes[1]) {
+            "01" -> "Janeiro"; "02" -> "Fevereiro"; "03" -> "Março"
+            "04" -> "Abril";   "05" -> "Maio";      "06" -> "Junho"
+            "07" -> "Julho";   "08" -> "Agosto";    "09" -> "Setembro"
+            "10" -> "Outubro"; "11" -> "Novembro";  "12" -> "Dezembro"
+            else -> partes[1]
+        }
+        "$mes $ano"
+    } catch (e: Exception) { "--" }
+}
+
 private fun ConsultaSupabase.toConsultaCliente(): ConsultaCliente {
     val (data, hora) = parseTimestamptz(dataAgendada)
-
-    // avaliada = existe pelo menos 1 registro em avaliacoes para essa consulta
     val avaliacao = avaliacoes?.firstOrNull()
     val avaliada  = avaliacao != null
     val nota      = avaliacao?.nota ?: 0
@@ -152,7 +244,10 @@ private fun ConsultaSupabase.toConsultaCliente(): ConsultaCliente {
 }
 
 // ── AUTH ──────────────────────────────────────────────
-suspend fun signInAndroid(email: String, senha: String): PerfilUsuario? {
+
+// signInAndroid retorna AuthResult, diferenciando causas de erro.
+// signInAndroidLegado() removido — LoginScreen já usa AuthResult diretamente.
+suspend fun signInAndroid(email: String, senha: String): AuthResult {
     return try {
         val response = httpClient.post("$SUPABASE_URL/auth/v1/token?grant_type=password") {
             header("apikey", SUPABASE_KEY)
@@ -160,12 +255,38 @@ suspend fun signInAndroid(email: String, senha: String): PerfilUsuario? {
             setBody(AuthRequest(email, senha))
         }.body<AuthResponse>()
 
-        currentToken = response.access_token
-        currentUserId = response.user?.id
-
-        if (currentUserId != null) getPerfilAndroid(currentUserId!!)
-        else null
-    } catch (e: Exception) { null }
+        // Supabase retorna 200 com access_token em sucesso,
+        // ou 400 com error_code em falha.
+        if (response.access_token != null && response.user != null) {
+            currentToken = response.access_token
+            currentUserId = response.user.id
+            val perfil = getPerfilAndroid(currentUserId!!)
+            if (perfil != null) AuthResult.Sucesso(perfil)
+            else AuthResult.Desconhecido
+        } else {
+            // Mapear error_code do Supabase para sealed class
+            when (response.error_code) {
+                "invalid_credentials" -> AuthResult.SenhaErrada
+                "user_not_found"      -> AuthResult.EmailNaoEncontrado
+                else                  -> AuthResult.Desconhecido
+            }
+        }
+    } catch (e: java.net.UnknownHostException) {
+        AuthResult.SemInternet
+    } catch (e: java.net.ConnectException) {
+        AuthResult.SemInternet
+    } catch (e: io.ktor.client.plugins.HttpRequestTimeoutException) {
+        AuthResult.SemInternet
+    } catch (e: Exception) {
+        // Ktor lança exceção em status 4xx dependendo da config —
+        // tenta extrair mensagem para diferenciar credenciais vs rede
+        val msg = e.message?.lowercase() ?: ""
+        when {
+            msg.contains("invalid") || msg.contains("credentials") -> AuthResult.SenhaErrada
+            msg.contains("network") || msg.contains("connect")     -> AuthResult.SemInternet
+            else -> AuthResult.Desconhecido
+        }
+    }
 }
 
 suspend fun signUpAndroid(
@@ -190,14 +311,14 @@ suspend fun signUpAndroid(
 
         if (currentUserId != null) {
             inserirPerfil(PerfilUsuario(
-                id        = currentUserId!!,
-                nome      = nome,
-                email     = email,
-                telefone  = telefone,
-                tipo      = tipo,
-                cpf       = cpf,
-                cidade    = cidade,
-                estado    = estado,
+                id       = currentUserId!!,
+                nome     = nome,
+                email    = email,
+                telefone = telefone,
+                tipo     = tipo,
+                cpf      = cpf,
+                cidade   = cidade,
+                estado   = estado,
             ))
             true
         } else false
@@ -246,15 +367,70 @@ suspend fun buscarConsultasCliente(userId: String): List<ConsultaCliente> {
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Accept", "application/json")
             parameter("cliente_id", "eq.$userId")
-            // profissionais -> perfis traz o nome; avaliacoes traz a nota (0 ou 1 linha por consulta)
             parameter("select", "id,profissional_id,tipo,status,data_agendada,valor,profissionais(area,valor_normal,perfis(nome)),avaliacoes(nota)")
             parameter("order", "data_agendada.desc")
         }.body<List<ConsultaSupabase>>().map { it.toConsultaCliente() }
     } catch (e: Exception) { emptyList() }
 }
 
+// ── CONSULTAS DO PROFISSIONAL ─────────────────────────
+@Serializable
+data class ConsultaProfissional(
+    val id: String,
+    @SerialName("cliente_id") val clienteId: String? = null,
+    val tipo: String,
+    val status: String,
+    @SerialName("data_agendada") val dataAgendada: String? = null,
+    val valor: Int,
+    val nomeCliente: String = "",
+    val data: String = "--",
+    val hora: String = "--",
+    val avaliacao: Int = 0,
+)
+
+@Serializable
+private data class ConsultaProfissionalSupabase(
+    val id: String,
+    @SerialName("cliente_id") val clienteId: String? = null,
+    val tipo: String,
+    val status: String,
+    @SerialName("data_agendada") val dataAgendada: String? = null,
+    val valor: Int,
+    val perfis: PerfilNestedSimples? = null,
+    val avaliacoes: List<AvaliacaoNested>? = null,
+)
+
+suspend fun buscarConsultasProfissional(profissionalId: String): List<ConsultaProfissional> {
+    return try {
+        httpClient.get("$SUPABASE_URL/rest/v1/consultas") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Accept", "application/json")
+            parameter("profissional_id", "eq.$profissionalId")
+            parameter("select", "id,cliente_id,tipo,status,data_agendada,valor,perfis:cliente_id(nome),avaliacoes(nota)")
+            parameter("order", "data_agendada.desc")
+        }.body<List<ConsultaProfissionalSupabase>>().map { c ->
+            val (data, hora) = parseTimestamptz(c.dataAgendada)
+            ConsultaProfissional(
+                id           = c.id,
+                clienteId    = c.clienteId,
+                tipo         = c.tipo,
+                status       = c.status,
+                dataAgendada = c.dataAgendada,
+                valor        = c.valor,
+                nomeCliente  = c.perfis?.nome ?: "Cliente",
+                data         = data,
+                hora         = hora,
+                avaliacao    = c.avaliacoes?.firstOrNull()?.nota ?: 0,
+            )
+        }
+    } catch (e: Exception) {
+        android.util.Log.e("Profissional", "Erro ao buscar consultas: ${e.message}")
+        emptyList()
+    }
+}
+
 // ── AVALIAÇÃO ─────────────────────────────────────────
-// Insere registro em `avaliacoes`. Idempotente via constraint unique em consulta_id.
 suspend fun gravarAvaliacaoAndroid(
     consultaId: String,
     clienteId: String,
@@ -263,27 +439,24 @@ suspend fun gravarAvaliacaoAndroid(
     comentario: String? = null,
 ): Boolean {
     return try {
-        val body = buildString {
-            append("{")
-            append("\"consulta_id\":\"$consultaId\",")
-            append("\"cliente_id\":\"$clienteId\",")
-            append("\"profissional_id\":\"$profissionalId\",")
-            append("\"nota\":$nota")
-            if (comentario != null) append(",\"comentario\":\"$comentario\"")
-            append("}")
-        }
+        val request = GravarAvaliacaoRequest(
+            consulta_id     = consultaId,
+            cliente_id      = clienteId,
+            profissional_id = profissionalId,
+            nota            = nota,
+            comentario      = comentario,
+        )
         val response = httpClient.post("$SUPABASE_URL/rest/v1/avaliacoes") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Content-Type", "application/json")
-            // on conflict (consulta_id unique) → atualiza nota em vez de duplicar
             header("Prefer", "resolution=merge-duplicates,return=minimal")
-            setBody(body)
+            setBody(request)
         }
         response.status.value in 200..299
     } catch (e: Exception) { false }
 }
-// ── AVALIAÇÃO DIRETA NA TABELA CONSULTAS ─────────────
+
 suspend fun atualizarAvaliacaoConsulta(consultaId: String, nota: Int): Boolean {
     return try {
         val response = httpClient.patch("$SUPABASE_URL/rest/v1/consultas?id=eq.$consultaId") {
@@ -299,10 +472,16 @@ suspend fun atualizarAvaliacaoConsulta(consultaId: String, nota: Int): Boolean {
         false
     }
 }
+
 // ── PROFISSIONAIS PMP ─────────────────────────────────
+// aplicarFiltroPMP = true por padrão: BuscaScreen, DashboardClienteScreen e
+// demais telas recebem apenas profissionais PMP verificados automaticamente.
+// Passe aplicarFiltroPMP = false APENAS em contextos administrativos/internos.
+// Para buscar o próprio perfil use getMeuPerfilProfissional() — não usa este parâmetro.
 suspend fun getProfissionaisPMPAndroid(
     somenteUrgente: Boolean = false,
     busca: String = "",
+    aplicarFiltroPMP: Boolean = true,
 ): List<ProfissionalComPerfil> {
     return try {
         val result = httpClient.get("$SUPABASE_URL/rest/v1/profissionais") {
@@ -310,10 +489,11 @@ suspend fun getProfissionaisPMPAndroid(
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Accept", "application/json")
             parameter("select", "*, perfis(nome,email,cidade,estado,foto_url,capa_url)")
-            // Por isto (sem filtros por enquanto):
-// parameter("is_pmp", "eq.true")      // reativar quando houver dados reais
-// parameter("verificado", "eq.true")   // reativar quando houver dados reais
-// parameter("credibilidade", "gte.80") // reativar quando houver dados reais
+            if (aplicarFiltroPMP) {
+                parameter("is_pmp",        "eq.true")
+                parameter("verificado",    "eq.true")
+                parameter("credibilidade", "gte.80")
+            }
             parameter("order", "credibilidade.desc")
             if (somenteUrgente) parameter("disponivel_urgente", "eq.true")
         }.body<List<ProfissionalComPerfil>>()
@@ -379,6 +559,9 @@ private fun mapToItemEstudio(map: Map<String, Any?>): ItemEstudio {
     )
 }
 
+// criarItemEstudioAndroid — usa DTO @Serializable.
+// Antes: buildString com interpolação quebrava se titulo tivesse aspas.
+// Agora: kotlinx.serialization escapa corretamente qualquer caractere.
 suspend fun criarItemEstudioAndroid(
     profissionalId: String, titulo: String, descricao: String, tipo: String,
     preco: Double, precoOriginal: Double? = null, videoUrl: String? = null,
@@ -386,31 +569,31 @@ suspend fun criarItemEstudioAndroid(
     temEntrega: Boolean = false, destaque: Boolean = false,
 ): Boolean {
     return try {
-        val body = buildString {
-            append("{")
-            append("\"profissional_id\":\"$profissionalId\",")
-            append("\"titulo\":\"$titulo\",")
-            append("\"descricao\":\"$descricao\",")
-            append("\"tipo\":\"$tipo\",")
-            append("\"preco\":$preco,")
-            if (precoOriginal != null) append("\"preco_original\":$precoOriginal,")
-            if (videoUrl != null)      append("\"video_url\":\"$videoUrl\",")
-            if (arquivoUrl != null)    append("\"arquivo_url\":\"$arquivoUrl\",")
-            if (linkExterno != null)   append("\"link_externo\":\"$linkExterno\",")
-            append("\"tem_entrega\":$temEntrega,")
-            append("\"destaque\":$destaque,")
-            append("\"ativo\":true")
-            append("}")
-        }
-        httpClient.post("$SUPABASE_URL/rest/v1/estudio") {
+        val request = CriarItemEstudioRequest(
+            profissional_id = profissionalId,
+            titulo          = titulo,
+            descricao       = descricao,
+            tipo            = tipo,
+            preco           = preco,
+            preco_original  = precoOriginal,
+            video_url       = videoUrl,
+            arquivo_url     = arquivoUrl,
+            link_externo    = linkExterno,
+            tem_entrega     = temEntrega,
+            destaque        = destaque,
+        )
+        val response = httpClient.post("$SUPABASE_URL/rest/v1/estudio") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Content-Type", "application/json")
             header("Prefer", "return=minimal")
-            setBody(body)
+            setBody(request)
         }
-        true
-    } catch (e: Exception) { false }
+        response.status.value in 200..299
+    } catch (e: Exception) {
+        android.util.Log.e("Estudio", "Erro ao criar item: ${e.message}")
+        false
+    }
 }
 
 // ── UPLOAD DE IMAGEM ──────────────────────────────────
@@ -441,6 +624,7 @@ suspend fun salvarFotoPerfilAndroid(userId: String, fotoUrl: String? = null, cap
         val campos = mutableListOf<String>()
         if (fotoUrl != null) campos.add("\"foto_url\":\"$fotoUrl\"")
         if (capaUrl != null) campos.add("\"capa_url\":\"$capaUrl\"")
+        if (campos.isEmpty()) return true
         val body = "{${campos.joinToString(",")}}"
         httpClient.patch("$SUPABASE_URL/rest/v1/perfis?id=eq.$userId") {
             header("apikey", SUPABASE_KEY)
@@ -463,7 +647,11 @@ suspend fun resetSenhaAndroid(email: String): Boolean {
         true
     } catch (e: Exception) { false }
 }
+
 // ── ONBOARDING PROFISSIONAL ───────────────────────────
+// atualizarPerfilProfissional — usa DTO @Serializable.
+// Antes: replace("\"","\\\"") manual em cada campo — frágil.
+// Agora: serialização correta sem risco de injection.
 suspend fun atualizarPerfilProfissional(
     userId: String,
     bio: String,
@@ -474,23 +662,21 @@ suspend fun atualizarPerfilProfissional(
     precoUrgente: Int,
 ): Boolean {
     return try {
-        val body = buildString {
-            append("{")
-            append("\"id\":\"$userId\",")
-            append("\"descricao\":\"${bio.replace("\"", "\\\"")}\",")
-            append("\"area\":\"${area.replace("\"", "\\\"")}\",")
-            append("\"conselho\":\"${conselho.replace("\"", "\\\"")}\",")
-            append("\"numero_conselho\":\"${numeroConselho.replace("\"", "\\\"")}\",")
-            append("\"valor_normal\":$precoNormal,")
-            append("\"valor_urgente\":$precoUrgente")
-            append("}")
-        }
+        val request = AtualizarPerfilProfissionalRequest(
+            id              = userId,
+            descricao       = bio,
+            area            = area,
+            conselho        = conselho,
+            numero_conselho = numeroConselho,
+            valor_normal    = precoNormal,
+            valor_urgente   = precoUrgente,
+        )
         val response = httpClient.post("$SUPABASE_URL/rest/v1/profissionais") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Content-Type", "application/json")
             header("Prefer", "resolution=merge-duplicates,return=minimal")
-            setBody(body)
+            setBody(request)
         }
         response.status.value in 200..299
     } catch (e: Exception) {
@@ -498,6 +684,7 @@ suspend fun atualizarPerfilProfissional(
         false
     }
 }
+
 // ── DISPONIBILIDADE URGENTE ───────────────────────────
 suspend fun atualizarDisponibilidadeUrgente(profissionalId: String, disponivel: Boolean): Boolean {
     return try {
@@ -514,7 +701,9 @@ suspend fun atualizarDisponibilidadeUrgente(profissionalId: String, disponivel: 
         false
     }
 }
+
 // ── AGENDAMENTO + PEDIDO ──────────────────────────────
+// criarAgendamento — usa DTOs @Serializable para consulta e pedido.
 suspend fun criarAgendamento(
     clienteId: String,
     profId: String,
@@ -524,54 +713,47 @@ suspend fun criarAgendamento(
     valor: Double,
 ): String? {
     return try {
-        // 1. Montar timestamp ISO 8601 esperado pelo Supabase: "2025-04-20T14:30:00"
-        // data no formato "dd/MM/yyyy", hora "HH:mm"
+        // Montar timestamp ISO 8601: "dd/MM/yyyy" + "HH:mm" → "yyyy-MM-ddTHH:mm:00"
         val partes = data.split("/")
-        val dataIso = if (partes.size == 3) "${partes[2]}-${partes[1]}-${partes[0]}T${hora}:00" else "${data}T${hora}:00"
+        val dataIso = if (partes.size == 3)
+            "${partes[2]}-${partes[1]}-${partes[0]}T${hora}:00"
+        else "${data}T${hora}:00"
 
-        val consultaBody = buildString {
-            append("{")
-            append("\"cliente_id\":\"$clienteId\",")
-            append("\"profissional_id\":\"$profId\",")
-            append("\"tipo\":\"$tipo\",")
-            append("\"status\":\"agendada\",")
-            append("\"data_agendada\":\"$dataIso\",")
-            append("\"valor\":${valor.toInt()}")
-            append("}")
-        }
+        val agendamentoRequest = CriarAgendamentoRequest(
+            cliente_id      = clienteId,
+            profissional_id = profId,
+            tipo            = tipo,
+            data_agendada   = dataIso,
+            valor           = valor.toInt(),
+        )
 
-        // 2. Inserir consulta e recuperar o id gerado
         val consultaResponse = httpClient.post("$SUPABASE_URL/rest/v1/consultas") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Content-Type", "application/json")
             header("Prefer", "return=representation")
-            setBody(consultaBody)
+            setBody(agendamentoRequest)
         }.body<List<Map<String, String?>>>()
 
         val consultaId = consultaResponse.firstOrNull()?.get("id") ?: return null
 
-        // 3. Inserir pedido vinculado à consulta
-        val pedidoBody = buildString {
-            append("{")
-            append("\"consulta_id\":\"$consultaId\",")
-            append("\"cliente_id\":\"$clienteId\",")
-            append("\"profissional_id\":\"$profId\",")
-            append("\"valor\":$valor,")
-            append("\"status\":\"pendente\",")
-            append("\"tipo\":\"$tipo\"")
-            append("}")
-        }
+        val pedidoRequest = CriarPedidoRequest(
+            consulta_id     = consultaId,
+            cliente_id      = clienteId,
+            profissional_id = profId,
+            valor           = valor,
+            tipo            = tipo,
+        )
 
         val pedidoResponse = httpClient.post("$SUPABASE_URL/rest/v1/pedidos") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Content-Type", "application/json")
             header("Prefer", "return=minimal")
-            setBody(pedidoBody)
+            setBody(pedidoRequest)
         }
 
-        // 4. Se o pedido falhou, reverter a consulta criada
+        // Se o pedido falhou, reverter a consulta criada
         if (pedidoResponse.status.value !in 200..299) {
             try {
                 httpClient.delete("$SUPABASE_URL/rest/v1/consultas?id=eq.$consultaId") {
@@ -590,6 +772,7 @@ suspend fun criarAgendamento(
         null
     }
 }
+
 // ── CHAT ──────────────────────────────────────────────
 @Serializable
 data class Mensagem(
@@ -600,14 +783,21 @@ data class Mensagem(
     val created_at: String = "",
 )
 
+// enviarMensagem — usa DTO @Serializable.
+// Antes: replace("\"","\\\"") manual deixava outros caracteres escapar errado.
 suspend fun enviarMensagem(remetenteId: String, destinoId: String, texto: String): Boolean {
     return try {
+        val request = EnviarMensagemRequest(
+            remetente_id    = remetenteId,
+            destinatario_id = destinoId,
+            texto           = texto,
+        )
         val response = httpClient.post("$SUPABASE_URL/rest/v1/mensagens") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Content-Type", "application/json")
             header("Prefer", "return=minimal")
-            setBody("{\"remetente_id\":\"$remetenteId\",\"destinatario_id\":\"$destinoId\",\"texto\":\"${texto.replace("\"", "\\\"")}\"}")
+            setBody(request)
         }
         response.status.value in 200..299
     } catch (e: Exception) {
@@ -618,7 +808,6 @@ suspend fun enviarMensagem(remetenteId: String, destinoId: String, texto: String
 
 suspend fun buscarMensagens(meuId: String, outroId: String): List<Mensagem> {
     return try {
-        // Busca mensagens onde eu enviei OU recebi (conversa bilateral)
         httpClient.get("$SUPABASE_URL/rest/v1/mensagens") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
@@ -632,6 +821,7 @@ suspend fun buscarMensagens(meuId: String, outroId: String): List<Mensagem> {
         emptyList()
     }
 }
+
 // ── ACESSO AO CHAT ────────────────────────────────────
 @Serializable
 private data class PlanoUsuario(
@@ -645,7 +835,6 @@ private data class LiberacaoChat(
 
 suspend fun verificarAcessoChat(clienteId: String, profissionalId: String): Boolean {
     return try {
-        // 1. Verificar plano ativo do cliente
         val planoCliente = httpClient.get("$SUPABASE_URL/rest/v1/perfis?id=eq.$clienteId&select=plano_ativo") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
@@ -654,7 +843,6 @@ suspend fun verificarAcessoChat(clienteId: String, profissionalId: String): Bool
 
         if (planoCliente?.plano_ativo == true) return true
 
-        // 2. Verificar plano ativo do profissional
         val planoProfissional = httpClient.get("$SUPABASE_URL/rest/v1/perfis?id=eq.$profissionalId&select=plano_ativo") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
@@ -663,15 +851,14 @@ suspend fun verificarAcessoChat(clienteId: String, profissionalId: String): Bool
 
         if (planoProfissional?.plano_ativo == true) return true
 
-        // 3. Verificar liberação avulsa
         val liberacao = httpClient.get("$SUPABASE_URL/rest/v1/liberacoes_chat") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Accept", "application/json")
-            parameter("cliente_id",       "eq.$clienteId")
-            parameter("profissional_id",  "eq.$profissionalId")
-            parameter("select",           "id")
-            parameter("limit",            "1")
+            parameter("cliente_id",      "eq.$clienteId")
+            parameter("profissional_id", "eq.$profissionalId")
+            parameter("select",          "id")
+            parameter("limit",           "1")
         }.body<List<LiberacaoChat>>()
 
         liberacao.isNotEmpty()
@@ -680,15 +867,15 @@ suspend fun verificarAcessoChat(clienteId: String, profissionalId: String): Bool
         false
     }
 }
-// ── EDITAR / EXCLUIR ITEM DO ESTÚDIO (apenas dono) ───
+
+// ── EDITAR / EXCLUIR ITEM DO ESTÚDIO ─────────────────
 suspend fun editarItemEstudio(itemId: String, novosDados: Map<String, Any>): Boolean {
     return try {
-        // Verifica propriedade antes de atualizar: filtra por id E profissional_id = auth.uid()
         val body = buildString {
             append("{")
             novosDados.entries.forEachIndexed { i, (k, v) ->
                 val valor = when (v) {
-                    is String  -> "\"$k\":\"${v.replace("\"", "\\\"")}\""
+                    is String  -> "\"$k\":\"${v.replace("\\", "\\\\").replace("\"", "\\\"")}\""
                     is Boolean -> "\"$k\":$v"
                     is Number  -> "\"$k\":$v"
                     else       -> "\"$k\":\"$v\""
@@ -716,7 +903,6 @@ suspend fun editarItemEstudio(itemId: String, novosDados: Map<String, Any>): Boo
 
 suspend fun excluirItemEstudio(itemId: String): Boolean {
     return try {
-        // Filtro duplo: id + profissional_id garante que só o dono exclui
         val response = httpClient.delete(
             "$SUPABASE_URL/rest/v1/estudio?id=eq.$itemId&profissional_id=eq.${currentUserId ?: ""}"
         ) {
@@ -730,6 +916,7 @@ suspend fun excluirItemEstudio(itemId: String): Boolean {
         false
     }
 }
+
 @Serializable
 data class ResultadoAcesso(
     val acesso: Boolean,
@@ -753,6 +940,7 @@ suspend fun verificarAcessoAgendamento(clienteId: String, profissionalId: String
         ResultadoAcesso(acesso = false, motivo = "erro")
     }
 }
+
 // ── SALVAR DADOS PESSOAIS DO CLIENTE ─────────────────
 suspend fun salvarDadosPerfilAndroid(userId: String, nome: String, telefone: String): Boolean {
     return try {
@@ -767,10 +955,10 @@ suspend fun salvarDadosPerfilAndroid(userId: String, nome: String, telefone: Str
         response.status.value in 200..299
     } catch (e: Exception) { false }
 }
+
 // ── REGISTRAR VENDA NO ESTÚDIO ────────────────────────
 suspend fun registrarVendaEstudio(itemId: String): Boolean {
     return try {
-        // Incrementa total_vendas via RPC para evitar race condition
         val response = httpClient.post("$SUPABASE_URL/rest/v1/rpc/incrementar_vendas_estudio") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
@@ -783,6 +971,7 @@ suspend fun registrarVendaEstudio(itemId: String): Boolean {
         false
     }
 }
+
 // ── SALVAR BIO + CIDADE DO PROFISSIONAL ──────────────
 suspend fun salvarBioProfissionalAndroid(
     userId: String,
@@ -817,6 +1006,7 @@ suspend fun salvarBioProfissionalAndroid(
         false
     }
 }
+
 // ── PERFIL PROFISSIONAL INDIVIDUAL ───────────────────
 suspend fun getMeuPerfilProfissional(userId: String): ProfissionalComPerfil? {
     return try {
@@ -830,5 +1020,91 @@ suspend fun getMeuPerfilProfissional(userId: String): ProfissionalComPerfil? {
     } catch (e: Exception) {
         android.util.Log.e("Perfil", "Erro ao buscar perfil profissional: ${e.message}")
         null
+    }
+}
+
+// ── SALVAR TOKEN FCM ──────────────────────────────────
+// Corrigido: usa SUPABASE_URL e currentToken das constantes do arquivo,
+// não mais strings duplicadas. Token salvo via PATCH em perfis.fcm_token.
+suspend fun salvarFcmTokenAndroid(userId: String, token: String): Boolean {
+    return try {
+        val response = httpClient.patch("$SUPABASE_URL/rest/v1/perfis?id=eq.$userId") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Content-Type", "application/json")
+            header("Prefer", "return=minimal")
+            setBody("{\"fcm_token\":\"$token\"}")
+        }
+        response.status.value in 200..299
+    } catch (e: Exception) {
+        android.util.Log.e("FCM", "Erro ao salvar token: ${e.message}")
+        false
+    }
+}
+
+// ── ASSINATURAS ───────────────────────────────────────
+// Cria assinatura na tabela `assinaturas` e marca plano_ativo=true em `perfis`.
+// IMPORTANTE: Em produção, a criação da assinatura deve ser feita por uma
+// Edge Function do Supabase acionada pelo webhook do MercadoPago (usando
+// service_role), não diretamente pelo app. Esta função é usada apenas
+// enquanto a integração real com MercadoPago não está implementada.
+// Quando o webhook estiver pronto: aplicar bloco 2 do supabase_rls.sql.
+suspend fun criarAssinaturaAndroid(plano: Any): Boolean {
+    // plano é PlanoInfo — recebe como Any para evitar dependência circular
+    // na importação entre arquivos. Cast seguro via reflection de campos.
+    val planoId: String
+    val precoDecimal: Double
+    try {
+        val cls = plano::class
+        planoId      = cls.members.first { it.name == "id" }.call(plano) as String
+        precoDecimal = cls.members.first { it.name == "precoDecimal" }.call(plano) as Double
+    } catch (e: Exception) {
+        android.util.Log.e("Assinatura", "Cast de PlanoInfo falhou: ${e.message}")
+        return false
+    }
+
+    val userId = currentUserId ?: return false
+
+    return try {
+        // 1. Buscar plano_id da tabela planos pelo tipo
+        val planoNoBanco = httpClient.get("$SUPABASE_URL/rest/v1/planos?tipo=eq.$planoId&select=id&limit=1") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Accept", "application/json")
+        }.body<List<Map<String, String?>>>().firstOrNull()
+
+        val planoIdBanco = planoNoBanco?.get("id") ?: run {
+            android.util.Log.e("Assinatura", "Plano '$planoId' não encontrado na tabela planos")
+            return false
+        }
+
+        // 2. Inserir assinatura
+        val assinaturaBody = "{\"usuario_id\":\"$userId\",\"plano_id\":\"$planoIdBanco\",\"status\":\"ativa\",\"valor_pago\":$precoDecimal}"
+        val resAssinatura = httpClient.post("$SUPABASE_URL/rest/v1/assinaturas") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Content-Type", "application/json")
+            header("Prefer", "return=minimal")
+            setBody(assinaturaBody)
+        }
+
+        if (resAssinatura.status.value !in 200..299) {
+            android.util.Log.e("Assinatura", "Falha ao inserir assinatura: ${resAssinatura.status}")
+            return false
+        }
+
+        // 3. Marcar plano_ativo=true em perfis para que verificarAcessoChat funcione
+        val resPerfil = httpClient.patch("$SUPABASE_URL/rest/v1/perfis?id=eq.$userId") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Content-Type", "application/json")
+            header("Prefer", "return=minimal")
+            setBody("{\"plano_ativo\":true}")
+        }
+
+        resPerfil.status.value in 200..299
+    } catch (e: Exception) {
+        android.util.Log.e("Assinatura", "Erro: ${e.message}")
+        false
     }
 }
