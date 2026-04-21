@@ -42,7 +42,7 @@ fun LoginScreen(
     var recoverMsg by remember { mutableStateOf("") }
 
     fun validar(): Boolean {
-        emailError = if (!email.contains("@")) "E-mail inválido" else ""
+        emailError = if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) "E-mail inválido" else ""
         senhaError = if (senha.length < 6) "Mínimo 6 caracteres" else ""
         return emailError.isEmpty() && senhaError.isEmpty()
     }
@@ -60,10 +60,12 @@ fun LoginScreen(
                     val isProfissional = perfil.tipo == "profissional_certificado" ||
                             perfil.tipo == "profissional_liberal"
                     if (isProfissional) onEntrarProfissional(uid)
-                    else onEntrarCliente(uid)
-                } else {
+                    else onEntrarCliente(uid)} else {
                     if (uid.isNotEmpty()) {
-                        if (tipoConta == "profissional") onEntrarProfissional(uid)
+                        val perfilReal = getPerfilAndroid(uid)
+                        val ehProfissional = perfilReal?.tipo == "profissional_certificado" ||
+                                perfilReal?.tipo == "profissional_liberal"
+                        if (ehProfissional) onEntrarProfissional(uid)
                         else onEntrarCliente(uid)
                     } else {
                         erroGeral = "E-mail ou senha incorretos."

@@ -465,7 +465,7 @@ fun EstudioDetalheScreen(
                 Text("Por que comprar aqui?", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Verde, modifier = Modifier.padding(bottom = 12.dp))
                 listOf(
                     "Profissional verificado pela Brasil Tupi Conecta",
-                    "Pagamento seguro via MercadoPago",
+                    "Pagamento seguro e criptografado",
                     "Acesso imediato após confirmação",
                 ).forEach { texto ->
                     Row(
@@ -519,8 +519,14 @@ fun EstudioVitrineScreen(profissionalId: String, onVoltar: () -> Unit) {
         return
     }
 
-    val nomeProf = itens.firstOrNull()?.autorNome ?: ""
-    val fotoProf = itens.firstOrNull()?.autorFotoUrl
+    var nomeProf by remember { mutableStateOf("") }
+    var fotoProf by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(profissionalId) {
+        val perfil = getPerfilAndroid(profissionalId)
+        nomeProf = perfil?.nome ?: ""
+        fotoProf = perfil?.foto_url
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF8F7F4))) {
         // Header — fechado corretamente antes dos filtros

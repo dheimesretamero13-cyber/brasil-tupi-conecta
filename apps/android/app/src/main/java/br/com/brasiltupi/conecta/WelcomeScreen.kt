@@ -166,8 +166,9 @@ fun WelcomeScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
+                val ano = remember { java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) }
                 Text(
-                    text = "© 2025 Brasil Tupi Conecta",
+                    text = "© $ano Brasil Tupi Conecta",
                     fontSize = 11.sp,
                     color = Color.White.copy(alpha = 0.3f),
                     textAlign = TextAlign.Center,

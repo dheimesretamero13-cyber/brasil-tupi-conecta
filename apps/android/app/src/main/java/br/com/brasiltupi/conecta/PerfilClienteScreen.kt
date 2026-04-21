@@ -56,12 +56,14 @@ val dadosClienteMock = DadosCliente(
 fun PerfilClienteScreen(onVoltar: () -> Unit, userId: String = "") {
     var abaSelecionada by remember { mutableStateOf("perfil") }
     var fotoUrl      by remember { mutableStateOf<String?>(null) }
-    var nomeReal     by remember { mutableStateOf(dadosClienteMock.nome) }
-    var emailReal    by remember { mutableStateOf(dadosClienteMock.email) }
-    var cpfReal      by remember { mutableStateOf(dadosClienteMock.cpf) }
-    var telefoneReal by remember { mutableStateOf(dadosClienteMock.telefone) }
-    var cidadeReal   by remember { mutableStateOf(dadosClienteMock.cidade) }
-    var estadoReal   by remember { mutableStateOf(dadosClienteMock.estado) }
+    var nomeReal     by remember { mutableStateOf("") }
+    var emailReal    by remember { mutableStateOf("") }
+    var cpfReal      by remember { mutableStateOf("") }
+    var telefoneReal by remember { mutableStateOf("") }
+    var cidadeReal   by remember { mutableStateOf("") }
+    var estadoReal   by remember { mutableStateOf("") }
+    var consultasRealizadas by remember { mutableStateOf(0) }
+    var consultasAgendadas  by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
@@ -77,7 +79,11 @@ fun PerfilClienteScreen(onVoltar: () -> Unit, userId: String = "") {
                 cidadeReal   = perfil.cidade   ?: dadosClienteMock.cidade
                 estadoReal   = perfil.estado   ?: dadosClienteMock.estado
             }
+            val todasConsultas  = buscarConsultasCliente(userId)
+            consultasRealizadas = todasConsultas.count { it.status == "concluida" }
+            consultasAgendadas  = todasConsultas.count { it.status == "agendada" }
         }
+
     }
 
     val launcherFoto = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -92,7 +98,9 @@ fun PerfilClienteScreen(onVoltar: () -> Unit, userId: String = "") {
         }
     }
 
-    val iniciais = nomeReal.split(" ").map { it[0] }.joinToString("").take(2)
+    val iniciais = if (nomeReal.isNotEmpty())
+        nomeReal.split(" ").map { it[0] }.joinToString("").take(2)
+    else "..."
 
     Column(
         modifier = Modifier
@@ -169,9 +177,9 @@ fun PerfilClienteScreen(onVoltar: () -> Unit, userId: String = "") {
         // Stats
         Row(modifier = Modifier.fillMaxWidth().background(Surface).padding(vertical = 4.dp)) {
             listOf(
-                "${dadosClienteMock.consultasRealizadas}" to "Consultas\nrealizadas",
-                "${dadosClienteMock.consultasAgendadas}" to "Consultas\nagendadas",
-                "4.8" to "Média das\nconsultas",
+                "$consultasRealizadas" to "Consultas\nrealizadas",
+                "$consultasAgendadas"  to "Consultas\nagendadas",
+                "⭐ --"                to "Média das\nconsultas",
             ).forEach { (num, label) ->
                 Column(modifier = Modifier.weight(1f).padding(vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(num, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink)

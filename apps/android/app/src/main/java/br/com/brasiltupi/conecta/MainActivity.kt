@@ -20,20 +20,25 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        httpClient.close()
+    }
 }
 
 @Composable
 fun AppNavigation() {
     var tela by remember { mutableStateOf("welcome") }
-    var estudioProfId by remember { mutableStateOf("") }
-    var currentUserId by remember { mutableStateOf("") }
+    var estudioProfId  by remember { mutableStateOf("") }
     var chatOutroId    by remember { mutableStateOf("") }
     var chatOutroNome  by remember { mutableStateOf("") }
+    var chatDestino    by remember { mutableStateOf("dashboard-cliente") }
     when (tela) {
         "chat" -> ChatScreen(
             outroId   = chatOutroId,
             outroNome = chatOutroNome,
-            onVoltar  = { tela = "dashboard-profissional" } // ajuste o destino conforme o fluxo
+            onVoltar  = { tela = chatDestino }
         )
         "welcome" -> WelcomeScreen(
             onEntrar   = { tela = "login" },
@@ -42,24 +47,22 @@ fun AppNavigation() {
         )
         "login" -> LoginScreen(
             onVoltar             = { tela = "welcome" },
-            onEntrarProfissional = { userId -> currentUserId = userId; tela = "dashboard-profissional" },
-            onEntrarCliente      = { userId -> currentUserId = userId; tela = "dashboard-cliente" },
+            onEntrarProfissional = { tela = "dashboard-profissional" },
+            onEntrarCliente      = { tela = "dashboard-cliente" },
             onCadastro           = { tela = "cadastro" },
         )
         "cadastro" -> CadastroScreen(
             onVoltar    = { tela = "welcome" },
             onConcluido = {
-                // currentUserId e tipo já foram definidos pelo signUpAndroid dentro do CadastroScreen
-                val isProfissional = true // CadastroScreen só chama onConcluido para profissionais e clientes
-                // Detecta pelo tipo guardado no Supabase: redireciona onboarding só para profissionais
-                tela = if (currentUserId != null) "onboarding-check" else "welcome"
+                tela = if (br.com.brasiltupi.conecta.currentUserId != null) "onboarding-check" else "welcome"
             },
         )
         "onboarding-check" -> {
             // Resolve destino correto via LaunchedEffect sem bloquear UI
             var destino by remember { mutableStateOf("") }
-            LaunchedEffect(currentUserId) {
-                val uid = currentUserId ?: run { tela = "welcome"; return@LaunchedEffect }
+            LaunchedEffect(br.com.brasiltupi.conecta.currentUserId) {
+                val uid = br.com.brasiltupi.conecta.currentUserId
+                    ?: run { tela = "welcome"; return@LaunchedEffect }
                 val perfil = getPerfilAndroid(uid)
                 destino = when {
                     perfil?.tipo == "profissional_certificado" || perfil?.tipo == "profissional_liberal" -> "onboarding-profissional"
@@ -86,11 +89,11 @@ fun AppNavigation() {
         )
         "perfil-profissional" -> PerfilProfissionalScreen(
             onVoltar = { tela = "dashboard-profissional" },
-            userId = currentUserId
+            userId   = br.com.brasiltupi.conecta.currentUserId ?: ""
         )
         "perfil-cliente" -> PerfilClienteScreen(
             onVoltar = { tela = "dashboard-cliente" },
-            userId = currentUserId
+            userId   = br.com.brasiltupi.conecta.currentUserId ?: ""
         )
         "dashboard-profissional" -> DashboardProfissionalScreen(
             onSair = { tela = "welcome" },
@@ -104,13 +107,14 @@ fun AppNavigation() {
             onChat    = { outroId, outroNome ->
                 chatOutroId   = outroId
                 chatOutroNome = outroNome
+                chatDestino   = "dashboard-cliente"
                 tela          = "chat"
             }
         )
         "estudio-dashboard" -> EstudioDashboardScreen(
-        userId = currentUserId ?: "",
-        onVoltar = { tela = "dashboard-profissional" }
-    )
+            userId   = br.com.brasiltupi.conecta.currentUserId ?: "",
+            onVoltar = { tela = "dashboard-profissional" }
+        )
         "estudio-busca" -> EstudioBuscaScreen(
             onVoltar = { tela = "welcome" }
         )

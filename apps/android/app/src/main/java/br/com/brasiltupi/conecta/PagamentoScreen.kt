@@ -12,17 +12,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 
-// ─── Icons ────────────────────────────────────────────────────────────────────
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 
 // ─── Runtime ──────────────────────────────────────────────────────────────────
 import androidx.compose.runtime.Composable
@@ -34,7 +29,8 @@ import androidx.compose.ui.unit.dp
 
 // ─── App theme ────────────────────────────────────────────────────────────────
 import br.com.brasiltupi.conecta.ui.theme.Verde
-
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.unit.sp
 // ─────────────────────────────────────────────────────────────────────────────
 // PagamentoScreen
 // ─────────────────────────────────────────────────────────────────────────────
@@ -55,11 +51,8 @@ fun PagamentoScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onVoltar) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Voltar",
-                        )
+                    TextButton(onClick = onVoltar) {
+                        Text("← Voltar", fontSize = 14.sp)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

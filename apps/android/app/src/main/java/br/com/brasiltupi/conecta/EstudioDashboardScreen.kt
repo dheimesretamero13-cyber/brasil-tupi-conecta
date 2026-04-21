@@ -45,12 +45,7 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
     var excluindo by remember { mutableStateOf(false) }
 
 // Espelha a lista para remoção otimista
-    val itensVisiveis = remember { mutableStateListOf<ItemEstudio>() }
-
-    LaunchedEffect(itens) {
-        itensVisiveis.clear()
-        itensVisiveis.addAll(itens)
-    }
+    val itensVisiveis = remember(itens) { itens.toMutableStateList() }
     fun resetForm() {
         formTitulo = ""; formDescricao = ""; formTipo = "aula"
         formPreco = ""; formPrecoOriginal = ""; formVideoUrl = ""

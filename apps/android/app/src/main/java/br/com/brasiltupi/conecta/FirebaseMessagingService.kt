@@ -35,8 +35,24 @@ class BrasilTupiMessagingService : FirebaseMessagingService() {
     }
 
     private fun salvarTokenFirebase(token: String) {
-        // Será implementado quando o usuário estiver logado
-        android.util.Log.d("FCM", "Novo token: $token")
+        val uid = currentUserId ?: run {
+            android.util.Log.d("FCM", "Token recebido sem usuário logado: $token")
+            return
+        }
+        kotlinx.coroutines.GlobalScope.launch {
+            try {
+                httpClient.patch("${"https://qfzdchrlbqcvewjivaqz.supabase.co"}/rest/v1/perfis?id=eq.$uid") {
+                    header("apikey", "sb_publishable_SM-UHBh_5lzTSBZ2YPUIYw_Sw1i8qeq")
+                    header("Authorization", "Bearer ${currentToken ?: "sb_publishable_SM-UHBh_5lzTSBZ2YPUIYw_Sw1i8qeq"}")
+                    header("Content-Type", "application/json")
+                    header("Prefer", "return=minimal")
+                    setBody("{\"fcm_token\":\"$token\"}")
+                }
+                android.util.Log.d("FCM", "Token salvo com sucesso")
+            } catch (e: Exception) {
+                android.util.Log.e("FCM", "Erro ao salvar token: ${e.message}")
+            }
+        }
     }
 
     private fun mostrarNotificacao(titulo: String, corpo: String, tipo: String) {
@@ -95,6 +111,6 @@ class BrasilTupiMessagingService : FirebaseMessagingService() {
             )
             .build()
 
-        notificationManager.notify(System.currentTimeMillis().toInt(), notificacao)
+        notificationManager.notify((System.currentTimeMillis() % 100000).toInt(), notificacao)
     }
 }

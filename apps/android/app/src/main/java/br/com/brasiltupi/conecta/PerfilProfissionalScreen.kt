@@ -93,14 +93,13 @@ fun PerfilProfissionalScreen(onVoltar: () -> Unit, userId: String = "") {
                     "${perfil.cidade}, ${perfil.estado}"
                 else perfil.cidade ?: dadosProfissionalMock.cidade
             }
-            val profs = getProfissionaisPMPAndroid(false, "")
-            val meu   = profs.firstOrNull { it.id == userId }
+            val meu = getMeuPerfilProfissional(userId)
             if (meu != null) {
-                areaReal       = meu.area
-                descricaoReal  = meu.descricao  ?: dadosProfissionalMock.descricao
-                conselhoReal   = meu.conselho   ?: dadosProfissionalMock.conselho
-                credReal       = meu.credibilidade
-                isPMPReal      = meu.is_pmp
+                areaReal        = meu.area
+                descricaoReal   = meu.descricao  ?: dadosProfissionalMock.descricao
+                conselhoReal    = meu.conselho   ?: dadosProfissionalMock.conselho
+                credReal        = meu.credibilidade
+                isPMPReal       = meu.is_pmp
                 dispUrgenteReal = meu.disponivel_urgente
             }
         }
@@ -244,8 +243,8 @@ fun PerfilProfissionalScreen(onVoltar: () -> Unit, userId: String = "") {
         // Stats
         Row(modifier = Modifier.fillMaxWidth().background(Surface).padding(vertical = 4.dp)) {
             listOf(
-                "${dadosProfissionalMock.atendimentosTotal}" to "Atendimentos",
-                "⭐ ${dadosProfissionalMock.avaliacaoMedia}" to "Avaliação",
+                "--" to "Atendimentos",
+                "⭐ --" to "Avaliação",
                 "$credReal/100" to "Credibilidade",
             ).forEach { (num, label) ->
                 Column(modifier = Modifier.weight(1f).padding(vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -268,14 +267,15 @@ fun PerfilProfissionalScreen(onVoltar: () -> Unit, userId: String = "") {
 
         when (abaSelecionada) {
             "perfil"    -> AbaPerfilProfissional(
-                nomeInicial     = nomeReal,
-                areaInicial     = areaReal,
-                cidadeInicial   = cidadeReal,
+                nomeInicial      = nomeReal,
+                areaInicial      = areaReal,
+                cidadeInicial    = cidadeReal,
                 descricaoInicial = descricaoReal,
-                conselho        = conselhoReal,
-                credibilidade   = credReal,
-                isPMP           = isPMPReal,
-                userId          = userId,
+                conselho         = conselhoReal,
+                credibilidade    = credReal,
+                isPMP            = isPMPReal,
+                userId           = userId,
+                telefoneReal     = telefoneReal,
             )
             "seguranca" -> AbaSegurancaProfissional(email = emailReal, telefone = telefoneReal)
             "urgente"   -> AbaUrgenteProfissional(disponivelInicial = dispUrgenteReal, userId = userId)
@@ -286,14 +286,15 @@ fun PerfilProfissionalScreen(onVoltar: () -> Unit, userId: String = "") {
 // ── ABA: PERFIL ───────────────────────────────────────
 @Composable
 fun AbaPerfilProfissional(
-    nomeInicial:      String = dadosProfissionalMock.nome,
-    areaInicial:      String = dadosProfissionalMock.area,
-    cidadeInicial:    String = dadosProfissionalMock.cidade,
-    descricaoInicial: String = dadosProfissionalMock.descricao,
-    conselho:         String = dadosProfissionalMock.conselho,
-    credibilidade:    Int    = dadosProfissionalMock.credibilidade,
+    nomeInicial:      String  = dadosProfissionalMock.nome,
+    areaInicial:      String  = dadosProfissionalMock.area,
+    cidadeInicial:    String  = dadosProfissionalMock.cidade,
+    descricaoInicial: String  = dadosProfissionalMock.descricao,
+    conselho:         String  = dadosProfissionalMock.conselho,
+    credibilidade:    Int     = dadosProfissionalMock.credibilidade,
     isPMP:            Boolean = dadosProfissionalMock.isPMP,
-    userId:           String = "",
+    userId:           String  = "",
+    telefoneReal:     String  = dadosProfissionalMock.telefone,
 ) {
     var editando  by remember { mutableStateOf(false) }
     var nome      by remember { mutableStateOf(nomeInicial) }
@@ -325,7 +326,7 @@ fun AbaPerfilProfissional(
                     BotaoProximo("Salvar alterações") {
                         scope.launch {
                             if (userId.isNotEmpty()) {
-                                salvarDadosPerfilAndroid(userId, nome, "")
+                                salvarDadosPerfilAndroid(userId, nome, telefoneReal)
                                 val partesCidade = cidade.split(",")
                                 salvarBioProfissionalAndroid(
                                     userId  = userId,
@@ -357,7 +358,7 @@ fun AbaPerfilProfissional(
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Dados profissionais", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(12.dp))
-                listOf("Tipo de conta" to dadosProfissionalMock.tipo, "Conselho" to dadosProfissionalMock.conselho, "Atendimentos" to "${dadosProfissionalMock.atendimentosTotal} realizados", "Avaliação média" to "⭐ ${dadosProfissionalMock.avaliacaoMedia}").forEach { (label, valor) ->
+                listOf("Tipo de conta" to "Profissional", "Conselho" to conselho, "Atendimentos" to "--", "Avaliação média" to "⭐ --").forEach { (label, valor) ->
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(label, fontSize = 13.sp, color = InkMuted)
                         Text(valor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)

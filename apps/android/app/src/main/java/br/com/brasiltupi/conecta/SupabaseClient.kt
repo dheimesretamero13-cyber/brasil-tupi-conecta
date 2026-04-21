@@ -817,3 +817,18 @@ suspend fun salvarBioProfissionalAndroid(
         false
     }
 }
+// ── PERFIL PROFISSIONAL INDIVIDUAL ───────────────────
+suspend fun getMeuPerfilProfissional(userId: String): ProfissionalComPerfil? {
+    return try {
+        httpClient.get(
+            "$SUPABASE_URL/rest/v1/profissionais?id=eq.$userId&select=*,perfis(nome,email,cidade,estado,foto_url,capa_url)"
+        ) {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Accept", "application/json")
+        }.body<List<ProfissionalComPerfil>>().firstOrNull()
+    } catch (e: Exception) {
+        android.util.Log.e("Perfil", "Erro ao buscar perfil profissional: ${e.message}")
+        null
+    }
+}

@@ -20,8 +20,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.brasiltupi.conecta.ui.theme.*
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
 // ── DADOS MOCK (fallback) ─────────────────────────────
 data class ProfissionalPMP(
     val id: Int,
@@ -98,7 +96,10 @@ fun BuscaScreen(
         PerfilPublicoScreen(
             prof = profSelecionado!!,
             onVoltar = { profSelecionado = null },
-            onAgendar = { tipo -> agendando = profSelecionado!! to tipo },
+            onAgendar = { tipo ->
+    val prof = profSelecionado ?: return@PerfilPublicoScreen
+    agendando = prof to tipo
+},
             onEstudio = onEstudio
         )
         return
@@ -106,10 +107,11 @@ fun BuscaScreen(
 
     if (agendando != null) {
         AgendarScreen(
-            prof = agendando!!.first,
-            tipo = agendando!!.second,
-            onVoltar = { agendando = null },
-            onConcluido = { agendando = null; profSelecionado = null }
+            prof        = agendando!!.first,
+            tipo        = agendando!!.second,
+            onVoltar    = { agendando = null },
+            onConcluido = { agendando = null; profSelecionado = null },
+            onPagar     = onPagar
         )
         return
     }
@@ -421,24 +423,28 @@ fun OpcaoConsulta(titulo: String, descricao: String, preco: String, corPreco: Co
 
 // ── TELA DE AGENDAMENTO ───────────────────────────────
 @Composable
-fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onConcluido: () -> Unit) {
+fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onConcluido: () -> Unit, onPagar: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
 
-    var nome     by remember { mutableStateOf("") }
-    var email    by remember { mutableStateOf("") }
+    var nome by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
     var telefone by remember { mutableStateOf("") }
-    var senha    by remember { mutableStateOf("") }
-    var etapa    by remember { mutableStateOf(1) }
-    var resultadoAcesso   by remember { mutableStateOf<ResultadoAcesso?>(null) }
+    var senha by remember { mutableStateOf("") }
+    var etapa by remember { mutableStateOf(1) }
+    var resultadoAcesso by remember { mutableStateOf<ResultadoAcesso?>(null) }
     var verificandoAcesso by remember { mutableStateOf(false) }
-    var loading           by remember { mutableStateOf(false) }
-    var erro              by remember { mutableStateOf("") }
-    var sucesso           by remember { mutableStateOf(false) }
-    var consultaIdGerado  by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(false) }
+    var erro by remember { mutableStateOf("") }
+    var sucesso by remember { mutableStateOf(false) }
+    var consultaIdGerado by remember { mutableStateOf<String?>(null) }
 
     val dataHoje = remember {
         val c = java.util.Calendar.getInstance()
-        "%02d/%02d/%04d".format(c.get(java.util.Calendar.DAY_OF_MONTH), c.get(java.util.Calendar.MONTH) + 1, c.get(java.util.Calendar.YEAR))
+        "%02d/%02d/%04d".format(
+            c.get(java.util.Calendar.DAY_OF_MONTH),
+            c.get(java.util.Calendar.MONTH) + 1,
+            c.get(java.util.Calendar.YEAR)
+        )
     }
     val horaAtual = remember {
         val c = java.util.Calendar.getInstance()
@@ -458,7 +464,13 @@ fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onC
                 Text("✓", fontSize = 32.sp, color = Verde, fontWeight = FontWeight.Bold)
             }
             Spacer(modifier = Modifier.height(20.dp))
-            Text("Agendamento confirmado!", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink, textAlign = TextAlign.Center)
+            Text(
+                "Agendamento confirmado!",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Ink,
+                textAlign = TextAlign.Center
+            )
             Text(
                 "Sua consulta com ${prof.nome} foi registrada com sucesso.",
                 fontSize = 14.sp, color = InkMuted, textAlign = TextAlign.Center,
@@ -471,7 +483,10 @@ fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onC
             Button(
                 onClick = onConcluido,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Verde,
+                    contentColor = Color.White
+                ),
                 shape = RoundedCornerShape(10.dp)
             ) {
                 Text("Voltar ao início", fontSize = 15.sp, fontWeight = FontWeight.Bold)
@@ -493,12 +508,20 @@ fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onC
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(containerColor = Surface)
         ) {
-            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Box(
                     modifier = Modifier.size(44.dp).background(Azul, RoundedCornerShape(50)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(prof.iniciais, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(
+                        prof.iniciais,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
@@ -515,23 +538,53 @@ fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onC
         Spacer(modifier = Modifier.height(24.dp))
 
         if (etapa == 1) {
-            Text("Criar conta gratuita", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink)
+            Text(
+                "Criar conta gratuita",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Ink
+            )
             Text(
                 "Você será cadastrado como cliente automaticamente.",
-                fontSize = 13.sp, color = InkMuted, modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
+                fontSize = 13.sp,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
             )
             CampoTexto("Nome completo *", nome, { nome = it }, "Seu nome completo")
             Spacer(modifier = Modifier.height(12.dp))
-            CampoTexto("E-mail *", email, { email = it }, "seu@email.com", keyboardType = KeyboardType.Email)
+            CampoTexto(
+                "E-mail *",
+                email,
+                { email = it },
+                "seu@email.com",
+                keyboardType = KeyboardType.Email
+            )
             Spacer(modifier = Modifier.height(12.dp))
-            CampoTexto("Telefone *", telefone, { telefone = it }, "(00) 00000-0000", keyboardType = KeyboardType.Phone)
+            CampoTexto(
+                "Telefone *",
+                telefone,
+                { telefone = it },
+                "(00) 00000-0000",
+                keyboardType = KeyboardType.Phone
+            )
             Spacer(modifier = Modifier.height(12.dp))
             CampoTexto("Criar senha *", senha, { senha = it }, "Mínimo 6 caracteres", senha = true)
             Spacer(modifier = Modifier.height(20.dp))
-            BotaoProximo("Continuar →") { etapa = 2 }
+            BotaoProximo("Continuar →") {
+                if (nome.isBlank() || email.isBlank() || senha.length < 6) {
+                    erro = "Preencha todos os campos. Senha mínima: 6 caracteres."
+                    return@BotaoProximo
+                }
+                etapa = 2
+            }
 
         } else {
-            Text("Confirmar agendamento", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink)
+            Text(
+                "Confirmar agendamento",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Ink
+            )
             Spacer(modifier = Modifier.height(16.dp))
 
             Card(
@@ -544,7 +597,10 @@ fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onC
                     HorizontalDivider(color = SurfaceOff)
                     RevisaoItem("Tipo", if (tipo == "urgente") "⚡ Urgente" else "Normal")
                     HorizontalDivider(color = SurfaceOff)
-                    RevisaoItem("Valor", if (tipo == "urgente") "R$ ${prof.valorUrgente}" else "R$ ${prof.valorNormal}")
+                    RevisaoItem(
+                        "Valor",
+                        if (tipo == "urgente") "R$ ${prof.valorUrgente}" else "R$ ${prof.valorNormal}"
+                    )
                     HorizontalDivider(color = SurfaceOff)
                     RevisaoItem("Data", "$dataHoje às $horaAtual")
                     HorizontalDivider(color = SurfaceOff)
@@ -555,7 +611,8 @@ fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onC
             Spacer(modifier = Modifier.height(14.dp))
 
             Row(
-                modifier = Modifier.fillMaxWidth().background(VerdeClaro, RoundedCornerShape(8.dp)).padding(12.dp),
+                modifier = Modifier.fillMaxWidth().background(VerdeClaro, RoundedCornerShape(8.dp))
+                    .padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("🔒", fontSize = 14.sp)
@@ -566,7 +623,8 @@ fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onC
             if (erro.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth().background(Color(0xFFFDE8E8), RoundedCornerShape(8.dp)).padding(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                        .background(Color(0xFFFDE8E8), RoundedCornerShape(8.dp)).padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(erro, color = Urgente, fontSize = 13.sp)
@@ -585,11 +643,11 @@ fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onC
                                 currentUserId!!
                             } else {
                                 val ok = signUpAndroid(
-                                    email    = email,
-                                    senha    = senha.ifEmpty { "senha123" },
-                                    nome     = nome,
+                                    email = email,
+                                    senha = senha,
+                                    nome = nome,
                                     telefone = telefone,
-                                    tipo     = "cliente",
+                                    tipo = "cliente",
                                 )
                                 if (!ok || currentUserId == null) {
                                     erro = "Erro ao criar conta. Tente novamente."
@@ -608,14 +666,16 @@ fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onC
                             }
 
                             loading = true
-                            val valor = (if (tipo == "urgente") prof.valorUrgente else prof.valorNormal)?.toDouble() ?: 0.0
+                            val valor =
+                                (if (tipo == "urgente") prof.valorUrgente else prof.valorNormal)?.toDouble()
+                                    ?: 0.0
                             val id = criarAgendamento(
                                 clienteId = uid,
-                                profId    = prof.supabaseId,
-                                data      = dataHoje,
-                                hora      = horaAtual,
-                                tipo      = tipo,
-                                valor     = valor,
+                                profId = prof.supabaseId,
+                                data = dataHoje,
+                                hora = horaAtual,
+                                tipo = tipo,
+                                valor = valor,
                             )
                             loading = false
                             if (id != null) {
@@ -632,15 +692,19 @@ fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onC
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
-                enabled  = !loading && !verificandoAcesso,
-                colors   = ButtonDefaults.buttonColors(
+                enabled = !loading && !verificandoAcesso,
+                colors = ButtonDefaults.buttonColors(
                     containerColor = if (tipo == "urgente") Urgente else Verde,
-                    contentColor   = Color.White
+                    contentColor = Color.White
                 ),
                 shape = RoundedCornerShape(10.dp)
             ) {
                 if (loading || verificandoAcesso) {
-                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
+                    )
                 } else {
                     Text(
                         if (tipo == "urgente") "⚡ Confirmar agora" else "Confirmar agendamento",
@@ -654,19 +718,20 @@ fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onC
     // ── AlertDialog de bloqueio de acesso ─────────────
     resultadoAcesso?.let { resultado ->
         val (titulo, descricao) = when (resultado.motivo) {
-            "sem_plano"       -> "Sem plano ativo" to "Assine um plano para agendar consultas ou pague uma taxa avulsa."
+            "sem_plano" -> "Sem plano ativo" to "Assine um plano para agendar consultas ou pague uma taxa avulsa."
             "limite_atingido" -> "Limite atingido" to "Você usou ${resultado.profs_usados}/${resultado.limite} profissionais do plano ${resultado.plano_atual?.replaceFirstChar { it.uppercase() }}."
-            else              -> "Acesso bloqueado" to "Não foi possível verificar seu acesso."
+            else -> "Acesso bloqueado" to "Não foi possível verificar seu acesso."
         }
         AlertDialog(
             onDismissRequest = { resultadoAcesso = null },
-            containerColor   = Color.White,
-            shape            = RoundedCornerShape(16.dp),
+            containerColor = Color.White,
+            shape = RoundedCornerShape(16.dp),
             title = { Text(titulo, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink) },
-            text  = {
+            text = {
                 Column {
                     Row(
-                        modifier = Modifier.fillMaxWidth().background(UrgenteClaro, RoundedCornerShape(8.dp)).padding(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                            .background(UrgenteClaro, RoundedCornerShape(8.dp)).padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("🔒", fontSize = 16.sp)
@@ -677,13 +742,16 @@ fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onC
                         Spacer(modifier = Modifier.height(14.dp))
                         listOf(
                             Triple("Bronze", "Até 10 profissionais/mês", "R$ 59,90"),
-                            Triple("Ouro",   "Ilimitado",                "R$ 99,90"),
+                            Triple("Ouro", "Ilimitado", "R$ 99,90"),
                         ).forEach { (nome, desc, preco) ->
                             Card(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                shape    = RoundedCornerShape(10.dp),
-                                colors   = CardDefaults.cardColors(containerColor = VerdeClaro),
-                                border   = androidx.compose.foundation.BorderStroke(1.dp, Verde.copy(alpha = 0.3f))
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(containerColor = VerdeClaro),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    Verde.copy(alpha = 0.3f)
+                                )
                             ) {
                                 Row(
                                     modifier = Modifier.padding(12.dp).fillMaxWidth(),
@@ -691,10 +759,20 @@ fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onC
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column {
-                                        Text("⭐ Plano $nome", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Verde)
+                                        Text(
+                                            "⭐ Plano $nome",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Verde
+                                        )
                                         Text(desc, fontSize = 11.sp, color = InkMuted)
                                     }
-                                    Text(preco, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Verde)
+                                    Text(
+                                        preco,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Verde
+                                    )
                                 }
                             }
                         }
@@ -702,20 +780,32 @@ fun AgendarScreen(prof: ProfissionalPMP, tipo: String, onVoltar: () -> Unit, onC
                     Spacer(modifier = Modifier.height(12.dp))
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape    = RoundedCornerShape(10.dp),
-                        colors   = CardDefaults.cardColors(containerColor = AzulClaro),
-                        border   = androidx.compose.foundation.BorderStroke(1.dp, Azul.copy(alpha = 0.2f))
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(containerColor = AzulClaro),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            Azul.copy(alpha = 0.2f)
+                        )
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
-                            Text("💳 Pagamento avulso", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Azul)
-                            Text("Taxa única para esta consulta específica.", fontSize = 11.sp, color = InkMuted)
+                            Text(
+                                "💳 Pagamento avulso",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Azul
+                            )
+                            Text(
+                                "Taxa única para esta consulta específica.",
+                                fontSize = 11.sp,
+                                color = InkMuted
+                            )
                         }
                     }
                 }
             },
             confirmButton = {
                 Button(
-                    onClick = { resultadoAcesso = null },
+                    onClick = { resultadoAcesso = null; onPagar() },
                     colors  = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
                     shape   = RoundedCornerShape(8.dp)
                 ) {

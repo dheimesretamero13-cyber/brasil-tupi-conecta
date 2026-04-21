@@ -40,7 +40,7 @@ fun OnboardingProfissionalScreen(
 
     fun validar(): Boolean {
         erroArea  = if (area.isBlank()) "Informe sua área de atuação" else ""
-        erroPreco = if (precoNormal.isBlank() || precoNormal.toIntOrNull() == null) "Informe um valor válido" else ""
+        erroPreco = if (precoNormal.isBlank() || (precoNormal.toIntOrNull() ?: 0) <= 0) "Informe um valor válido" else ""
         return erroArea.isEmpty() && erroPreco.isEmpty()
     }
 

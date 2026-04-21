@@ -55,17 +55,15 @@ fun DashboardClienteScreen(
 
     LaunchedEffect(userId) {
         if (userId == null) return@LaunchedEffect
-        consultas = buscarConsultasCliente(userId)
-        loading = false
-    }
-
-    LaunchedEffect(userId) {
-        if (userId == null) return@LaunchedEffect
-        val perfil = getPerfilAndroid(userId)
+        val consultasDeferred = kotlinx.coroutines.async { buscarConsultasCliente(userId) }
+        val perfilDeferred    = kotlinx.coroutines.async { getPerfilAndroid(userId) }
+        consultas = consultasDeferred.await()
+        val perfil = perfilDeferred.await()
         if (perfil != null) {
             nomeUsuario = perfil.nome
-            iniciais = perfil.nome.split(" ").map { it[0] }.joinToString("").take(2).uppercase()
+            iniciais    = perfil.nome.split(" ").map { it[0] }.joinToString("").take(2).uppercase()
         }
+        loading = false
     }
 
     val pendentes = consultas.count { it.status == "concluida" && !it.avaliada }
@@ -137,8 +135,10 @@ fun DashboardClienteScreen(
                 }
                 val scope = rememberCoroutineScope()
                 TextButton(onClick = {
-                    scope.launch { signOutAndroid() }
-                    onSair()
+                    scope.launch {
+                        signOutAndroid()
+                        onSair()
+                    }
                 }) {
                     Text("Sair", color = InkMuted, fontSize = 13.sp)
                 }
@@ -877,7 +877,16 @@ fun AbaConsultasCliente(
 @Composable
 fun AbaBuscaCliente(onEstudio: ((String) -> Unit)? = null) {
     var profSelecionado by remember { mutableStateOf<ProfissionalPMP?>(null) }
-    var agendando by remember { mutableStateOf<Pair<ProfissionalPMP, String>?>(null) }
+    var agendando       by remember { mutableStateOf<Pair<ProfissionalPMP, String>?>(null) }
+    var profissionais   by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
+    var loadingProfs    by remember { mutableStateOf(true) }
+    var urgentesCount   by remember { mutableStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        profissionais = getProfissionaisPMPAndroid(false, "")
+        urgentesCount = profissionais.count { it.disponivel_urgente }
+        loadingProfs  = false
+    }
 
     if (profSelecionado != null) {
         PerfilPublicoScreen(
@@ -899,17 +908,6 @@ fun AbaBuscaCliente(onEstudio: ((String) -> Unit)? = null) {
             onConcluido = { agendando = null; profSelecionado = null }
         )
         return
-    }
-
-
-    var profissionais by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
-    var loadingProfs  by remember { mutableStateOf(true) }
-    var urgentesCount by remember { mutableStateOf(0) }
-
-    LaunchedEffect(Unit) {
-        profissionais = getProfissionaisPMPAndroid(false, "")
-        urgentesCount = profissionais.count { it.disponivel_urgente }
-        loadingProfs  = false
     }
 
     Column(
