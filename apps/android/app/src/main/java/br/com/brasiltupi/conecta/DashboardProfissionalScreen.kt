@@ -705,7 +705,6 @@ fun AbaUrgenteDash(onEstudio: (() -> Unit)? = null, disponivelUrgente: Boolean =
         }
     }
 }
-
 // ── ABA: PERFIL PROFISSIONAL (inline) ─────────────────
 @Composable
 fun AbaPerfilProfissional() {
