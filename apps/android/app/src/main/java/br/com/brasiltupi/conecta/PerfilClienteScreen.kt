@@ -55,14 +55,28 @@ val dadosClienteMock = DadosCliente(
 @Composable
 fun PerfilClienteScreen(onVoltar: () -> Unit, userId: String = "") {
     var abaSelecionada by remember { mutableStateOf("perfil") }
-    var fotoUrl by remember { mutableStateOf<String?>(null) }
+    var fotoUrl      by remember { mutableStateOf<String?>(null) }
+    var nomeReal     by remember { mutableStateOf(dadosClienteMock.nome) }
+    var emailReal    by remember { mutableStateOf(dadosClienteMock.email) }
+    var cpfReal      by remember { mutableStateOf(dadosClienteMock.cpf) }
+    var telefoneReal by remember { mutableStateOf(dadosClienteMock.telefone) }
+    var cidadeReal   by remember { mutableStateOf(dadosClienteMock.cidade) }
+    var estadoReal   by remember { mutableStateOf(dadosClienteMock.estado) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
     LaunchedEffect(userId) {
         if (userId.isNotEmpty()) {
             val perfil = getPerfilAndroid(userId)
-            fotoUrl = perfil?.foto_url
+            if (perfil != null) {
+                fotoUrl      = perfil.foto_url
+                nomeReal     = perfil.nome
+                emailReal    = perfil.email
+                cpfReal      = perfil.cpf      ?: dadosClienteMock.cpf
+                telefoneReal = perfil.telefone ?: dadosClienteMock.telefone
+                cidadeReal   = perfil.cidade   ?: dadosClienteMock.cidade
+                estadoReal   = perfil.estado   ?: dadosClienteMock.estado
+            }
         }
     }
 
@@ -78,7 +92,7 @@ fun PerfilClienteScreen(onVoltar: () -> Unit, userId: String = "") {
         }
     }
 
-    val iniciais = dadosClienteMock.nome.split(" ").map { it[0] }.joinToString("").take(2)
+    val iniciais = nomeReal.split(" ").map { it[0] }.joinToString("").take(2)
 
     Column(
         modifier = Modifier
@@ -136,9 +150,9 @@ fun PerfilClienteScreen(onVoltar: () -> Unit, userId: String = "") {
                     }
                     Spacer(modifier = Modifier.width(14.dp))
                     Column {
-                        Text(dadosClienteMock.nome, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(nomeReal, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         Text("Cliente", fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f))
-                        Text("📍 ${dadosClienteMock.cidade}, ${dadosClienteMock.estado}", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
+                        Text("📍 $cidadeReal, $estadoReal", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
                     }
                 }
                 Spacer(modifier = Modifier.height(14.dp))
@@ -179,20 +193,39 @@ fun PerfilClienteScreen(onVoltar: () -> Unit, userId: String = "") {
 
         // Conteúdo das abas — sem scroll interno
         when (abaSelecionada) {
-            "perfil"    -> AbaPerfilCliente(fotoUrl = fotoUrl, onEditarFoto = { launcherFoto.launch("image/*") })
+            "perfil" -> AbaPerfilCliente(
+    fotoUrl      = fotoUrl,
+    onEditarFoto = { launcherFoto.launch("image/*") },
+    nomeInicial  = nomeReal,
+    email        = emailReal,
+    cpf          = cpfReal,
+    telefoneInicial = telefoneReal,
+    membroDesde  = dadosClienteMock.membroDesde,
+    userId       = userId,
+)
             "endereco"  -> AbaEnderecoCliente()
-            "seguranca" -> AbaSegurancaCliente()
+            "seguranca" -> AbaSegurancaCliente(email = emailReal, telefone = telefoneReal)
         }
     }
 }
 
 // ── ABA: PERFIL ───────────────────────────────────────
 @Composable
-fun AbaPerfilCliente(fotoUrl: String? = null, onEditarFoto: () -> Unit = {}) {
+fun AbaPerfilCliente(
+    fotoUrl:         String? = null,
+    onEditarFoto:    () -> Unit = {},
+    nomeInicial:     String = dadosClienteMock.nome,
+    email:           String = dadosClienteMock.email,
+    cpf:             String = dadosClienteMock.cpf,
+    telefoneInicial: String = dadosClienteMock.telefone,
+    membroDesde:     String = dadosClienteMock.membroDesde,
+    userId:          String = "",
+) {
     var editando by remember { mutableStateOf(false) }
-    var nome by remember { mutableStateOf(dadosClienteMock.nome) }
-    var telefone by remember { mutableStateOf(dadosClienteMock.telefone) }
-    val iniciais = dadosClienteMock.nome.split(" ").map { it[0] }.joinToString("").take(2)
+    var nome     by remember { mutableStateOf(nomeInicial) }
+    var telefone by remember { mutableStateOf(telefoneInicial) }
+    val scope    = rememberCoroutineScope()
+    val iniciais = nomeInicial.split(" ").map { it[0] }.joinToString("").take(2)
 
     Column(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
@@ -209,9 +242,14 @@ fun AbaPerfilCliente(fotoUrl: String? = null, onEditarFoto: () -> Unit = {}) {
                     Spacer(modifier = Modifier.height(12.dp))
                     CampoTexto("Telefone / WhatsApp", telefone, { telefone = it }, "(00) 00000-0000")
                     Spacer(modifier = Modifier.height(16.dp))
-                    BotaoProximo("Salvar alterações") { editando = false }
+                    BotaoProximo("Salvar alterações") {
+                        scope.launch {
+                            if (userId.isNotEmpty()) salvarDadosPerfilAndroid(userId, nome, telefone)
+                        }
+                        editando = false
+                    }
                 } else {
-                    listOf("Nome" to nome, "E-mail" to dadosClienteMock.email, "CPF" to dadosClienteMock.cpf, "Telefone" to telefone, "Membro desde" to dadosClienteMock.membroDesde).forEach { (label, valor) ->
+                    listOf("Nome" to nome, "E-mail" to email, "CPF" to cpf, "Telefone" to telefone, "Membro desde" to membroDesde).forEach { (label, valor) ->
                         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(label, fontSize = 13.sp, color = InkMuted)
                             Text(valor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
@@ -297,13 +335,16 @@ fun AbaEnderecoCliente() {
 
 // ── ABA: SEGURANÇA ────────────────────────────────────
 @Composable
-fun AbaSegurancaCliente() {
+fun AbaSegurancaCliente(
+    email:    String = dadosClienteMock.email,
+    telefone: String = dadosClienteMock.telefone,
+) {
     Column(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Segurança da conta", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(12.dp))
-                listOf(Triple("E-mail", dadosClienteMock.email, "Alterar"), Triple("Senha", "••••••••••", "Alterar"), Triple("Telefone", dadosClienteMock.telefone, "Alterar"), Triple("Autenticação 2FA", "Desativado", "Ativar")).forEach { (label, valor, acao) ->
+                listOf(Triple("E-mail", email, "Alterar"), Triple("Senha", "••••••••••", "Alterar"), Triple("Telefone", telefone, "Alterar"), Triple("Autenticação 2FA", "Desativado", "Ativar")).forEach { (label, valor, acao) ->
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column {
                             Text(label, fontSize = 12.sp, color = InkMuted)

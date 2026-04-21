@@ -753,3 +753,67 @@ suspend fun verificarAcessoAgendamento(clienteId: String, profissionalId: String
         ResultadoAcesso(acesso = false, motivo = "erro")
     }
 }
+// ── SALVAR DADOS PESSOAIS DO CLIENTE ─────────────────
+suspend fun salvarDadosPerfilAndroid(userId: String, nome: String, telefone: String): Boolean {
+    return try {
+        val body = "{\"nome\":\"${nome.replace("\"","\\\"")}\",\"telefone\":\"${telefone.replace("\"","\\\"")}\"}";
+        val response = httpClient.patch("$SUPABASE_URL/rest/v1/perfis?id=eq.$userId") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Content-Type", "application/json")
+            header("Prefer", "return=minimal")
+            setBody(body)
+        }
+        response.status.value in 200..299
+    } catch (e: Exception) { false }
+}
+// ── REGISTRAR VENDA NO ESTÚDIO ────────────────────────
+suspend fun registrarVendaEstudio(itemId: String): Boolean {
+    return try {
+        // Incrementa total_vendas via RPC para evitar race condition
+        val response = httpClient.post("$SUPABASE_URL/rest/v1/rpc/incrementar_vendas_estudio") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Content-Type", "application/json")
+            setBody("{\"p_item_id\":\"$itemId\"}")
+        }
+        response.status.value in 200..299
+    } catch (e: Exception) {
+        android.util.Log.e("Estudio", "Erro ao registrar venda: ${e.message}")
+        false
+    }
+}
+// ── SALVAR BIO + CIDADE DO PROFISSIONAL ──────────────
+suspend fun salvarBioProfissionalAndroid(
+    userId: String,
+    bio: String,
+    cidade: String,
+    estado: String,
+): Boolean {
+    return try {
+        val cidadeEsc = cidade.replace("\\", "\\\\").replace("\"", "\\\"")
+        val estadoEsc = estado.replace("\\", "\\\\").replace("\"", "\\\"")
+        val bioEsc    = bio.replace("\\", "\\\\").replace("\"", "\\\"")
+
+        httpClient.patch("$SUPABASE_URL/rest/v1/perfis?id=eq.$userId") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Content-Type", "application/json")
+            header("Prefer", "return=minimal")
+            setBody("{\"cidade\":\"$cidadeEsc\",\"estado\":\"$estadoEsc\"}")
+        }
+
+        val response = httpClient.patch("$SUPABASE_URL/rest/v1/profissionais?id=eq.$userId") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Content-Type", "application/json")
+            header("Prefer", "return=minimal")
+            setBody("{\"descricao\":\"$bioEsc\"}")
+        }
+
+        response.status.value in 200..299
+    } catch (e: Exception) {
+        android.util.Log.e("Perfil", "Erro ao salvar bio: ${e.message}")
+        false
+    }
+}

@@ -39,8 +39,9 @@ data class ConsultaCliente(
 fun DashboardClienteScreen(
     onSair: () -> Unit,
     onEstudio: ((String) -> Unit)? = null,
-    onPerfil: (() -> Unit)? = null
-) {
+    onPerfil: (() -> Unit)? = null,
+    onChat: ((String, String) -> Unit)? = null
+){
     var abaSelecionada by remember { mutableStateOf("visao") }
 
     var consultas by remember { mutableStateOf<List<ConsultaCliente>>(emptyList()) }
@@ -134,7 +135,11 @@ fun DashboardClienteScreen(
                         fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White
                     )
                 }
-                TextButton(onClick = onSair) {
+                val scope = rememberCoroutineScope()
+                TextButton(onClick = {
+                    scope.launch { signOutAndroid() }
+                    onSair()
+                }) {
                     Text("Sair", color = InkMuted, fontSize = 13.sp)
                 }
             }
@@ -191,6 +196,7 @@ fun DashboardClienteScreen(
                             if (c.id == id) c.copy(avaliada = true, avaliacao = n) else c
                         }
                     },
+                    onChat = onChat
                 )
                 "busca"     -> AbaBuscaCliente(onEstudio = onEstudio)
                 "perfil"    -> {
@@ -895,6 +901,17 @@ fun AbaBuscaCliente(onEstudio: ((String) -> Unit)? = null) {
         return
     }
 
+
+    var profissionais by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
+    var loadingProfs  by remember { mutableStateOf(true) }
+    var urgentesCount by remember { mutableStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        profissionais = getProfissionaisPMPAndroid(false, "")
+        urgentesCount = profissionais.count { it.disponivel_urgente }
+        loadingProfs  = false
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -904,13 +921,11 @@ fun AbaBuscaCliente(onEstudio: ((String) -> Unit)? = null) {
         Card(
             onClick = {},
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0808))
+            shape    = RoundedCornerShape(12.dp),
+            colors   = CardDefaults.cardColors(containerColor = Color(0xFF1A0808))
         ) {
             Row(
-                modifier = Modifier
-                    .padding(16.dp)
-                    .fillMaxWidth(),
+                modifier = Modifier.padding(16.dp).fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("⚡", fontSize = 28.sp)
@@ -921,7 +936,7 @@ fun AbaBuscaCliente(onEstudio: ((String) -> Unit)? = null) {
                         fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White
                     )
                     Text(
-                        "${profissionaisMock.count { it.disponivelUrgente }} disponíveis agora · 45min",
+                        "$urgentesCount disponíveis agora · 45min",
                         fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f)
                     )
                 }
@@ -930,8 +945,86 @@ fun AbaBuscaCliente(onEstudio: ((String) -> Unit)? = null) {
 
         Text("Profissionais PMP", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
 
-        profissionaisMock.forEach { prof ->
-            CardProfissional(prof = prof, onClick = { profSelecionado = prof }, onEstudio = onEstudio)
+        if (loadingProfs) {
+            Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Verde)
+            }
+        } else {
+            profissionais.forEach { prof ->
+                CardProfissionalReal(
+                    prof      = prof,
+                    onClick   = {
+                        profSelecionado = ProfissionalPMP(
+                            id               = prof.id,
+                            nome             = prof.perfis?.nome ?: "",
+                            area             = prof.area,
+                            credibilidade    = prof.credibilidade,
+                            isPmp            = prof.is_pmp,
+                            disponivelUrgente = prof.disponivel_urgente,
+                            valorNormal      = prof.valor_normal,
+                            valorUrgente     = prof.valor_urgente ?: prof.valor_normal,
+                            verificado       = prof.verificado,
+                            descricao        = prof.descricao ?: "",
+                            cidade           = prof.perfis?.cidade ?: "",
+                            fotoUrl          = prof.perfis?.foto_url,
+                        )
+                    },
+                    onEstudio = onEstudio
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CardProfissionalReal(
+    prof:      ProfissionalComPerfil,
+    onClick:   () -> Unit,
+    onEstudio: ((String) -> Unit)? = null,
+) {
+    val nome      = prof.perfis?.nome ?: "Profissional"
+    val cidade    = prof.perfis?.cidade ?: ""
+    val iniciais  = nome.split(" ").map { it[0] }.joinToString("").take(2).uppercase()
+
+    Card(
+        onClick   = onClick,
+        modifier  = Modifier.fillMaxWidth(),
+        shape     = RoundedCornerShape(12.dp),
+        colors    = CardDefaults.cardColors(containerColor = Surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier.size(48.dp).background(AzulClaro, RoundedCornerShape(50)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(iniciais, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Azul)
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(nome, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Ink)
+                    Text(prof.area, fontSize = 12.sp, color = InkMuted)
+                    if (cidade.isNotEmpty()) Text("📍 $cidade", fontSize = 11.sp, color = InkMuted)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("R$ ${prof.valor_normal}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Verde)
+                    if (prof.disponivel_urgente) {
+                        Box(modifier = Modifier.background(UrgenteClaro, RoundedCornerShape(20.dp)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                            Text("⚡ Urgente", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Urgente)
+                        }
+                    }
+                }
+            }
+            if (onEstudio != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                TextButton(
+                    onClick = { onEstudio(prof.id) },
+                    colors  = ButtonDefaults.textButtonColors(contentColor = Azul)
+                ) {
+                    Text("Ver Estúdio →", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
     }
 }

@@ -97,7 +97,11 @@ fun DashboardProfissionalScreen(
                 ) {
                     Text(iniciais.ifEmpty { "?" }, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
-                TextButton(onClick = onSair) {
+                val scopeSair = rememberCoroutineScope()
+                TextButton(onClick = {
+                    scopeSair.launch { signOutAndroid() }
+                    onSair()
+                }) {
                     Text("Sair", color = InkMuted, fontSize = 13.sp)
                 }
             }
@@ -459,6 +463,67 @@ fun AbaUrgenteDash(onEstudio: (() -> Unit)? = null, disponivelUrgente: Boolean =
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC49A2A), contentColor = Color.White),
                     shape = RoundedCornerShape(10.dp)) {
                     Text("🎨 Acessar meu Estúdio", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+    // ── ABA: PERFIL PROFISSIONAL (inline) ─────────────────
+    @Composable
+    fun AbaPerfilProfissional() {
+        val scope = rememberCoroutineScope()
+        var nome  by remember { mutableStateOf("") }
+        var area  by remember { mutableStateOf("") }
+        var bio   by remember { mutableStateOf("") }
+        var fotoUrl by remember { mutableStateOf<String?>(null) }
+
+        LaunchedEffect(currentUserId) {
+            val uid = currentUserId ?: return@LaunchedEffect
+            val perfil = getPerfilAndroid(uid)
+            if (perfil != null) {
+                nome    = perfil.nome
+                fotoUrl = perfil.foto_url
+            }
+            val profs = getProfissionaisPMPAndroid(false, "")
+            val meu   = profs.firstOrNull { it.id == uid }
+            if (meu != null) {
+                area = meu.area
+                bio  = meu.descricao ?: ""
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape    = RoundedCornerShape(12.dp),
+                colors   = CardDefaults.cardColors(containerColor = Surface)
+            ) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Meu Perfil", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
+                    listOf(
+                        "Nome"  to nome,
+                        "Área"  to area,
+                        "Sobre" to bio.ifEmpty { "—" },
+                    ).forEach { (label, valor) ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(label, fontSize = 13.sp, color = InkMuted)
+                            Text(valor,  fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+                        }
+                        HorizontalDivider(color = SurfaceOff)
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Para editar seu perfil completo, acesse a tela de Perfil.",
+                        fontSize = 12.sp, color = InkMuted
+                    )
                 }
             }
         }

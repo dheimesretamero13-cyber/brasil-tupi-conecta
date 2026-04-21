@@ -44,7 +44,11 @@ val profissionaisMock = emptyList<ProfissionalPMP>()
 
 // ── TELA PRINCIPAL ────────────────────────────────────
 @Composable
-fun BuscaScreen(onVoltar: () -> Unit, onEstudio: ((String) -> Unit)? = null) {
+fun BuscaScreen(
+    onVoltar:  () -> Unit,
+    onEstudio: (String) -> Unit,
+    onPagar:   () -> Unit
+) {
     var busca by remember { mutableStateOf("") }
     var somenteUrgente by remember { mutableStateOf(false) }
     var profSelecionado by remember { mutableStateOf<ProfissionalPMP?>(null) }

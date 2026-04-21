@@ -82,7 +82,7 @@ fun EstudioBuscaScreen(onVoltar: () -> Unit) {
     var busca by remember { mutableStateOf("") }
     var filtroTipo by remember { mutableStateOf("todos") }
     var itemSelecionado by remember { mutableStateOf<ItemEstudio?>(null) }
-
+    var itemParaPagar by remember { mutableStateOf<ItemEstudio?>(null) }
     LaunchedEffect(filtroTipo) {
         loading = true
         itens = getProfissionaisEstudioAndroid(filtroTipo)
@@ -91,8 +91,16 @@ fun EstudioBuscaScreen(onVoltar: () -> Unit) {
 
     if (itemSelecionado != null) {
         EstudioDetalheScreen(
-            item = itemSelecionado!!,
-            onVoltar = { itemSelecionado = null }
+            item     = itemSelecionado!!,
+            onVoltar = { itemSelecionado = null },
+            onPagar  = { itemSelecionado = null; itemParaPagar = it }
+        )
+        return
+    }
+    if (itemParaPagar != null) {
+        PagamentoScreen(
+            onVoltar    = { itemParaPagar = null },
+            onConcluido = { itemParaPagar = null }
         )
         return
     }
@@ -296,7 +304,11 @@ fun CardEstudio(item: ItemEstudio, onClick: () -> Unit) {
 
 // ── TELA DETALHE ──────────────────────────────────────
 @Composable
-fun EstudioDetalheScreen(item: ItemEstudio, onVoltar: () -> Unit) {
+fun EstudioDetalheScreen(
+    item: ItemEstudio,
+    onVoltar: () -> Unit,
+    onPagar: ((ItemEstudio) -> Unit)? = null
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(Color(0xFFF8F7F4)),
         contentPadding = PaddingValues(bottom = 32.dp)
@@ -390,7 +402,7 @@ fun EstudioDetalheScreen(item: ItemEstudio, onVoltar: () -> Unit) {
                     Text("R$ ${"%.2f".format(item.preco)}", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Verde)
                     Spacer(modifier = Modifier.height(14.dp))
                     Button(
-                        onClick = { /* MercadoPago */ },
+                        onClick = { onPagar?.invoke(item) },
                         modifier = Modifier.fillMaxWidth().height(52.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
                         shape = RoundedCornerShape(10.dp)
@@ -484,7 +496,7 @@ fun EstudioVitrineScreen(profissionalId: String, onVoltar: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var filtroTipo by remember { mutableStateOf("todos") }
     var itemSelecionado by remember { mutableStateOf<ItemEstudio?>(null) }
-
+    var itemParaPagar by remember { mutableStateOf<ItemEstudio?>(null) }
     LaunchedEffect(profissionalId, filtroTipo) {
         loading = true
         itens = getEstudioProfissionalAndroid(profissionalId, filtroTipo)
@@ -492,7 +504,18 @@ fun EstudioVitrineScreen(profissionalId: String, onVoltar: () -> Unit) {
     }
 
     if (itemSelecionado != null) {
-        EstudioDetalheScreen(item = itemSelecionado!!, onVoltar = { itemSelecionado = null })
+        EstudioDetalheScreen(
+            item     = itemSelecionado!!,
+            onVoltar = { itemSelecionado = null },
+            onPagar  = { itemSelecionado = null; itemParaPagar = it }
+        )
+        return
+    }
+    if (itemParaPagar != null) {
+        PagamentoScreen(
+            onVoltar    = { itemParaPagar = null },
+            onConcluido = { itemParaPagar = null }
+        )
         return
     }
 

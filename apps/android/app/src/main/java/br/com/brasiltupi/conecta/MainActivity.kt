@@ -80,8 +80,9 @@ fun AppNavigation() {
 
         )
         "busca" -> BuscaScreen(
-            onVoltar = { tela = "welcome" },
-            onEstudio = { profId -> estudioProfId = profId; tela = "estudio-vitrine" }
+            onVoltar  = { tela = "welcome" },
+            onEstudio = { profId -> estudioProfId = profId; tela = "estudio-vitrine" },
+            onPagar   = { tela = "pagamento" }
         )
         "perfil-profissional" -> PerfilProfissionalScreen(
             onVoltar = { tela = "dashboard-profissional" },
@@ -97,9 +98,14 @@ fun AppNavigation() {
             onPerfil = { tela = "perfil-profissional" }
         )
         "dashboard-cliente" -> DashboardClienteScreen(
-            onSair = { tela = "welcome" },
+            onSair    = { tela = "welcome" },
             onEstudio = { profId -> estudioProfId = profId; tela = "estudio-vitrine" },
-            onPerfil = { tela = "perfil-cliente" }
+            onPerfil  = { tela = "perfil-cliente" },
+            onChat    = { outroId, outroNome ->
+                chatOutroId   = outroId
+                chatOutroNome = outroNome
+                tela          = "chat"
+            }
         )
         "estudio-dashboard" -> EstudioDashboardScreen(
         userId = currentUserId ?: "",
@@ -111,6 +117,10 @@ fun AppNavigation() {
         "estudio-vitrine" -> EstudioVitrineScreen(
             profissionalId = estudioProfId,
             onVoltar = { tela = "busca" }
+        )
+        "pagamento" -> PagamentoScreen(
+            onVoltar    = { tela = "busca" },
+            onConcluido = { tela = "busca" }
         )
     }
 }
