@@ -40,14 +40,7 @@ data class ProfissionalPMP(
     val especialidades: List<String>,
 )
 
-val profissionaisMock = listOf(
-    ProfissionalPMP(1, "", "MC", "Dra. Mariana Costa", "Psicologia e Terapia", "São Paulo, SP", 5.0, 63, false, 120, null, "CRP 12.345/SP", "Psicóloga clínica com foco em ansiedade e burnout.", listOf("Ansiedade", "Burnout", "Terapia Cognitiva")),
-    ProfissionalPMP(2, "", "RS", "Dr. Rafael Souza", "Direito e Jurídico", "Campinas, SP", 4.9, 31, true, 90, 150, "OAB 98.765/SP", "Advogado especialista em direito do consumidor e trabalhista.", listOf("Consumidor", "Trabalhista", "Contratos")),
-    ProfissionalPMP(3, "", "SR", "Dra. Sandra Reis", "Finanças e Contabilidade", "Rio de Janeiro, RJ", 4.9, 55, true, 100, 160, "CFC 54.321/RJ", "Contadora especializada em MEI e planejamento tributário.", listOf("MEI", "Tributário", "Contabilidade")),
-    ProfissionalPMP(4, "", "CH", "Dr. Carlos Henrique", "Saúde e Bem-estar", "São Paulo, SP", 4.8, 47, true, 80, 120, "CRM 45.231/SP", "Médico clínico geral com 12 anos de experiência.", listOf("Clínica Geral", "Preventiva", "Check-up")),
-    ProfissionalPMP(5, "", "PL", "Eng. Patricia Lima", "Engenharia e Tecnologia", "Belo Horizonte, MG", 4.7, 28, false, 110, null, "CREA 33.210/MG", "Engenheira civil especializada em laudos e perícias.", listOf("Laudos", "Perícia", "Projetos")),
-    ProfissionalPMP(6, "", "GT", "Dr. Gustavo Torres", "Educação e Tutoria", "Porto Alegre, RS", 4.8, 42, true, 70, 100, "", "Tutor especializado em matemática e vestibulares.", listOf("Matemática", "Física", "Vestibular")),
-)
+val profissionaisMock = emptyList<ProfissionalPMP>()
 
 // ── TELA PRINCIPAL ────────────────────────────────────
 @Composable
@@ -82,7 +75,7 @@ fun BuscaScreen(onVoltar: () -> Unit, onEstudio: ((String) -> Unit)? = null) {
                 )
             }
         } else {
-            profissionaisMock
+            emptyList()
         }
         loadingDB = false
     }

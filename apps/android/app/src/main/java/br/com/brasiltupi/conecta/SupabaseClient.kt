@@ -310,9 +310,10 @@ suspend fun getProfissionaisPMPAndroid(
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Accept", "application/json")
             parameter("select", "*, perfis(nome,email,cidade,estado,foto_url,capa_url)")
-            parameter("is_pmp", "eq.true")
-            parameter("verificado", "eq.true")
-            parameter("credibilidade", "gte.80")
+            // Por isto (sem filtros por enquanto):
+// parameter("is_pmp", "eq.true")      // reativar quando houver dados reais
+// parameter("verificado", "eq.true")   // reativar quando houver dados reais
+// parameter("credibilidade", "gte.80") // reativar quando houver dados reais
             parameter("order", "credibilidade.desc")
             if (somenteUrgente) parameter("disponivel_urgente", "eq.true")
         }.body<List<ProfissionalComPerfil>>()

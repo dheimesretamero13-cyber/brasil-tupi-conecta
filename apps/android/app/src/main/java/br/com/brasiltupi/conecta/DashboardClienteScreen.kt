@@ -877,7 +877,10 @@ fun AbaBuscaCliente(onEstudio: ((String) -> Unit)? = null) {
         PerfilPublicoScreen(
             prof = profSelecionado!!,
             onVoltar = { profSelecionado = null },
-            onAgendar = { tipo -> agendando = profSelecionado!! to tipo }
+            onAgendar = { tipo ->
+                val prof = profSelecionado
+                if (prof != null) agendando = prof to tipo
+            }
         )
         return
     }
