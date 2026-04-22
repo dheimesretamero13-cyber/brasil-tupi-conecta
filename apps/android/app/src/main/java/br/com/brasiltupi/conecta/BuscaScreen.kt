@@ -57,28 +57,7 @@ fun BuscaScreen(
     LaunchedEffect(somenteUrgente) {
         loadingDB = true
         val dados = getProfissionaisPMPAndroid(somenteUrgente, "")
-        profissionaisDB = if (dados.isNotEmpty()) {
-            dados.map { p ->
-                ProfissionalPMP(
-                    id = p.id.hashCode(),
-                    supabaseId = p.id,
-                    iniciais = p.perfis?.nome?.split(" ")?.map { it[0] }?.joinToString("")?.take(2) ?: "XX",
-                    nome = p.perfis?.nome ?: "Profissional",
-                    area = p.area,
-                    cidade = "${p.perfis?.cidade ?: ""}, ${p.perfis?.estado ?: ""}",
-                    avaliacao = 5.0,
-                    atendimentos = p.credibilidade / 2,
-                    disponivelUrgente = p.disponivel_urgente,
-                    valorNormal = p.valor_normal,
-                    valorUrgente = if (p.disponivel_urgente) p.valor_urgente else null,
-                    conselho = listOfNotNull(p.conselho, p.numero_conselho).joinToString(" "),
-                    descricao = p.descricao ?: "",
-                    especialidades = listOf(p.area),
-                )
-            }
-        } else {
-            emptyList()
-        }
+        profissionaisDB = dados.map { it.toProfissionalPMP() }
         loadingDB = false
     }
 

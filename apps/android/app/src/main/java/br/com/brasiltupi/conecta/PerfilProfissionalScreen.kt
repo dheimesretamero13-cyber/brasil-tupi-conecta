@@ -43,66 +43,66 @@ data class DadosProfissional(
     val email: String,
     val telefone: String,
 )
-
-val dadosProfissionalMock = DadosProfissional(
-    nome = "Dr. Carlos Henrique",
-    area = "Saúde e Bem-estar",
-    tipo = "Profissional Certificado",
-    conselho = "CRM 45.231/SP",
-    cidade = "São Paulo, SP",
-    credibilidade = 78,
-    isPMP = false,
-    atendimentosTotal = 47,
-    avaliacaoMedia = 4.8,
-    disponivelUrgente = true,
-    membroDesde = "Janeiro 2025",
-    descricao = "Médico especialista com 12 anos de experiência em clínica geral e medicina preventiva.",
-    email = "carlos@email.com",
-    telefone = "(11) 98765-4321",
-)
-
 // ── TELA PRINCIPAL ────────────────────────────────────
 @Composable
 fun PerfilProfissionalScreen(onVoltar: () -> Unit, userId: String = "") {
-    var abaSelecionada by remember { mutableStateOf("perfil") }
-    var fotoUrl       by remember { mutableStateOf<String?>(null) }
-    var capaUrl       by remember { mutableStateOf<String?>(null) }
-    var nomeReal      by remember { mutableStateOf(dadosProfissionalMock.nome) }
-    var areaReal      by remember { mutableStateOf(dadosProfissionalMock.area) }
-    var cidadeReal    by remember { mutableStateOf(dadosProfissionalMock.cidade) }
-    var emailReal     by remember { mutableStateOf(dadosProfissionalMock.email) }
-    var telefoneReal  by remember { mutableStateOf(dadosProfissionalMock.telefone) }
-    var descricaoReal by remember { mutableStateOf(dadosProfissionalMock.descricao) }
-    var conselhoReal  by remember { mutableStateOf(dadosProfissionalMock.conselho) }
-    var credReal      by remember { mutableStateOf(dadosProfissionalMock.credibilidade) }
-    var isPMPReal     by remember { mutableStateOf(dadosProfissionalMock.isPMP) }
-    var dispUrgenteReal by remember { mutableStateOf(dadosProfissionalMock.disponivelUrgente) }
+    var carregando      by remember { mutableStateOf(userId.isNotEmpty()) }
+    var abaSelecionada  by remember { mutableStateOf("perfil") }
+    var fotoUrl         by remember { mutableStateOf<String?>(null) }
+    var capaUrl         by remember { mutableStateOf<String?>(null) }
+    var nomeReal        by remember { mutableStateOf("") }
+    var areaReal        by remember { mutableStateOf("") }
+    var cidadeReal      by remember { mutableStateOf("") }
+    var emailReal       by remember { mutableStateOf("") }
+    var telefoneReal    by remember { mutableStateOf("") }
+    var descricaoReal   by remember { mutableStateOf("") }
+    var conselhoReal    by remember { mutableStateOf("") }
+    var credReal        by remember { mutableStateOf(0) }
+    var isPMPReal       by remember { mutableStateOf(false) }
+    var dispUrgenteReal by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
     LaunchedEffect(userId) {
-        if (userId.isNotEmpty()) {
+        if (userId.isEmpty()) { carregando = false; return@LaunchedEffect }
+        carregando = true
+        try {
             val perfil = getPerfilAndroid(userId)
             if (perfil != null) {
                 fotoUrl      = perfil.foto_url
                 capaUrl      = perfil.capa_url
                 nomeReal     = perfil.nome
                 emailReal    = perfil.email
-                telefoneReal = perfil.telefone ?: dadosProfissionalMock.telefone
+                telefoneReal = perfil.telefone.orEmpty()
                 cidadeReal   = if (!perfil.cidade.isNullOrEmpty() && !perfil.estado.isNullOrEmpty())
                     "${perfil.cidade}, ${perfil.estado}"
-                else perfil.cidade ?: dadosProfissionalMock.cidade
+                else perfil.cidade.orEmpty()
             }
             val meu = getMeuPerfilProfissional(userId)
             if (meu != null) {
                 areaReal        = meu.area
-                descricaoReal   = meu.descricao  ?: dadosProfissionalMock.descricao
-                conselhoReal    = meu.conselho   ?: dadosProfissionalMock.conselho
+                descricaoReal   = meu.descricao.orEmpty()
+                conselhoReal    = meu.conselho.orEmpty()
                 credReal        = meu.credibilidade
                 isPMPReal       = meu.is_pmp
                 dispUrgenteReal = meu.disponivel_urgente
             }
+        } finally {
+            carregando = false
         }
+    }
+
+    if (userId.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Usuário não identificado.", color = InkMuted, fontSize = 14.sp)
+        }
+        return
+    }
+    if (carregando) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = Verde)
+        }
+        return
     }
 
     val launcherFoto = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -228,7 +228,7 @@ fun PerfilProfissionalScreen(onVoltar: () -> Unit, userId: String = "") {
             Spacer(modifier = Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(modifier = Modifier.background(Color(0xFFFDF3D8), RoundedCornerShape(20.dp)).padding(horizontal = 12.dp, vertical = 5.dp)) {
-                    Text(dadosProfissionalMock.tipo, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC49A2A))
+                    Text("Profissional Certificado", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC49A2A))
                 }
                 if (isPMPReal) {
                     Box(modifier = Modifier.background(DouradoClaro, RoundedCornerShape(20.dp)).padding(horizontal = 12.dp, vertical = 5.dp)) {
@@ -286,16 +286,17 @@ fun PerfilProfissionalScreen(onVoltar: () -> Unit, userId: String = "") {
 // ── ABA: PERFIL ───────────────────────────────────────
 @Composable
 fun AbaPerfilProfissional(
-    nomeInicial:      String  = dadosProfissionalMock.nome,
-    areaInicial:      String  = dadosProfissionalMock.area,
-    cidadeInicial:    String  = dadosProfissionalMock.cidade,
-    descricaoInicial: String  = dadosProfissionalMock.descricao,
-    conselho:         String  = dadosProfissionalMock.conselho,
-    credibilidade:    Int     = dadosProfissionalMock.credibilidade,
-    isPMP:            Boolean = dadosProfissionalMock.isPMP,
+    nomeInicial:      String  = "",
+    areaInicial:      String  = "",
+    cidadeInicial:    String  = "",
+    descricaoInicial: String  = "",
+    conselho:         String  = "",
+    credibilidade:    Int     = 0,
+    isPMP:            Boolean = false,
     userId:           String  = "",
-    telefoneReal:     String  = dadosProfissionalMock.telefone,
-) {
+    telefoneReal:     String  = "",
+)
+{
     var editando  by remember { mutableStateOf(false) }
     var nome      by remember { mutableStateOf(nomeInicial) }
     var descricao by remember { mutableStateOf(descricaoInicial) }
@@ -339,7 +340,7 @@ fun AbaPerfilProfissional(
                         editando = false
                     }
                 } else {
-                    listOf("Nome" to nome, "Área" to areaInicial, "Cidade" to cidade, "Membro desde" to dadosProfissionalMock.membroDesde).forEach { (label, valor) ->
+                    listOf("Nome" to nome, "Área" to areaInicial, "Cidade" to cidade, "Membro desde" to "--").forEach { (label, valor) ->
                         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(label, fontSize = 13.sp, color = InkMuted)
                             Text(valor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
@@ -403,8 +404,8 @@ fun AbaPerfilProfissional(
 // ── ABA: SEGURANÇA ────────────────────────────────────
 @Composable
 fun AbaSegurancaProfissional(
-    email:    String = dadosProfissionalMock.email,
-    telefone: String = dadosProfissionalMock.telefone,
+    email:    String = "",
+    telefone: String = "",
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
@@ -437,7 +438,7 @@ fun AbaSegurancaProfissional(
 // ── ABA: URGENTE ──────────────────────────────────────
 @Composable
 fun AbaUrgenteProfissional(
-    disponivelInicial: Boolean = dadosProfissionalMock.disponivelUrgente,
+    disponivelInicial: Boolean = false,
     userId:            String  = "",
 ) {
     var ativo      by remember { mutableStateOf(disponivelInicial) }

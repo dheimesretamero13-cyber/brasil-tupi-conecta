@@ -9,10 +9,20 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 class BrasilTupiMessagingService : FirebaseMessagingService() {
 
+    private val serviceJob = SupervisorJob()
+    private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+
+    override fun onDestroy() {
+        super.onDestroy()
+        serviceScope.cancel()
+    }
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
 
@@ -40,7 +50,7 @@ class BrasilTupiMessagingService : FirebaseMessagingService() {
             android.util.Log.d("FCM", "Token recebido sem usuário logado: $token")
             return
         }
-        kotlinx.coroutines.GlobalScope.launch {
+        serviceScope.launch {
             salvarFcmTokenAndroid(uid, token)
         }
     }

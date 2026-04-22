@@ -956,23 +956,8 @@ fun AbaBuscaCliente(onEstudio: ((String) -> Unit)? = null) {
                 CardProfissionalReal(
                     prof      = prof,
                     onClick   = {
-                        val nomeProf = prof.perfis?.nome ?: "Profissional"
-                        profSelecionado = ProfissionalPMP(
-                            id               = prof.id.hashCode(),
-                            supabaseId       = prof.id,
-                            iniciais         = nomeProf.split(" ").map { it[0] }.joinToString("").take(2).uppercase(),
-                            nome             = nomeProf,
-                            area             = prof.area,
-                            cidade           = "${prof.perfis?.cidade ?: ""}, ${prof.perfis?.estado ?: ""}",
-                            avaliacao        = 5.0,
-                            atendimentos     = prof.credibilidade / 2,
-                            disponivelUrgente = prof.disponivel_urgente,
-                            valorNormal      = prof.valor_normal,
-                            valorUrgente     = prof.valor_urgente,
-                            conselho         = listOfNotNull(prof.conselho, prof.numero_conselho).joinToString(" "),
-                            descricao        = prof.descricao ?: "",
-                            especialidades   = listOf(prof.area),
-                        )
+                        profSelecionado = prof.toProfissionalPMP()
+
                     },
                     onEstudio = onEstudio
                 )

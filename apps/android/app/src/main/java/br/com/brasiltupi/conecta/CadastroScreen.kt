@@ -606,16 +606,28 @@ fun EtapaRevisao(tipo: String, nome: String, email: String, senha: String = "", 
                         tipo.contains("Liberal") -> "profissional_liberal"
                         else -> "cliente"
                     }
+                    if (senha.isEmpty()) {
+                        erro = "A senha é obrigatória"
+                        loading = false
+                        return@launch
+                    }
                     val sucesso = signUpAndroid(
                         email = email,
-                        senha = senha.ifEmpty { "senha123" },
+                        senha = senha,
                         nome = nome,
                         telefone = "",
-                        tipo = tipoSupabase,
+                        tipo = tipoSupabase
                     )
+
+// 4. Finaliza o estado de carregamento
                     loading = false
-                    if (sucesso) onProximo()
-                    else erro = "Erro ao criar conta. Tente novamente."
+
+// 5. Trata o resultado
+                    if (sucesso) {
+                        onProximo()
+                    } else {
+                        erro = "Erro ao criar conta. Tente novamente."
+                    }
                 }
             },
             modifier = Modifier.fillMaxWidth().height(52.dp),

@@ -186,6 +186,40 @@ private data class EnviarMensagemRequest(
     val destinatario_id: String,
     val texto: String,
 )
+@Serializable
+private data class SalvarFotoPerfilRequest(
+    val foto_url: String? = null,
+    val capa_url: String? = null,
+)
+@Serializable
+private data class ResetSenhaRequest(
+    val email: String,
+)
+@Serializable
+private data class AtualizarAvaliacaoConsultaRequest(
+    val avaliacao: Int,
+    val avaliada : Boolean = true,
+)
+@Serializable
+private data class DisponibilidadeUrgenteRequest(
+    val disponivel_urgente: Boolean,
+)
+@Serializable
+private data class SalvarDadosPerfilRequest(
+    val nome    : String,
+    val telefone: String,
+)
+@Serializable
+private data class SalvarCidadeEstadoRequest(
+    val cidade: String,
+    val estado: String,
+)
+
+@Serializable
+private data class SalvarDescricaoProfissionalRequest(
+    val descricao: String,
+)
+
 
 // ── HELPERS ───────────────────────────────────────────
 // Compatível com API 24+: parse manual do timestamptz do Supabase
@@ -464,7 +498,7 @@ suspend fun atualizarAvaliacaoConsulta(consultaId: String, nota: Int): Boolean {
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Content-Type", "application/json")
             header("Prefer", "return=minimal")
-            setBody("{\"avaliacao\":$nota,\"avaliada\":true}")
+            setBody(AtualizarAvaliacaoConsultaRequest(avaliacao = nota))
         }
         response.status.value in 200..299
     } catch (e: Exception) {
@@ -620,20 +654,16 @@ suspend fun uploadImagemSupabase(
 }
 
 suspend fun salvarFotoPerfilAndroid(userId: String, fotoUrl: String? = null, capaUrl: String? = null): Boolean {
+    if (fotoUrl == null && capaUrl == null) return true
     return try {
-        val campos = mutableListOf<String>()
-        if (fotoUrl != null) campos.add("\"foto_url\":\"$fotoUrl\"")
-        if (capaUrl != null) campos.add("\"capa_url\":\"$capaUrl\"")
-        if (campos.isEmpty()) return true
-        val body = "{${campos.joinToString(",")}}"
-        httpClient.patch("$SUPABASE_URL/rest/v1/perfis?id=eq.$userId") {
+        val response = httpClient.patch("$SUPABASE_URL/rest/v1/perfis?id=eq.$userId") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Content-Type", "application/json")
             header("Prefer", "return=minimal")
-            setBody(body)
+            setBody(SalvarFotoPerfilRequest(foto_url = fotoUrl, capa_url = capaUrl))
         }
-        true
+        response.status.value in 200..299
     } catch (e: Exception) { false }
 }
 
@@ -642,7 +672,7 @@ suspend fun resetSenhaAndroid(email: String): Boolean {
         httpClient.post("$SUPABASE_URL/auth/v1/recover") {
             header("apikey", SUPABASE_KEY)
             header("Content-Type", "application/json")
-            setBody("{\"email\":\"$email\"}")
+            setBody(ResetSenhaRequest(email = email))
         }
         true
     } catch (e: Exception) { false }
@@ -693,7 +723,7 @@ suspend fun atualizarDisponibilidadeUrgente(profissionalId: String, disponivel: 
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Content-Type", "application/json")
             header("Prefer", "return=minimal")
-            setBody("{\"disponivel_urgente\":$disponivel}")
+            setBody(DisponibilidadeUrgenteRequest(disponivel_urgente = disponivel))
         }
         response.status.value in 200..299
     } catch (e: Exception) {
@@ -944,13 +974,12 @@ suspend fun verificarAcessoAgendamento(clienteId: String, profissionalId: String
 // ── SALVAR DADOS PESSOAIS DO CLIENTE ─────────────────
 suspend fun salvarDadosPerfilAndroid(userId: String, nome: String, telefone: String): Boolean {
     return try {
-        val body = "{\"nome\":\"${nome.replace("\"","\\\"")}\",\"telefone\":\"${telefone.replace("\"","\\\"")}\"}";
         val response = httpClient.patch("$SUPABASE_URL/rest/v1/perfis?id=eq.$userId") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Content-Type", "application/json")
             header("Prefer", "return=minimal")
-            setBody(body)
+            setBody(SalvarDadosPerfilRequest(nome = nome, telefone = telefone))
         }
         response.status.value in 200..299
     } catch (e: Exception) { false }
@@ -980,26 +1009,20 @@ suspend fun salvarBioProfissionalAndroid(
     estado: String,
 ): Boolean {
     return try {
-        val cidadeEsc = cidade.replace("\\", "\\\\").replace("\"", "\\\"")
-        val estadoEsc = estado.replace("\\", "\\\\").replace("\"", "\\\"")
-        val bioEsc    = bio.replace("\\", "\\\\").replace("\"", "\\\"")
-
         httpClient.patch("$SUPABASE_URL/rest/v1/perfis?id=eq.$userId") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Content-Type", "application/json")
             header("Prefer", "return=minimal")
-            setBody("{\"cidade\":\"$cidadeEsc\",\"estado\":\"$estadoEsc\"}")
+            setBody(SalvarCidadeEstadoRequest(cidade = cidade, estado = estado))
         }
-
         val response = httpClient.patch("$SUPABASE_URL/rest/v1/profissionais?id=eq.$userId") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Content-Type", "application/json")
             header("Prefer", "return=minimal")
-            setBody("{\"descricao\":\"$bioEsc\"}")
+            setBody(SalvarDescricaoProfissionalRequest(descricao = bio))
         }
-
         response.status.value in 200..299
     } catch (e: Exception) {
         android.util.Log.e("Perfil", "Erro ao salvar bio: ${e.message}")
@@ -1026,6 +1049,10 @@ suspend fun getMeuPerfilProfissional(userId: String): ProfissionalComPerfil? {
 // ── SALVAR TOKEN FCM ──────────────────────────────────
 // Corrigido: usa SUPABASE_URL e currentToken das constantes do arquivo,
 // não mais strings duplicadas. Token salvo via PATCH em perfis.fcm_token.
+@Serializable
+private data class SalvarFcmTokenRequest(
+    val fcm_token: String,
+)
 suspend fun salvarFcmTokenAndroid(userId: String, token: String): Boolean {
     return try {
         val response = httpClient.patch("$SUPABASE_URL/rest/v1/perfis?id=eq.$userId") {
@@ -1033,7 +1060,7 @@ suspend fun salvarFcmTokenAndroid(userId: String, token: String): Boolean {
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Content-Type", "application/json")
             header("Prefer", "return=minimal")
-            setBody("{\"fcm_token\":\"$token\"}")
+            setBody(SalvarFcmTokenRequest(fcm_token = token))
         }
         response.status.value in 200..299
     } catch (e: Exception) {
@@ -1049,51 +1076,41 @@ suspend fun salvarFcmTokenAndroid(userId: String, token: String): Boolean {
 // service_role), não diretamente pelo app. Esta função é usada apenas
 // enquanto a integração real com MercadoPago não está implementada.
 // Quando o webhook estiver pronto: aplicar bloco 2 do supabase_rls.sql.
-suspend fun criarAssinaturaAndroid(plano: Any): Boolean {
-    // plano é PlanoInfo — recebe como Any para evitar dependência circular
-    // na importação entre arquivos. Cast seguro via reflection de campos.
-    val planoId: String
-    val precoDecimal: Double
-    try {
-        val cls = plano::class
-        planoId      = cls.members.first { it.name == "id" }.call(plano) as String
-        precoDecimal = cls.members.first { it.name == "precoDecimal" }.call(plano) as Double
-    } catch (e: Exception) {
-        android.util.Log.e("Assinatura", "Cast de PlanoInfo falhou: ${e.message}")
-        return false
-    }
+@Serializable
+private data class CriarAssinaturaRequest(
+    val usuario_id: String,
+    val plano_id  : String,
+    val status    : String = "ativa",
+    val valor_pago: Double,
+)
 
+suspend fun criarAssinaturaAndroid(plano: PlanoInfo): Boolean {
     val userId = currentUserId ?: return false
-
     return try {
-        // 1. Buscar plano_id da tabela planos pelo tipo
-        val planoNoBanco = httpClient.get("$SUPABASE_URL/rest/v1/planos?tipo=eq.$planoId&select=id&limit=1") {
+        val planoNoBanco = httpClient.get("$SUPABASE_URL/rest/v1/planos?tipo=eq.${plano.id}&select=id&limit=1") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Accept", "application/json")
         }.body<List<Map<String, String?>>>().firstOrNull()
 
         val planoIdBanco = planoNoBanco?.get("id") ?: run {
-            android.util.Log.e("Assinatura", "Plano '$planoId' não encontrado na tabela planos")
+            android.util.Log.e("Assinatura", "Plano '${plano.id}' não encontrado")
             return false
         }
 
-        // 2. Inserir assinatura
-        val assinaturaBody = "{\"usuario_id\":\"$userId\",\"plano_id\":\"$planoIdBanco\",\"status\":\"ativa\",\"valor_pago\":$precoDecimal}"
         val resAssinatura = httpClient.post("$SUPABASE_URL/rest/v1/assinaturas") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Content-Type", "application/json")
             header("Prefer", "return=minimal")
-            setBody(assinaturaBody)
+            setBody(CriarAssinaturaRequest(
+                usuario_id = userId,
+                plano_id   = planoIdBanco,
+                valor_pago = plano.precoDecimal,
+            ))
         }
+        if (resAssinatura.status.value !in 200..299) return false
 
-        if (resAssinatura.status.value !in 200..299) {
-            android.util.Log.e("Assinatura", "Falha ao inserir assinatura: ${resAssinatura.status}")
-            return false
-        }
-
-        // 3. Marcar plano_ativo=true em perfis para que verificarAcessoChat funcione
         val resPerfil = httpClient.patch("$SUPABASE_URL/rest/v1/perfis?id=eq.$userId") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
@@ -1101,7 +1118,6 @@ suspend fun criarAssinaturaAndroid(plano: Any): Boolean {
             header("Prefer", "return=minimal")
             setBody("{\"plano_ativo\":true}")
         }
-
         resPerfil.status.value in 200..299
     } catch (e: Exception) {
         android.util.Log.e("Assinatura", "Erro: ${e.message}")
