@@ -21,6 +21,20 @@ import br.com.brasiltupi.conecta.ui.theme.*
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+
+private data class FormState(
+    val titulo: String = "",
+    val descricao: String = "",
+    val tipo: String = "aula",
+    val preco: String = "",
+    val precoOriginal: String = "",
+    val videoUrl: String = "",
+    val arquivoUrl: String = "",
+    val linkExterno: String = "",
+    val temEntrega: Boolean = false,
+    val destaque: Boolean = false,
+)
+
 @Composable
 fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -30,63 +44,52 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
     var criando by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
     var nomeUsuario by remember { mutableStateOf("EU") }
-    var formTitulo by remember { mutableStateOf("") }
-    var formDescricao by remember { mutableStateOf("") }
-    var formTipo by remember { mutableStateOf("aula") }
-    var formPreco by remember { mutableStateOf("") }
-    var formPrecoOriginal by remember { mutableStateOf("") }
-    var formVideoUrl by remember { mutableStateOf("") }
-    var formArquivoUrl by remember { mutableStateOf("") }
-    var formLinkExterno by remember { mutableStateOf("") }
-    var formTemEntrega by remember { mutableStateOf(false) }
-    var formDestaque by remember { mutableStateOf(false) }
+    var form by remember { mutableStateOf(FormState()) }
     var itemParaExcluir by remember { mutableStateOf<ItemEstudio?>(null) }
     var itemParaEditar by remember { mutableStateOf<ItemEstudio?>(null) }
     var excluindo by remember { mutableStateOf(false) }
 
-// Espelha a lista para remoção otimista
-    val itensVisiveis = remember(itens) { itens.toMutableStateList() }
-    fun resetForm() {
-        formTitulo = ""; formDescricao = ""; formTipo = "aula"
-        formPreco = ""; formPrecoOriginal = ""; formVideoUrl = ""
-        formArquivoUrl = ""; formLinkExterno = ""
-        formTemEntrega = false; formDestaque = false
-    }
-
     LaunchedEffect(filtroTipo) {
         loading = true
-        itens = getEstudioProfissionalAndroid(userId, filtroTipo)
-        loading = false
+        try {
+            itens = getEstudioProfissionalAndroid(userId, filtroTipo)
+        } catch (e: Exception) {
+            toast = "❌ Erro ao carregar itens."
+        } finally {
+            loading = false
+        }
     }
 
     fun salvarItem() {
-        if (formTitulo.isEmpty() || formPreco.isEmpty()) {
+        if (form.titulo.isEmpty() || form.preco.isEmpty()) {
             toast = "Preencha título e preço."
             return
         }
         scope.launch {
-            val preco = formPreco.toDoubleOrNull() ?: 0.0
-            val precoOrig = formPrecoOriginal.toDoubleOrNull()
-            val sucesso = criarItemEstudioAndroid(
-                profissionalId = userId,
-                titulo = formTitulo,
-                descricao = formDescricao,
-                tipo = formTipo,
-                preco = preco,
-                precoOriginal = precoOrig,
-                videoUrl = formVideoUrl.ifEmpty { null },
-                arquivoUrl = formArquivoUrl.ifEmpty { null },
-                linkExterno = formLinkExterno.ifEmpty { null },
-                temEntrega = formTemEntrega,
-                destaque = formDestaque,
-            )
-            if (sucesso) {
-                toast = "✅ Item publicado no Estúdio!"
-                criando = false
-                resetForm()
-                itens = getEstudioProfissionalAndroid(userId, filtroTipo)
-            } else {
-                toast = "❌ Erro ao salvar. Tente novamente."
+            try {
+                val sucesso = criarItemEstudioAndroid(
+                    profissionalId = userId,
+                    titulo = form.titulo,
+                    descricao = form.descricao,
+                    tipo = form.tipo,
+                    preco = form.preco.toDoubleOrNull() ?: 0.0,
+                    precoOriginal = form.precoOriginal.toDoubleOrNull(),
+                    videoUrl = form.videoUrl.ifEmpty { null },
+                    arquivoUrl = form.arquivoUrl.ifEmpty { null },
+                    linkExterno = form.linkExterno.ifEmpty { null },
+                    temEntrega = form.temEntrega,
+                    destaque = form.destaque,
+                )
+                if (sucesso) {
+                    toast = "✅ Item publicado no Estúdio!"
+                    criando = false
+                    form = FormState()
+                    itens = getEstudioProfissionalAndroid(userId, filtroTipo)
+                } else {
+                    toast = "❌ Erro ao salvar. Tente novamente."
+                }
+            } catch (e: Exception) {
+                toast = "❌ Erro inesperado. Tente novamente."
             }
         }
     }
@@ -97,10 +100,12 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
             toast = null
         }
     }
+
     LaunchedEffect(userId) {
         val perfil = getPerfilAndroid(userId)
         nomeUsuario =
-            perfil?.nome?.split(" ")?.map { it[0] }?.joinToString("")?.take(2)?.uppercase() ?: "EU"
+            perfil?.nome?.split(" ")?.map { it[0] }?.joinToString("")?.take(2)?.uppercase()
+                ?: "EU"
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -162,7 +167,6 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
                                 }
                             }
                         }
-
                     }
                 }
             }
@@ -191,7 +195,7 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(tiposFiltro) { (tipo, label) ->
+                items(TipoEstudio.filtros) { (tipo, label) ->
                     FilterChip(
                         selected = filtroTipo == tipo,
                         onClick = { filtroTipo = tipo },
@@ -250,7 +254,7 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    items(itensVisiveis, key = { it.id }) { item ->
+                    items(itens, key = { it.id }) { item ->
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
@@ -263,13 +267,15 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Box(
-                                        modifier = Modifier.size(56.dp).background(
-                                            Color(0xFFF0F4FF),
-                                            RoundedCornerShape(10.dp)
-                                        ),
+                                        modifier = Modifier
+                                            .size(56.dp)
+                                            .background(
+                                                Color(0xFFF0F4FF),
+                                                RoundedCornerShape(10.dp)
+                                            ),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text(tipoIconMap[item.tipo] ?: "📦", fontSize = 26.sp)
+                                        Text(TipoEstudio.fromId(item.tipo)?.icon ?: "📦", fontSize = 26.sp)
                                     }
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Column(modifier = Modifier.weight(1f)) {
@@ -282,7 +288,7 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            tipoLabelMap[item.tipo] ?: item.tipo,
+                                            TipoEstudio.fromId(item.tipo)?.label ?: item.tipo,
                                             fontSize = 11.sp,
                                             color = Color(0xFF6B7280)
                                         )
@@ -299,7 +305,6 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
                                     )
                                 }
 
-                                // ── Botões de ação ────────────────────────
                                 HorizontalDivider(
                                     color = Color(0xFFF3F4F6),
                                     modifier = Modifier.padding(vertical = 10.dp)
@@ -309,22 +314,21 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
                                     horizontalArrangement = Arrangement.End,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    // Editar
                                     OutlinedButton(
                                         onClick = {
-                                            // Pré-preenche form com dados do item
-                                            formTitulo = item.titulo
-                                            formDescricao = item.descricao
-                                            formTipo = item.tipo
-                                            formPreco = item.preco.toInt().toString()
-                                            formPrecoOriginal =
-                                                item.precoOriginal?.toInt()?.toString() ?: ""
-                                            formVideoUrl = item.videoUrl ?: ""
-                                            formLinkExterno = item.linkExterno ?: ""
-                                            formTemEntrega = item.temEntrega
-                                            formDestaque = item.destaque
+                                            form = form.copy(
+                                                titulo = item.titulo,
+                                                descricao = item.descricao,
+                                                tipo = item.tipo,
+                                                preco = item.preco.toInt().toString(),
+                                                precoOriginal = item.precoOriginal?.toInt()?.toString() ?: "",
+                                                videoUrl = item.videoUrl ?: "",
+                                                linkExterno = item.linkExterno ?: "",
+                                                temEntrega = item.temEntrega,
+                                                destaque = item.destaque,
+                                            )
                                             itemParaEditar = item
-                                            criando = true   // reutiliza o mesmo modal
+                                            criando = true
                                         },
                                         shape = RoundedCornerShape(8.dp),
                                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Azul),
@@ -346,14 +350,12 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
 
                                     Spacer(modifier = Modifier.width(8.dp))
 
-                                    // Excluir
                                     Button(
                                         onClick = { itemParaExcluir = item },
                                         shape = RoundedCornerShape(8.dp),
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = Color(
-                                                0xFFFDE8E8
-                                            ), contentColor = Urgente
+                                            containerColor = Color(0xFFFDE8E8),
+                                            contentColor = Urgente
                                         ),
                                         contentPadding = PaddingValues(
                                             horizontal = 14.dp,
@@ -391,62 +393,77 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
 
     if (criando) {
         EstudioNovoItemScreen(
-            onCancelar = { criando = false; itemParaEditar = null; resetForm() },
+            onCancelar = {
+                criando = false
+                itemParaEditar = null
+                form = FormState()
+            },
             onPublicar = {
                 val editando = itemParaEditar
                 if (editando != null) {
-                    // ── Salvar edição ──
-                    if (formTitulo.isEmpty() || formPreco.isEmpty()) {
-                        toast = "Preencha título e preço."; return@EstudioNovoItemScreen
+                    if (form.titulo.isEmpty() || form.preco.isEmpty()) {
+                        toast = "Preencha título e preço."
+                        return@EstudioNovoItemScreen
                     }
+                    val dados = mapOf(
+                        "titulo" to form.titulo,
+                        "descricao" to form.descricao,
+                        "tipo" to form.tipo,
+                        "preco" to (form.preco.toDoubleOrNull() ?: 0.0),
+                        "temEntrega" to form.temEntrega,
+                        "destaque" to form.destaque,
+                    )
                     scope.launch {
-                        val dados = buildMap<String, Any> {
-                            put("titulo", formTitulo)
-                            put("descricao", formDescricao)
-                            put("tipo", formTipo)
-                            put("preco", formPreco.toDoubleOrNull() ?: 0.0)
-                            if (formPrecoOriginal.isNotEmpty()) put(
-                                "preco_original",
-                                formPrecoOriginal.toDoubleOrNull() ?: 0.0
-                            )
-                            if (formVideoUrl.isNotEmpty()) put("video_url", formVideoUrl)
-                            if (formLinkExterno.isNotEmpty()) put("link_externo", formLinkExterno)
-                            put("tem_entrega", formTemEntrega)
-                            put("destaque", formDestaque)
+                        try {
+                            val ok = editarItemEstudio(editando.id, dados)
+                            if (ok) {
+                                itens = itens.map { i ->
+                                    if (i.id == editando.id) i.copy(
+                                        titulo = form.titulo,
+                                        descricao = form.descricao,
+                                        tipo = form.tipo,
+                                        preco = form.preco.toDoubleOrNull() ?: i.preco,
+                                        temEntrega = form.temEntrega,
+                                        destaque = form.destaque,
+                                    ) else i
+                                }
+                                toast = "✅ Item atualizado!"
+                            } else {
+                                toast = "❌ Erro ao editar. Tente novamente."
+                            }
+                        } catch (e: Exception) {
+                            toast = "❌ Erro inesperado. Tente novamente."
+                        } finally {
+                            criando = false
+                            itemParaEditar = null
+                            form = FormState()
                         }
-                        val ok = editarItemEstudio(editando.id, dados)
-                        if (ok) {
-                            // Atualiza lista local imediatamente
-                            val idx = itensVisiveis.indexOfFirst { it.id == editando.id }
-                            if (idx >= 0) itensVisiveis[idx] = editando.copy(
-                                titulo = formTitulo,
-                                descricao = formDescricao,
-                                tipo = formTipo,
-                                preco = formPreco.toDoubleOrNull() ?: editando.preco,
-                                temEntrega = formTemEntrega,
-                                destaque = formDestaque,
-                            )
-                            toast = "✅ Item atualizado!"
-                        } else {
-                            toast = "❌ Erro ao editar. Tente novamente."
-                        }
-                        criando = false; itemParaEditar = null; resetForm()
                     }
                 } else {
                     salvarItem()
                 }
             },
-            formTitulo = formTitulo, onTitulo = { formTitulo = it },
-            formDescricao = formDescricao, onDescricao = { formDescricao = it },
-            formTipo = formTipo, onTipo = { formTipo = it },
-            formPreco = formPreco, onPreco = { formPreco = it },
-            formPrecoOriginal = formPrecoOriginal, onPrecoOriginal = { formPrecoOriginal = it },
-            formVideoUrl = formVideoUrl, onVideoUrl = { formVideoUrl = it },
-            formLinkExterno = formLinkExterno, onLinkExterno = { formLinkExterno = it },
-            formTemEntrega = formTemEntrega, onTemEntrega = { formTemEntrega = it },
-            formDestaque = formDestaque, onDestaque = { formDestaque = it },
+            titulo = form.titulo,
+            onTitulo = { form = form.copy(titulo = it) },
+            descricao = form.descricao,
+            onDescricao = { form = form.copy(descricao = it) },
+            tipo = form.tipo,
+            onTipo = { form = form.copy(tipo = it) },
+            preco = form.preco,
+            onPreco = { form = form.copy(preco = it) },
+            precoOriginal = form.precoOriginal,
+            onPrecoOriginal = { form = form.copy(precoOriginal = it) },
+            videoUrl = form.videoUrl,
+            onVideoUrl = { form = form.copy(videoUrl = it) },
+            linkExterno = form.linkExterno,
+            onLinkExterno = { form = form.copy(linkExterno = it) },
+            temEntrega = form.temEntrega,
+            onTemEntrega = { form = form.copy(temEntrega = it) },
+            destaque = form.destaque,
+            onDestaque = { form = form.copy(destaque = it) },
         )
     }
+
     itemParaExcluir?.let { item ->
         AlertDialog(
             onDismissRequest = { if (!excluindo) itemParaExcluir = null },
@@ -476,8 +493,10 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
-                        modifier = Modifier.fillMaxWidth()
-                            .background(Color(0xFFFDE8E8), RoundedCornerShape(8.dp)).padding(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFFFDE8E8), RoundedCornerShape(8.dp))
+                            .padding(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("⚠️", fontSize = 13.sp)
@@ -485,22 +504,26 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
                         Text("Esta ação não pode ser desfeita.", fontSize = 12.sp, color = Urgente)
                     }
                 }
-
             },
             confirmButton = {
                 Button(
                     onClick = {
                         excluindo = true
                         scope.launch {
-                            val ok = excluirItemEstudio(item.id)
-                            excluindo = false
-                            if (ok) {
-                                itensVisiveis.removeIf { it.id == item.id }
-                                toast = "🗑 Item excluído."
-                            } else {
-                                toast = "❌ Erro ao excluir. Tente novamente."
+                            try {
+                                val ok = excluirItemEstudio(item.id)
+                                if (ok) {
+                                    itens = itens.filterNot { it.id == item.id }
+                                    toast = "🗑 Item excluído."
+                                } else {
+                                    toast = "❌ Erro ao excluir. Tente novamente."
+                                }
+                            } catch (e: Exception) {
+                                toast = "❌ Erro inesperado. Tente novamente."
+                            } finally {
+                                excluindo = false
+                                itemParaExcluir = null
                             }
-                            itemParaExcluir = null
                         }
                     },
                     enabled = !excluindo,
@@ -534,34 +557,43 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
 fun EstudioNovoItemScreen(
     onCancelar: () -> Unit,
     onPublicar: () -> Unit,
-    formTitulo: String, onTitulo: (String) -> Unit,
-    formDescricao: String, onDescricao: (String) -> Unit,
-    formTipo: String, onTipo: (String) -> Unit,
-    formPreco: String, onPreco: (String) -> Unit,
-    formPrecoOriginal: String, onPrecoOriginal: (String) -> Unit,
-    formVideoUrl: String, onVideoUrl: (String) -> Unit,
-    formLinkExterno: String, onLinkExterno: (String) -> Unit,
-    formTemEntrega: Boolean, onTemEntrega: (Boolean) -> Unit,
-    formDestaque: Boolean, onDestaque: (Boolean) -> Unit,
+    titulo: String,
+    onTitulo: (String) -> Unit,
+    descricao: String,
+    onDescricao: (String) -> Unit,
+    tipo: String,
+    onTipo: (String) -> Unit,
+    preco: String,
+    onPreco: (String) -> Unit,
+    precoOriginal: String,
+    onPrecoOriginal: (String) -> Unit,
+    videoUrl: String,
+    onVideoUrl: (String) -> Unit,
+    linkExterno: String,
+    onLinkExterno: (String) -> Unit,
+    temEntrega: Boolean,
+    onTemEntrega: (Boolean) -> Unit,
+    destaque: Boolean,
+    onDestaque: (Boolean) -> Unit,
 ) {
-    val itemCompleto = formTitulo.isNotEmpty() && formDescricao.isNotEmpty() && formPreco.isNotEmpty()
+    val itemCompleto = titulo.isNotEmpty() && descricao.isNotEmpty() && preco.isNotEmpty()
 
     androidx.compose.ui.window.Dialog(
         onDismissRequest = onCancelar,
         properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Box(
-            modifier = androidx.compose.ui.Modifier
+            modifier = Modifier
                 .fillMaxSize()
                 .background(Color.White)
         ) {
             androidx.compose.foundation.lazy.LazyColumn(
-                modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 100.dp)
             ) {
                 item {
                     Row(
-                        modifier = androidx.compose.ui.Modifier
+                        modifier = Modifier
                             .fillMaxWidth()
                             .background(Color(0xFF0C2D6B))
                             .padding(horizontal = 20.dp)
@@ -569,7 +601,12 @@ fun EstudioNovoItemScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Novo item no Estúdio", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(
+                            "Novo item no Estúdio",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
                         TextButton(onClick = onCancelar) {
                             Text("✕", color = Color.White, fontSize = 18.sp)
                         }
@@ -578,20 +615,25 @@ fun EstudioNovoItemScreen(
 
                 item {
                     Column(
-                        modifier = androidx.compose.ui.Modifier.padding(20.dp),
+                        modifier = Modifier.padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Text("Tipo *", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF374151))
+                        Text(
+                            "Tipo *",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF374151)
+                        )
                         Row(
-                            modifier = androidx.compose.ui.Modifier
+                            modifier = Modifier
                                 .fillMaxWidth()
-                                .horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+                                .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            tiposFiltro.filter { it.first != "todos" }.forEach { (tipo, label) ->
+                            TipoEstudio.filtros.filter { it.first != "todos" }.forEach { (tipoOpt, label) ->
                                 FilterChip(
-                                    selected = formTipo == tipo,
-                                    onClick = { onTipo(tipo) },
+                                    selected = tipo == tipoOpt,
+                                    onClick = { onTipo(tipoOpt) },
                                     label = { Text(label, fontSize = 12.sp) },
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = Verde,
@@ -602,84 +644,114 @@ fun EstudioNovoItemScreen(
                         }
 
                         OutlinedTextField(
-                            value = formTitulo,
+                            value = titulo,
                             onValueChange = onTitulo,
                             label = { Text("Título *") },
-                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
-                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Verde,
+                                unfocusedBorderColor = Color(0xFFE0E0E0)
+                            ),
                             singleLine = true
                         )
 
                         OutlinedTextField(
-                            value = formDescricao,
+                            value = descricao,
                             onValueChange = onDescricao,
                             label = { Text("Descrição") },
-                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
-                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Verde,
+                                unfocusedBorderColor = Color(0xFFE0E0E0)
+                            ),
                             minLines = 3
                         )
 
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             OutlinedTextField(
-                                value = formPreco,
+                                value = preco,
                                 onValueChange = onPreco,
                                 label = { Text("Preço R$ *") },
-                                modifier = androidx.compose.ui.Modifier.weight(1f),
+                                modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(8.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Verde,
+                                    unfocusedBorderColor = Color(0xFFE0E0E0)
+                                ),
                                 singleLine = true,
                                 placeholder = { Text("0,00") }
                             )
                             OutlinedTextField(
-                                value = formPrecoOriginal,
+                                value = precoOriginal,
                                 onValueChange = onPrecoOriginal,
                                 label = { Text("Preço original") },
-                                modifier = androidx.compose.ui.Modifier.weight(1f),
+                                modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(8.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Verde,
+                                    unfocusedBorderColor = Color(0xFFE0E0E0)
+                                ),
                                 singleLine = true,
                                 placeholder = { Text("Para desconto") }
                             )
                         }
 
-                        if (formTipo == "aula" || formTipo == "curso") {
+                        if (tipo == "aula" || tipo == "curso") {
                             OutlinedTextField(
-                                value = formVideoUrl,
+                                value = videoUrl,
                                 onValueChange = onVideoUrl,
                                 label = { Text("URL do vídeo") },
-                                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(8.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Verde,
+                                    unfocusedBorderColor = Color(0xFFE0E0E0)
+                                ),
                                 singleLine = true,
                                 placeholder = { Text("https://...") }
                             )
                         }
 
                         OutlinedTextField(
-                            value = formLinkExterno,
+                            value = linkExterno,
                             onValueChange = onLinkExterno,
                             label = { Text("Link externo (opcional)") },
-                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
-                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Verde,
+                                unfocusedBorderColor = Color(0xFFE0E0E0)
+                            ),
                             singleLine = true,
                             placeholder = { Text("Hotmart, Kiwify, Amazon...") }
                         )
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = formTemEntrega, onCheckedChange = onTemEntrega, colors = CheckboxDefaults.colors(checkedColor = Verde))
+                            Checkbox(
+                                checked = temEntrega,
+                                onCheckedChange = onTemEntrega,
+                                colors = CheckboxDefaults.colors(checkedColor = Verde)
+                            )
                             Text("Tem entrega física", fontSize = 13.sp, color = Color(0xFF374151))
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = formDestaque, onCheckedChange = onDestaque, colors = CheckboxDefaults.colors(checkedColor = Color(0xFFC49A2A)))
-                            Text("Marcar como destaque", fontSize = 13.sp, color = Color(0xFF374151))
+                            Checkbox(
+                                checked = destaque,
+                                onCheckedChange = onDestaque,
+                                colors = CheckboxDefaults.colors(checkedColor = Color(0xFFC49A2A))
+                            )
+                            Text(
+                                "Marcar como destaque",
+                                fontSize = 13.sp,
+                                color = Color(0xFF374151)
+                            )
                         }
 
                         Row(
-                            modifier = androidx.compose.ui.Modifier
+                            modifier = Modifier
                                 .fillMaxWidth()
                                 .background(
                                     if (itemCompleto) Color(0xFFF0FDF4) else Color(0xFFFFF9E6),
@@ -688,9 +760,13 @@ fun EstudioNovoItemScreen(
                                 .padding(14.dp)
                         ) {
                             Column {
-                                Text("💡 Sua comissão", fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                                    color = if (itemCompleto) Verde else Color(0xFFB07D00))
-                                Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
+                                Text(
+                                    "💡 Sua comissão",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (itemCompleto) Verde else Color(0xFFB07D00)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     if (itemCompleto)
                                         "✅ Item completo — comissão reduzida de 8%"
@@ -707,7 +783,7 @@ fun EstudioNovoItemScreen(
             }
 
             Row(
-                modifier = androidx.compose.ui.Modifier
+                modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .background(Color.White)
@@ -716,15 +792,18 @@ fun EstudioNovoItemScreen(
             ) {
                 OutlinedButton(
                     onClick = onCancelar,
-                    modifier = androidx.compose.ui.Modifier.weight(1f).height(50.dp),
+                    modifier = Modifier.weight(1f).height(50.dp),
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Text("Cancelar", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 }
                 Button(
                     onClick = onPublicar,
-                    modifier = androidx.compose.ui.Modifier.weight(2f).height(50.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
+                    modifier = Modifier.weight(2f).height(50.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Verde,
+                        contentColor = Color.White
+                    ),
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Text("Publicar no Estúdio", fontSize = 14.sp, fontWeight = FontWeight.Bold)

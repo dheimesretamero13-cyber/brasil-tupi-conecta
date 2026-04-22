@@ -45,33 +45,26 @@ data class ItemEstudio(
     val autorCapaUrl: String? = null,
 )
 
-val tipoIconMap = mapOf(
-    "aula" to "🎓",
-    "curso" to "📚",
-    "pdf" to "📄",
-    "produto_fisico" to "📦",
-    "produto_digital" to "💾",
-    "consulta_avulsa" to "💬",
-)
+enum class TipoEstudio(
+    val id: String,
+    val label: String,
+    val icon: String,
+    val labelFiltro: String,
+) {
+    AULA("aula", "Aula", "🎓", "🎓 Aulas"),
+    CURSO("curso", "Curso", "📚", "📚 Cursos"),
+    PDF("pdf", "PDF", "📄", "📄 PDFs"),
+    PRODUTO_DIGITAL("produto_digital", "Produto digital", "💾", "💾 Digitais"),
+    PRODUTO_FISICO("produto_fisico", "Produto físico", "📦", "📦 Físicos"),
+    CONSULTA_AVULSA("consulta_avulsa", "Consulta avulsa", "💬", "💬 Consultas");
 
-val tipoLabelMap = mapOf(
-    "aula" to "Aula",
-    "curso" to "Curso",
-    "pdf" to "PDF",
-    "produto_fisico" to "Produto físico",
-    "produto_digital" to "Produto digital",
-    "consulta_avulsa" to "Consulta avulsa",
-)
+    companion object {
+        fun fromId(id: String) = entries.firstOrNull { it.id == id }
 
-val tiposFiltro = listOf(
-    "todos" to "Todos",
-    "aula" to "🎓 Aulas",
-    "curso" to "📚 Cursos",
-    "pdf" to "📄 PDFs",
-    "produto_digital" to "💾 Digitais",
-    "produto_fisico" to "📦 Físicos",
-    "consulta_avulsa" to "💬 Consultas",
-)
+        val filtros: List<Pair<String, String>> =
+            listOf("todos" to "Todos") + entries.map { it.id to it.labelFiltro }
+    }
+}
 
 // ── TELA BUSCA GLOBAL ─────────────────────────────────
 @Composable
@@ -85,33 +78,43 @@ fun EstudioBuscaScreen(onVoltar: () -> Unit) {
     var itemParaPagar by remember { mutableStateOf<ItemEstudio?>(null) }
     LaunchedEffect(filtroTipo) {
         loading = true
-        itens = getProfissionaisEstudioAndroid(filtroTipo)
-        loading = false
+        try {
+            itens = getProfissionaisEstudioAndroid(filtroTipo)
+        } catch (e: Exception) {
+            // toast não existe neste scope — use uma variável de erro local
+        } finally {
+            loading = false
+        }
     }
 
-    if (itemSelecionado != null) {
-        EstudioDetalheScreen(
-            item     = itemSelecionado!!,
-            onVoltar = { itemSelecionado = null },
-            onPagar  = { itemSelecionado = null; itemParaPagar = it }
-        )
-        return
-    }
-    if (itemParaPagar != null) {
-        PagamentoScreen(
-            onVoltar    = { itemParaPagar = null },
-            onConcluido = { itemParaPagar = null }
-        )
-        return
-    }
+    when {
+        itemParaPagar != null -> {
+            PagamentoScreen(
+                onVoltar    = { itemParaPagar = null },
+                onConcluido = { itemParaPagar = null }
+            )
+        }
 
-    val itensFiltrados = itens.filter { item ->
-        busca.isEmpty() ||
-                item.titulo.contains(busca, ignoreCase = true) ||
-                item.descricao.contains(busca, ignoreCase = true) ||
-                item.autorNome.contains(busca, ignoreCase = true)
-    }
+        itemSelecionado != null -> {
+            EstudioDetalheScreen(
+                item     = itemSelecionado!!,
+                onVoltar = { itemSelecionado = null },
+                onPagar  = { itemSelecionado = null; itemParaPagar = it }
+            )
+        }
 
+        else -> {
+
+            val itensFiltrados by remember {
+                derivedStateOf {
+                    itens.filter { item ->
+                        busca.isEmpty() ||
+                                item.titulo.contains(busca, ignoreCase = true) ||
+                                item.descricao.contains(busca, ignoreCase = true) ||
+                                item.autorNome.contains(busca, ignoreCase = true)
+                    }
+                }
+            }
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF8F7F4))) {
         // Hero header
         Box(
@@ -170,7 +173,7 @@ fun EstudioBuscaScreen(onVoltar: () -> Unit) {
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(tiposFiltro) { (tipo, label) ->
+            items(TipoEstudio.filtros) { (tipo, label) ->
                 FilterChip(
                     selected = filtroTipo == tipo,
                     onClick = { filtroTipo = tipo },
@@ -212,7 +215,9 @@ fun EstudioBuscaScreen(onVoltar: () -> Unit) {
             }
         }
     }
-}
+            }
+        }
+    }
 
 // ── CARD ITEM ─────────────────────────────────────────
 @Composable
@@ -235,7 +240,7 @@ fun CardEstudio(item: ItemEstudio, onClick: () -> Unit) {
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Text(tipoIconMap[item.tipo] ?: "📦", fontSize = 48.sp)
+                Text(TipoEstudio.fromId(item.tipo)?.icon ?: "📦", fontSize = 48.sp)
                 if (item.destaque) {
                     Box(
                         modifier = Modifier
@@ -254,7 +259,7 @@ fun CardEstudio(item: ItemEstudio, onClick: () -> Unit) {
                         .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
                         .padding(horizontal = 10.dp, vertical = 4.dp)
                 ) {
-                    Text(tipoLabelMap[item.tipo] ?: item.tipo, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(TipoEstudio.fromId(item.tipo)?.label ?: item.tipo, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
 
@@ -288,19 +293,19 @@ fun CardEstudio(item: ItemEstudio, onClick: () -> Unit) {
                         }
                         Text("R$ ${"%.2f".format(item.preco)}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Verde)
                     }
-                    Button(
-                        onClick = onClick,
-                        colors = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                    ) {
-                        Text("Ver →", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+
+                        Text(
+                            "Ver →",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Verde
+                        )
                     }
                 }
             }
         }
     }
-}
+
 
 // ── TELA DETALHE ──────────────────────────────────────
 @Composable
@@ -322,7 +327,7 @@ fun EstudioDetalheScreen(
                     .background(Brush.linearGradient(listOf(Color(0xFFF0F4FF), Color(0xFFE8F5E9)))),
                 contentAlignment = Alignment.Center
             ) {
-                Text(tipoIconMap[item.tipo] ?: "📦", fontSize = 72.sp)
+                Text(TipoEstudio.fromId(item.tipo)?.icon ?: "📦", fontSize = 72.sp)
                 Row(
                     modifier = Modifier.align(Alignment.TopStart).padding(16.dp).padding(top = 36.dp)
                 ) {
@@ -344,7 +349,7 @@ fun EstudioDetalheScreen(
                         .background(Color(0xFFE8F5E9), RoundedCornerShape(20.dp))
                         .padding(horizontal = 12.dp, vertical = 4.dp)
                 ) {
-                    Text(tipoLabelMap[item.tipo] ?: item.tipo, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Verde)
+                    Text(TipoEstudio.fromId(item.tipo)?.label ?: item.tipo, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Verde)
                 }
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(item.titulo, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color(0xFF111827))
@@ -497,95 +502,169 @@ fun EstudioVitrineScreen(profissionalId: String, onVoltar: () -> Unit) {
     var filtroTipo by remember { mutableStateOf("todos") }
     var itemSelecionado by remember { mutableStateOf<ItemEstudio?>(null) }
     var itemParaPagar by remember { mutableStateOf<ItemEstudio?>(null) }
-    LaunchedEffect(profissionalId, filtroTipo) {
-        loading = true
-        itens = getEstudioProfissionalAndroid(profissionalId, filtroTipo)
-        loading = false
-    }
-
-    if (itemSelecionado != null) {
-        EstudioDetalheScreen(
-            item     = itemSelecionado!!,
-            onVoltar = { itemSelecionado = null },
-            onPagar  = { itemSelecionado = null; itemParaPagar = it }
-        )
-        return
-    }
-    if (itemParaPagar != null) {
-        PagamentoScreen(
-            onVoltar    = { itemParaPagar = null },
-            onConcluido = { itemParaPagar = null }
-        )
-        return
-    }
-
     var nomeProf by remember { mutableStateOf("") }
     var fotoProf by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(profissionalId) {
-        val perfil = getPerfilAndroid(profissionalId)
-        nomeProf = perfil?.nome ?: ""
-        fotoProf = perfil?.foto_url
+    LaunchedEffect(profissionalId, filtroTipo) {
+        loading = true
+        try {
+            itens = getEstudioProfissionalAndroid(profissionalId, filtroTipo)
+        } catch (e: Exception) {
+            println("[EstudioVitrine] erro ao carregar itens: ${e.message}")
+            itens = emptyList()
+        } finally {
+            loading = false
+        }
     }
-
-    Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF8F7F4))) {
-        // Header — fechado corretamente antes dos filtros
-        Box(modifier = Modifier.fillMaxWidth()
-            .background(Brush.linearGradient(listOf(Color(0xFF0C2D6B), Color(0xFF1A5C3A))))
-            .padding(horizontal = 20.dp).padding(top = 52.dp, bottom = 24.dp)) {
-            Column {
-                TextButton(onClick = onVoltar) {
-                    Text("← Voltar", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.padding(top = 8.dp)) {
-                    Box(modifier = Modifier.size(52.dp).background(Color(0xFFC49A2A), RoundedCornerShape(50)),
-                        contentAlignment = Alignment.Center) {
-                        if (fotoProf != null) {
-                            AsyncImage(model = fotoProf, contentDescription = null,
-                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(50)),
-                                contentScale = ContentScale.Crop)
-                        } else {
-                            Text(
-                                if (nomeProf.isNotEmpty()) nomeProf.split(" ").map { it[0] }.joinToString("").take(2).uppercase() else "?",
-                                fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        }
-                    }
-                    Column {
-                        Text("Estúdio", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        if (nomeProf.isNotEmpty()) Text("de $nomeProf", fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f))
-                        else Text("do profissional", fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f))
-                    }
-                }
-            }
-        } // <-- Box do header fechado aqui
-
-        // Filtros — FORA do Box do header
-        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(tiposFiltro) { (tipo, label) ->
-                FilterChip(selected = filtroTipo == tipo, onClick = { filtroTipo = tipo },
-                    label = { Text(label, fontSize = 12.sp) },
-                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Verde, selectedLabelColor = Color.White))
-            }
+    LaunchedEffect(profissionalId) {
+        try {
+            val perfil = getPerfilAndroid(profissionalId)
+            nomeProf = perfil?.nome ?: ""
+            fotoProf = perfil?.foto_url
+        } catch (e: Exception) {
+            println("[EstudioVitrine] erro perfil: ${e.message}")
+        }
+    }
+    when {
+        itemParaPagar != null -> {
+            PagamentoScreen(
+                onVoltar = { itemParaPagar = null },
+                onConcluido = { itemParaPagar = null }
+            )
         }
 
-        // Conteúdo — FORA do Box do header
-        if (loading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Color(0xFFC49A2A))
-            }
-        } else if (itens.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Estúdio vazio", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF111827))
-                    Text("Este profissional ainda não publicou itens.", fontSize = 13.sp, color = Color(0xFF6B7280), modifier = Modifier.padding(top = 6.dp))
+        itemSelecionado != null -> {
+            EstudioDetalheScreen(
+                item = itemSelecionado!!,
+                onVoltar = { itemSelecionado = null },
+                onPagar = { itemSelecionado = null; itemParaPagar = it }
+            )
+        }
+
+        else -> {
+            Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF8F7F4))) {
+                // Header — fechado corretamente antes dos filtros
+                Box(
+                    modifier = Modifier.fillMaxWidth()
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    Color(0xFF0C2D6B),
+                                    Color(0xFF1A5C3A)
+                                )
+                            )
+                        )
+                        .padding(horizontal = 20.dp).padding(top = 52.dp, bottom = 24.dp)
+                ) {
+                    Column {
+                        TextButton(onClick = onVoltar) {
+                            Text(
+                                "← Voltar",
+                                color = Color.White.copy(alpha = 0.7f),
+                                fontSize = 13.sp
+                            )
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.padding(top = 8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier.size(52.dp)
+                                    .background(Color(0xFFC49A2A), RoundedCornerShape(50)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (fotoProf != null) {
+                                    AsyncImage(
+                                        model = fotoProf, contentDescription = null,
+                                        modifier = Modifier.fillMaxSize()
+                                            .clip(RoundedCornerShape(50)),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Text(
+                                        if (nomeProf.isNotEmpty()) nomeProf.split(" ").map { it[0] }
+                                            .joinToString("").take(2).uppercase() else "?",
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                            Column {
+                                Text(
+                                    "Estúdio",
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                if (nomeProf.isNotEmpty()) Text(
+                                    "de $nomeProf",
+                                    fontSize = 13.sp,
+                                    color = Color.White.copy(alpha = 0.7f)
+                                )
+                                else Text(
+                                    "do profissional",
+                                    fontSize = 13.sp,
+                                    color = Color.White.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                    }
+                } // <-- Box do header fechado aqui
+
+                // Filtros — FORA do Box do header
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(TipoEstudio.filtros) { (tipo, label) ->
+                        FilterChip(
+                            selected = filtroTipo == tipo, onClick = { filtroTipo = tipo },
+                            label = { Text(label, fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Verde,
+                                selectedLabelColor = Color.White
+                            )
+                        )
+                    }
                 }
-            }
-        } else {
-            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(itens) { item -> CardEstudio(item = item, onClick = { itemSelecionado = item }) }
+
+                // Conteúdo — FORA do Box do header
+                if (loading) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Color(0xFFC49A2A))
+                    }
+                } else if (itens.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                "Estúdio vazio",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF111827)
+                            )
+                            Text(
+                                "Este profissional ainda não publicou itens.",
+                                fontSize = 13.sp,
+                                color = Color(0xFF6B7280),
+                                modifier = Modifier.padding(top = 6.dp)
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(itens) { item ->
+                            CardEstudio(
+                                item = item,
+                                onClick = { itemSelecionado = item })
+                        }
+                    }
+                }
             }
         }
     }

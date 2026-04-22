@@ -26,23 +26,6 @@ import br.com.brasiltupi.conecta.ui.theme.*
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
 
-// ── DADOS MOCK ────────────────────────────────────────
-data class DadosProfissional(
-    val nome: String,
-    val area: String,
-    val tipo: String,
-    val conselho: String,
-    val cidade: String,
-    val credibilidade: Int,
-    val isPMP: Boolean,
-    val atendimentosTotal: Int,
-    val avaliacaoMedia: Double,
-    val disponivelUrgente: Boolean,
-    val membroDesde: String,
-    val descricao: String,
-    val email: String,
-    val telefone: String,
-)
 // ── TELA PRINCIPAL ────────────────────────────────────
 @Composable
 fun PerfilProfissionalScreen(onVoltar: () -> Unit, userId: String = "") {
