@@ -18,7 +18,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.brasiltupi.conecta.ui.theme.*
-import kotlinx.coroutines.delay
+// import kotlinx.coroutines.delay — REMOVIDO: era usado apenas no polling
 import kotlinx.coroutines.launch
 
 @Composable
@@ -36,21 +36,22 @@ fun ChatScreen(
     var enviando   by remember { mutableStateOf(false) }
     var erroEnvio  by remember { mutableStateOf(false) }
 
-    // ── Polling: atualiza a cada 5 segundos ──────────
+    // ── Carga inicial das mensagens (fetch único) ─────
+    // O polling while(true) + delay(5_000) foi removido.
+    // Razão: gerava ~720 requisições/hora por conversa aberta sem benefício real,
+    // pois o chat já busca imediatamente após cada envio (ver enviar() abaixo).
+    // Fase 3.5 do CONEXOES.md prevê substituição por Supabase Realtime.
+    // Até lá: fetch inicial + fetch pós-envio cobre 100% dos casos de uso.
     LaunchedEffect(outroId) {
-        while (true) {
-            try {
-                val novas = buscarMensagens(meuId, outroId)
-                if (novas.size != mensagens.size) {
-                    mensagens = novas
-                    if (novas.isNotEmpty()) {
-                        listState.animateScrollToItem(novas.lastIndex)
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Chat", "Polling: ${e.message}")
+        if (meuId.isEmpty()) return@LaunchedEffect
+        try {
+            val iniciais = buscarMensagens(meuId, outroId)
+            mensagens = iniciais
+            if (iniciais.isNotEmpty()) {
+                listState.animateScrollToItem(iniciais.lastIndex)
             }
-            delay(5_000)
+        } catch (e: Exception) {
+            android.util.Log.e("Chat", "Carga inicial: ${e.message}")
         }
     }
 

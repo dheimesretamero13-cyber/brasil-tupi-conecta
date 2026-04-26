@@ -1,322 +1,588 @@
 package br.com.brasiltupi.conecta
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PagamentoScreen.kt  · Fase 2.2
+//
+// Responsabilidades:
+//  1. Observar PagamentoState e orquestrar WebView conforme cada estado
+//  2. Ao entrar com Idle → chama criarPreferencia(urgenciaId)
+//  3. Ao receber CheckoutAberto → carrega init_point na WebView
+//  4. WebViewClient valida URLs — só permite mercadopago.com e brasiltupi.com.br
+//  5. Intercepta URLs de retorno → notifica repositório
+//  6. Ao receber Confirmado (via Realtime) → navega automaticamente
+//  7. Ao receber Cancelado → dialog com retry sem nova chamada ao backend
+//  8. DisposableEffect limpa a WebView ao sair (sem memory leak)
+//  9. AppLogger em carregamento, erros SSL e detecção de retorno
+// ═══════════════════════════════════════════════════════════════════════════
+
+import android.annotation.SuppressLint
+import android.graphics.Bitmap
+import android.net.http.SslError
+import android.webkit.SslErrorHandler
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import br.com.brasiltupi.conecta.ui.theme.*
-import kotlinx.coroutines.launch
 
-// ── DADOS DOS PLANOS ──────────────────────────────────
-// Sincronizado com a tabela `planos` no Supabase:
-// Básico: grátis, 1 prof/mês, taxa 15%
-// Bronze: R$29,90, 5 profs/mês, taxa 10%
-// Ouro:   R$49,90, ilimitado, taxa 8%
+private const val TAG_PAG = "PagamentoScreen"
 
-data class PlanoInfo(
-    val id: String,           // chave usada na tabela planos
-    val nome: String,
-    val preco: String,
-    val precoDecimal: Double, // valor numérico para registro
-    val descricao: String,
-    val beneficios: List<String>,
-    val destaque: Boolean = false,
+// ── Domínios permitidos na WebView ────────────────────────────────────────
+// Qualquer URL fora desta lista é bloqueada — segurança contra redirect malicioso
+private val DOMINIOS_PERMITIDOS = listOf(
+    "mercadopago.com",
+    "mercadolibre.com",   // MP usa subdomínios do ML em alguns fluxos
+    "brasiltupi.com.br",  // domínio de retorno configurado na Edge Function
+    "qfzdchrlbqcvewjivaqz.supabase.co",  // fallback de retorno interno
 )
 
-val planosDisponiveis = listOf(
-    PlanoInfo(
-        id           = "bronze",
-        nome         = "Plano Bronze",
-        preco        = "R$ 29,90/mês",
-        precoDecimal = 29.90,
-        descricao    = "Ideal para consultas regulares",
-        beneficios   = listOf("Até 5 profissionais/mês", "Taxa reduzida de 10%", "Acesso ao chat", "Suporte prioritário"),
-    ),
-    PlanoInfo(
-        id           = "ouro",
-        nome         = "Plano Ouro",
-        preco        = "R$ 49,90/mês",
-        precoDecimal = 49.90,
-        descricao    = "Para quem usa com frequência",
-        beneficios   = listOf("Profissionais ilimitados/mês", "Taxa de apenas 8%", "Acesso ao chat", "Suporte VIP", "Acesso ao Estúdio"),
-        destaque     = true,
-    ),
-)
+// ── URLs de retorno configuradas na Edge Function ─────────────────────────
+private const val URL_SUCESSO  = "brasiltupi.com.br/pagamento/sucesso"
+private const val URL_PENDENTE = "brasiltupi.com.br/pagamento/pendente"
+private const val URL_FALHA    = "brasiltupi.com.br/pagamento/falha"
 
-// ── ESTADOS DA TELA ───────────────────────────────────
-private sealed class EstadoPagamento {
-    object Selecionando : EstadoPagamento()
-    data class Processando(val plano: PlanoInfo) : EstadoPagamento()
-    data class Sucesso(val plano: PlanoInfo) : EstadoPagamento()
-    data class Erro(val mensagem: String) : EstadoPagamento()
-}
+// ═══════════════════════════════════════════════════════════════════════════
+// TELA PRINCIPAL
+// ═══════════════════════════════════════════════════════════════════════════
 
-// ── TELA PRINCIPAL ────────────────────────────────────
-@OptIn(ExperimentalMaterial3Api::class)
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun PagamentoScreen(
-    onVoltar: () -> Unit,
-    onConcluido: () -> Unit,
+    urgenciaId:      String,
+    onConfirmado:    () -> Unit,  // navegar para dashboard após aprovação
+    onVoltar:        () -> Unit,  // voltar (cancelamento definitivo ou erro)
 ) {
-    var estado by remember { mutableStateOf<EstadoPagamento>(EstadoPagamento.Selecionando) }
-    val scope  = rememberCoroutineScope()
+    val context        = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val pagamentoState by PagamentoRepository.state.collectAsState()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text("Planos & Assinatura", style = MaterialTheme.typography.titleLarge)
-                },
-                navigationIcon = {
-                    TextButton(onClick = onVoltar) {
-                        Text("← Voltar", fontSize = 14.sp)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
+    // ── Referência à WebView — gerenciada pelo DisposableEffect ──────────
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    // ── Estado local de UI ────────────────────────────────────────────────
+    var mostrarDialogCancelado  by remember { mutableStateOf(false) }
+    var mostrarDialogPendente   by remember { mutableStateOf(false) }
+    var mostrarDialogErro       by remember { mutableStateOf(false) }
+    var mensagemErro            by remember { mutableStateOf("") }
+    var initPointParaRetry      by remember { mutableStateOf("") }
+    var webViewCarregando       by remember { mutableStateOf(false) }
+
+    // ── Iniciar preferência se Idle ───────────────────────────────────────
+    LaunchedEffect(Unit) {
+        if (pagamentoState is PagamentoState.Idle) {
+            AppLogger.infoPagamento(
+                etapa      = "tela_iniciada",
+                urgenciaId = urgenciaId,
+                detalhe    = "Estado Idle — criando preferencia",
             )
-        },
-    ) { innerPadding ->
-        when (val s = estado) {
-            is EstadoPagamento.Selecionando -> {
-                TelaSelecionarPlano(
-                    modifier = Modifier.padding(innerPadding),
-                    onAssinar = { plano ->
-                        estado = EstadoPagamento.Processando(plano)
-                        scope.launch {
-                            val ok = criarAssinaturaAndroid(plano)
-                            estado = if (ok) EstadoPagamento.Sucesso(plano)
-                            else EstadoPagamento.Erro("Não foi possível processar sua assinatura. Tente novamente.")
-                        }
-                    }
+            PagamentoRepository.criarPreferencia(urgenciaId)
+        }
+    }
+
+    // ── Orquestrador de estados ───────────────────────────────────────────
+    LaunchedEffect(pagamentoState) {
+        when (val estado = pagamentoState) {
+
+            is PagamentoState.CheckoutAberto -> {
+                AppLogger.infoPagamento(
+                    etapa      = "webview_carregando",
+                    urgenciaId = urgenciaId,
+                    detalhe    = "init_point=${estado.initPoint.take(60)}",
                 )
+                webViewRef?.loadUrl(estado.initPoint)
+                PagamentoRepository.notificarCheckoutAberto(urgenciaId)
             }
-            is EstadoPagamento.Processando -> {
-                TelaProcessando(modifier = Modifier.padding(innerPadding), plano = s.plano)
-            }
-            is EstadoPagamento.Sucesso -> {
-                TelaSucesso(
-                    modifier  = Modifier.padding(innerPadding),
-                    plano     = s.plano,
-                    onContinuar = onConcluido,
+
+            is PagamentoState.Confirmado -> {
+                AppLogger.infoPagamento(
+                    etapa      = "pagamento_confirmado_tela",
+                    urgenciaId = urgenciaId,
+                    detalhe    = "valor=${estado.valor}",
                 )
+                PagamentoRepository.resetar()
+                onConfirmado()
             }
-            is EstadoPagamento.Erro -> {
-                TelaErro(
-                    modifier = Modifier.padding(innerPadding),
-                    mensagem = s.mensagem,
-                    onTentar = { estado = EstadoPagamento.Selecionando },
-                    onVoltar = onVoltar,
-                )
+
+            is PagamentoState.Pendente -> {
+                mostrarDialogPendente = true
+            }
+
+            is PagamentoState.Cancelado -> {
+                initPointParaRetry     = estado.initPoint
+                mostrarDialogCancelado = true
+            }
+
+            is PagamentoState.Erro -> {
+                mensagemErro     = estado.motivo
+                mostrarDialogErro = true
+            }
+
+            else -> Unit
+        }
+    }
+
+    // ── Guard de navegação — BackHandler ──────────────────────────────────
+    BackHandler {
+        val estado = pagamentoState
+        when {
+            // WebView pode navegar para trás no histórico interno
+            webViewRef?.canGoBack() == true &&
+                    estado is PagamentoState.CheckoutAberto -> {
+                webViewRef?.goBack()
+            }
+            else -> {
+                // Sair da tela — tratar como cancelamento
+                initPointParaRetry = when (estado) {
+                    is PagamentoState.CheckoutAberto -> estado.initPoint
+                    is PagamentoState.Cancelado      -> estado.initPoint
+                    else                             -> ""
+                }
+                if (initPointParaRetry.isNotEmpty()) {
+                    mostrarDialogCancelado = true
+                } else {
+                    PagamentoRepository.resetar()
+                    onVoltar()
+                }
             }
         }
     }
-}
 
-// ── SELEÇÃO DE PLANO ──────────────────────────────────
-@Composable
-private fun TelaSelecionarPlano(
-    modifier: Modifier = Modifier,
-    onAssinar: (PlanoInfo) -> Unit,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text("Escolha seu plano", style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp))
-        Text("Cancele a qualquer momento. Sem fidelidade.",
-            fontSize = 13.sp, color = InkMuted, modifier = Modifier.padding(bottom = 8.dp))
-
-        planosDisponiveis.forEach { plano ->
-            PlanoCard(plano = plano, onAssinar = { onAssinar(plano) })
+    // ── DisposableEffect — cleanup da WebView ao sair ─────────────────────
+    // Previne memory leak: WebView segura referência à Activity se não limpa
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_DESTROY) {
+                webViewRef?.apply {
+                    stopLoading()
+                    clearHistory()
+                    clearCache(true)
+                    loadUrl("about:blank")
+                    onPause()
+                    removeAllViews()
+                    destroy()
+                }
+                webViewRef = null
+                AppLogger.infoPagamento(
+                    etapa      = "webview_destruida",
+                    urgenciaId = urgenciaId,
+                    detalhe    = "ON_DESTROY — cleanup executado",
+                )
+            }
         }
-
-        // Aviso: MercadoPago pendente
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFFFFF8E1), RoundedCornerShape(10.dp))
-                .padding(14.dp),
-            verticalAlignment = Alignment.Top
-        ) {
-            Text("⚠️", fontSize = 14.sp)
-            Spacer(modifier = Modifier.width(10.dp))
-            Text("Integração de pagamento em implementação. Ao assinar, sua conta será ativada para testes.",
-                fontSize = 12.sp, color = Color(0xFF795548), lineHeight = 17.sp)
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            webViewRef?.apply {
+                stopLoading()
+                clearHistory()
+                clearCache(true)
+                loadUrl("about:blank")
+                onPause()
+                removeAllViews()
+                destroy()
+            }
+            webViewRef = null
         }
     }
-}
 
-@Composable
-private fun PlanoCard(plano: PlanoInfo, onAssinar: () -> Unit) {
-    val borderColor = if (plano.destaque) Dourado else SurfaceOff
-    val bgColor     = if (plano.destaque) Color(0xFFFDF8F0) else Color.White
-
+    // ── Layout ────────────────────────────────────────────────────────────
     Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .border(
-                width = if (plano.destaque) 2.dp else 1.dp,
-                color = borderColor,
-                shape = RoundedCornerShape(12.dp)
-            )
-            .background(bgColor, RoundedCornerShape(12.dp))
-    ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            if (plano.destaque) {
-                Box(
-                    modifier = Modifier
-                        .background(Dourado, RoundedCornerShape(20.dp))
-                        .padding(horizontal = 10.dp, vertical = 3.dp)
-                ) {
-                    Text("⭐ Mais popular", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-            }
-            Text(plano.nome, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink)
-            Text(plano.preco, fontSize = 22.sp, fontWeight = FontWeight.Black,
-                color = if (plano.destaque) Dourado else Verde,
-                modifier = Modifier.padding(top = 4.dp))
-            Text(plano.descricao, fontSize = 13.sp, color = InkMuted, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp))
-
-            plano.beneficios.forEach { beneficio ->
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 3.dp)) {
-                    Text("✓", fontSize = 13.sp, color = Verde, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(beneficio, fontSize = 13.sp, color = Ink)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(
-                onClick = onAssinar,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (plano.destaque) Dourado else Verde,
-                    contentColor = Color.White,
-                ),
-                shape = RoundedCornerShape(8.dp),
-            ) {
-                Text("Assinar ${plano.nome}", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-    }
-}
-
-// ── PROCESSANDO ───────────────────────────────────────
-@Composable
-private fun TelaProcessando(modifier: Modifier = Modifier, plano: PlanoInfo) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            CircularProgressIndicator(color = Verde, modifier = Modifier.size(48.dp))
-            Text("Ativando ${plano.nome}...", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Ink)
-            Text("Aguarde um momento", fontSize = 13.sp, color = InkMuted)
-        }
-    }
-}
-
-// ── SUCESSO ───────────────────────────────────────────
-@Composable
-private fun TelaSucesso(
-    modifier: Modifier = Modifier,
-    plano: PlanoInfo,
-    onContinuar: () -> Unit,
-) {
-    Column(
-        modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+            .background(SurfaceWarm),
     ) {
-        Spacer(modifier = Modifier.height(40.dp))
-        Box(
-            modifier = Modifier.size(80.dp).background(VerdeClaro, RoundedCornerShape(50)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("✓", fontSize = 36.sp, color = Verde, fontWeight = FontWeight.Bold)
-        }
-        Text("Assinatura ativada!", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Ink, textAlign = TextAlign.Center)
-        Text("Você agora tem acesso ao ${plano.nome}.", fontSize = 15.sp, color = InkSoft, textAlign = TextAlign.Center)
+        when (val estado = pagamentoState) {
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(VerdeClaro, RoundedCornerShape(12.dp))
-                .padding(20.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                plano.beneficios.forEach { beneficio ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("✓", fontSize = 13.sp, color = Verde, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(beneficio, fontSize = 13.sp, color = Ink)
+            // Loading enquanto cria preferência
+            is PagamentoState.Idle,
+            is PagamentoState.CriandoPreferencia -> {
+                LoadingPagamento("Preparando checkout...")
+            }
+
+            // WebView do checkout
+            is PagamentoState.CheckoutAberto -> {
+                Column(modifier = Modifier.fillMaxSize()) {
+
+                    // Topbar mínima com botão voltar
+                    TopBarPagamento(
+                        descricao = estado.descricao,
+                        valor     = estado.valor,
+                        onVoltar  = {
+                            initPointParaRetry = estado.initPoint
+                            mostrarDialogCancelado = true
+                        },
+                    )
+
+                    // WebView
+                    Box(modifier = Modifier.weight(1f)) {
+                        AndroidView(
+                            factory = { ctx ->
+                                WebView(ctx).apply {
+                                    settings.apply {
+                                        javaScriptEnabled       = true
+                                        domStorageEnabled       = true
+                                        loadWithOverviewMode    = true
+                                        useWideViewPort         = true
+                                        builtInZoomControls     = false
+                                        displayZoomControls     = false
+                                        setSupportZoom(false)
+                                    }
+
+                                    webViewClient = PagamentoWebViewClient(
+                                        urgenciaId     = urgenciaId,
+                                        onPageStarted  = { webViewCarregando = true },
+                                        onPageFinished = { webViewCarregando = false },
+                                        onRetornoDetectado = { url ->
+                                            PagamentoRepository.notificarRetornoCheckout(
+                                                url        = url,
+                                                urgenciaId = urgenciaId,
+                                            )
+                                        },
+                                    )
+
+                                    webViewRef = this
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+
+                        // Overlay de loading sobre a WebView durante navegação
+                        if (webViewCarregando) {
+                            Box(
+                                modifier         = Modifier
+                                    .fillMaxSize()
+                                    .background(SurfaceWarm.copy(alpha = 0.7f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(color = Verde)
+                            }
+                        }
                     }
                 }
             }
+
+            // Aguardando confirmação do Realtime
+            is PagamentoState.Processando -> {
+                LoadingPagamento("Confirmando pagamento...")
+            }
+
+            // Confirmado — tratado no LaunchedEffect (onConfirmado())
+            is PagamentoState.Confirmado -> {
+                LoadingPagamento("Pagamento confirmado! Redirecionando...")
+            }
+
+            // Estados de erro/cancelamento — tratados via dialogs
+            else -> {
+                LoadingPagamento("Aguardando...")
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // DIÁLOGOS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // Cancelamento — oferecer retry
+    if (mostrarDialogCancelado) {
+        AlertDialog(
+            onDismissRequest = { mostrarDialogCancelado = false },
+            title = {
+                Text("Pagamento não concluído", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    "Você saiu sem finalizar o pagamento.\n\nO serviço prestado ainda aguarda confirmação de pagamento.",
+                    textAlign  = TextAlign.Center,
+                    lineHeight = 20.sp,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        mostrarDialogCancelado = false
+                        if (initPointParaRetry.isNotEmpty()) {
+                            PagamentoRepository.tentarNovamente(urgenciaId, initPointParaRetry)
+                        } else {
+                            PagamentoRepository.criarPreferencia(urgenciaId)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Verde),
+                ) {
+                    Text("Tentar novamente", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    mostrarDialogCancelado = false
+                    PagamentoRepository.resetar()
+                    onVoltar()
+                }) {
+                    Text("Sair", color = InkMuted)
+                }
+            },
+        )
+    }
+
+    // Pendente — boleto/PIX em análise
+    if (mostrarDialogPendente) {
+        AlertDialog(
+            onDismissRequest = { mostrarDialogPendente = false },
+            title = { Text("Pagamento em análise", fontWeight = FontWeight.Bold) },
+            text  = {
+                Text(
+                    "Seu pagamento foi recebido e está em processamento.\n\nVocê receberá uma notificação quando for confirmado.",
+                    textAlign  = TextAlign.Center,
+                    lineHeight = 20.sp,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        mostrarDialogPendente = false
+                        PagamentoRepository.resetar()
+                        onVoltar()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Verde),
+                ) {
+                    Text("Ok, entendi", color = Color.White)
+                }
+            },
+        )
+    }
+
+    // Erro
+    if (mostrarDialogErro) {
+        AlertDialog(
+            onDismissRequest = { mostrarDialogErro = false },
+            title = { Text("Erro no pagamento", fontWeight = FontWeight.Bold) },
+            text  = {
+                Text(
+                    mensagemErro,
+                    textAlign  = TextAlign.Center,
+                    lineHeight = 20.sp,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        mostrarDialogErro = false
+                        PagamentoRepository.criarPreferencia(urgenciaId)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Verde),
+                ) {
+                    Text("Tentar novamente", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    mostrarDialogErro = false
+                    PagamentoRepository.resetar()
+                    onVoltar()
+                }) {
+                    Text("Cancelar", color = InkMuted)
+                }
+            },
+        )
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WEBVIEWCLIENT SEGURO
+//
+// Responsabilidades:
+//  • shouldOverrideUrlLoading — bloqueia domínios não autorizados
+//  • onPageStarted / onPageFinished — controla indicador de loading
+//  • onReceivedSslError — loga e cancela (nunca aceitar SSL inválido)
+//  • onReceivedError — loga falhas de carregamento
+// ═══════════════════════════════════════════════════════════════════════════
+
+private class PagamentoWebViewClient(
+    private val urgenciaId:        String,
+    private val onPageStarted:     () -> Unit,
+    private val onPageFinished:    () -> Unit,
+    private val onRetornoDetectado: (String) -> Unit,
+) : WebViewClient() {
+
+    override fun shouldOverrideUrlLoading(
+        view:    WebView,
+        request: WebResourceRequest,
+    ): Boolean {
+        val url = request.url.toString()
+        android.util.Log.d(TAG_PAG, "WebView navegando: $url")
+
+        // ── Detectar URLs de retorno ANTES da validação de domínio ────────
+        when {
+            url.contains(URL_SUCESSO,  ignoreCase = true) -> {
+                AppLogger.infoPagamento(
+                    etapa      = "retorno_sucesso",
+                    urgenciaId = urgenciaId,
+                    detalhe    = url.take(80),
+                )
+                onRetornoDetectado(url)
+                return true   // bloquear carregamento — já tratamos
+            }
+            url.contains(URL_PENDENTE, ignoreCase = true) -> {
+                AppLogger.infoPagamento(
+                    etapa      = "retorno_pendente",
+                    urgenciaId = urgenciaId,
+                    detalhe    = url.take(80),
+                )
+                onRetornoDetectado(url)
+                return true
+            }
+            url.contains(URL_FALHA,    ignoreCase = true) -> {
+                AppLogger.infoPagamento(
+                    etapa      = "retorno_falha",
+                    urgenciaId = urgenciaId,
+                    detalhe    = url.take(80),
+                )
+                onRetornoDetectado(url)
+                return true
+            }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-        Button(
-            onClick = onContinuar,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
-            shape = RoundedCornerShape(10.dp),
-        ) {
-            Text("Continuar", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        // ── Validar domínio — bloquear qualquer URL fora da lista ─────────
+        val dominioPermitido = DOMINIOS_PERMITIDOS.any { dominio ->
+            url.contains(dominio, ignoreCase = true)
+        }
+
+        if (!dominioPermitido) {
+            AppLogger.aviso(
+                TAG_PAG,
+                "WebView bloqueou navegacao para dominio nao autorizado: ${url.take(80)}"
+            )
+            return true   // bloquear — não navegar
+        }
+
+        return false   // permitir — WebView carrega normalmente
+    }
+
+    override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+        super.onPageStarted(view, url, favicon)
+        onPageStarted()
+    }
+
+    override fun onPageFinished(view: WebView, url: String?) {
+        super.onPageFinished(view, url)
+        onPageFinished()
+        AppLogger.infoPagamento(
+            etapa      = "webview_pagina_carregada",
+            urgenciaId = urgenciaId,
+            detalhe    = url?.take(80) ?: "",
+        )
+    }
+
+    @SuppressLint("WebViewClientOnReceivedSslError")
+    override fun onReceivedSslError(
+        view:    WebView,
+        handler: SslErrorHandler,
+        error:   SslError,
+    ) {
+        // NUNCA chamar handler.proceed() — isso aceitaria certificados inválidos
+        handler.cancel()
+        AppLogger.erroPagamento(
+            etapa      = "webview_ssl_error",
+            urgenciaId = urgenciaId,
+            corpo      = "SSL error code=${error.primaryError} url=${error.url?.take(60)}",
+        )
+    }
+
+    override fun onReceivedError(
+        view:     WebView,
+        request:  WebResourceRequest,
+        error:    WebResourceError,
+    ) {
+        super.onReceivedError(view, request, error)
+        // Logar apenas erros do frame principal (não recursos secundários)
+        if (request.isForMainFrame) {
+            AppLogger.erroPagamento(
+                etapa      = "webview_erro_carregamento",
+                urgenciaId = urgenciaId,
+                corpo      = "code=${error.errorCode} desc=${error.description}",
+            )
         }
     }
 }
 
-// ── ERRO ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// COMPOSABLES AUXILIARES
+// ═══════════════════════════════════════════════════════════════════════════
+
 @Composable
-private fun TelaErro(
-    modifier: Modifier = Modifier,
-    mensagem: String,
-    onTentar: () -> Unit,
-    onVoltar: () -> Unit,
+private fun TopBarPagamento(
+    descricao: String,
+    valor:     Double,
+    onVoltar:  () -> Unit,
 ) {
-    Column(
-        modifier = modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+    val valorFormatado = "R$ %.2f".format(valor).replace(".", ",")
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Azul)
+            .padding(horizontal = 16.dp)
+            .padding(top = 48.dp, bottom = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("⚠️", fontSize = 48.sp)
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("Algo deu errado", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(mensagem, fontSize = 14.sp, color = InkMuted, textAlign = TextAlign.Center, lineHeight = 20.sp)
-        Spacer(modifier = Modifier.height(32.dp))
-        Button(
-            onClick = onTentar,
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
-            shape = RoundedCornerShape(8.dp),
-        ) {
-            Text("Tentar novamente", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-        }
-        Spacer(modifier = Modifier.height(12.dp))
         TextButton(onClick = onVoltar) {
-            Text("Voltar", color = InkMuted, fontSize = 14.sp)
+            Text("←", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text       = descricao,
+                fontSize   = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color      = Color.White,
+            )
+            Text(
+                text     = valorFormatado,
+                fontSize = 12.sp,
+                color    = Color.White.copy(alpha = 0.8f),
+            )
+        }
+        // Ícone de cadeado — indica conexão segura
+        Text("🔒", fontSize = 16.sp)
+    }
+}
+
+@Composable
+private fun LoadingPagamento(mensagem: String) {
+    Box(
+        modifier         = Modifier
+            .fillMaxSize()
+            .background(SurfaceWarm),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            CircularProgressIndicator(color = Verde, strokeWidth = 3.dp)
+            Text(
+                text      = mensagem,
+                fontSize  = 14.sp,
+                color     = InkMuted,
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }

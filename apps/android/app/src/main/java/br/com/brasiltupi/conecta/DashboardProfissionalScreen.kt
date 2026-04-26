@@ -60,6 +60,7 @@ fun DashboardProfissionalScreen(
         "atendimentos"  to "Atendimentos",
         "credibilidade" to "Credibilidade",
         "urgente"       to "Urgente",
+        "financeiro"    to "Financeiro",   // Fase 2.4
         "perfil"        to "Meu Perfil",
     )
 
@@ -129,6 +130,7 @@ fun DashboardProfissionalScreen(
             "atendimentos"  -> AbaAtendimentosDash(consultas = consultas, carregando = carregando)
             "credibilidade" -> AbaCredibilidadeDash(credibilidade = credibilidade)
             "urgente"       -> AbaUrgenteDash(onEstudio = onEstudio, disponivelUrgente = disponivelUrgente)
+            "financeiro"    -> AbaFinanceiroDash()   // Fase 2.4 — sem parâmetros adicionais
             "perfil"        -> {
                 if (onPerfil != null) {
                     LaunchedEffect(Unit) { onPerfil() }
