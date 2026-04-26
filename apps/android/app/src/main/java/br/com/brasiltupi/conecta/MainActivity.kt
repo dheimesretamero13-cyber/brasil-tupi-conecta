@@ -49,15 +49,6 @@ class MainActivity : ComponentActivity() {
 
 // ═════════════════════════════════════════════════════════════════════════════
 // APP NAVIGATION
-//
-// startDestination — lógica de decisão:
-//   1. Lê DataStore via OnboardingViewModel
-//   2. Se onboarding_completed == false → "onboarding" (Fase 1.6)
-//   3. Se completed + role == "client"  → "dashboard-cliente"
-//   4. Se completed + role == "professional" → "dashboard-profissional"
-//   5. Enquanto lê → tela de loading
-//
-// A partir daí o when(tela) normal assume o controle de navegação.
 // ═════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -68,22 +59,42 @@ fun AppNavigation() {
     )
     val navState by onboardingVm.navState.collectAsState()
 
-    var tela          by remember { mutableStateOf("") }   // vazio = aguardando DataStore
-    var estudioProfId by remember { mutableStateOf("") }
-    var chatOutroId   by remember { mutableStateOf("") }
-    var chatOutroNome by remember { mutableStateOf("") }
-    var chatDestino   by remember { mutableStateOf("dashboard-cliente") }
-    var urgenciaIdAtiva by remember { mutableStateOf("") }   // urgencia_id da sala de chamada ativa
-    var urgenciaIdPagamento by remember { mutableStateOf("") } // urgencia_id do pagamento pendente
+    // ── Estado de navegação ───────────────────────────────────────────────
+    var tela                      by remember { mutableStateOf("") }
+    var estudioProfId             by remember { mutableStateOf("") }
+    var chatOutroId               by remember { mutableStateOf("") }
+    var chatOutroNome             by remember { mutableStateOf("") }
+    var chatDestino               by remember { mutableStateOf("dashboard-cliente") }
+    var urgenciaIdAtiva           by remember { mutableStateOf("") }
+    var urgenciaIdPagamento       by remember { mutableStateOf("") }
+    // Fase 3.1 — Player
+    var aulaIdAtiva               by remember { mutableStateOf("") }
+    var cursoIdAtivo              by remember { mutableStateOf("") }
+    var tituloAulaAtiva           by remember { mutableStateOf("") }
+    // Fase 3.2 — PDF
+    var produtoIdAtivo            by remember { mutableStateOf("") }
+    var tituloProdutoAtivo        by remember { mutableStateOf("") }
+    var allowScreenshotAtivo      by remember { mutableStateOf(true) }
+    // Fase 3.3 — Biblioteca
+    var bibliotecaProdutoId       by remember { mutableStateOf("") }
+    var bibliotecaTitulo          by remember { mutableStateOf("") }
+    var bibliotecaAllowScreenshot by remember { mutableStateOf(true) }
+    // Fase 3.4 — Busca
+    var searchItemSelecionado     by remember { mutableStateOf<ResultadoBusca?>(null) }
+    // Fase 3.5 — Chat pré-chamada
+    var chatSessionId             by remember { mutableStateOf("") }
+    var chatOutroNomePre          by remember { mutableStateOf("") }
+    // Fase 4.2 — Referral (sem variáveis extras — tela não precisa de parâmetros)
+    var suporteAgendamentoId by remember { mutableStateOf<String?>(null) }
+    // fase 4.3 suporte e disputas
 
-    // ── Deep link FCM — ler extras do Intent ao abrir via notificação ─────
+
+    // ── Deep link FCM ─────────────────────────────────────────────────────
     val activity = context as? android.app.Activity
     LaunchedEffect(Unit) {
-        val intent = activity?.intent ?: return@LaunchedEffect
+        val intent        = activity?.intent ?: return@LaunchedEffect
         val fcmTela       = intent.getStringExtra("fcm_tela")        ?: return@LaunchedEffect
         val fcmUrgenciaId = intent.getStringExtra("fcm_urgencia_id") ?: ""
-        val fcmSlotId     = intent.getStringExtra("fcm_slot_id")     ?: ""
-        // Aguardar DataStore resolver antes de redirecionar
         if (tela.isEmpty()) return@LaunchedEffect
         when (fcmTela) {
             "sala-chamada" -> {
@@ -103,27 +114,22 @@ fun AppNavigation() {
             "agenda-profissional" -> tela = "dashboard-profissional"
             else -> Unit
         }
-        // Limpar extras para não redirecionar novamente em recomposição
         intent.removeExtra("fcm_tela")
     }
 
     // ── Resolver startDestination via DataStore ───────────────────────────
-    // Executado uma única vez quando navState sai de Carregando.
-    // Não sobrescreve `tela` se o usuário já navegou para outra tela.
     LaunchedEffect(navState) {
-        if (tela.isNotEmpty()) return@LaunchedEffect   // já navegou, não interferir
+        if (tela.isNotEmpty()) return@LaunchedEffect
         when (navState) {
-            is OnboardingNavState.Carregando        -> Unit   // aguarda
+            is OnboardingNavState.Carregando        -> Unit
             is OnboardingNavState.MostrarOnboarding -> tela = "onboarding"
             is OnboardingNavState.IrParaCliente     -> {
-                // 1. Verificar avaliação pendente
                 val pendenteAvaliacao = AvaliacaoRepository.verificarPendencia()
                 if (pendenteAvaliacao != null) {
                     urgenciaIdAtiva = pendenteAvaliacao.id
                     tela = "avaliacao"
                     return@LaunchedEffect
                 }
-                // 2. Verificar pagamento pendente
                 val pendentePagamento = verificarPagamentoPendente()
                 if (pendentePagamento != null) {
                     urgenciaIdPagamento = pendentePagamento
@@ -133,9 +139,7 @@ fun AppNavigation() {
                 tela = "dashboard-cliente"
             }
             is OnboardingNavState.IrParaProfissional -> {
-                // Registrar token FCM ao iniciar sessão como profissional
                 BrasilTupiMessagingService.registrarTokenSeLogado(this, context)
-                // Verificar avaliação pendente antes de ir para o dashboard
                 val pendente = AvaliacaoRepository.verificarPendencia()
                 if (pendente != null) {
                     urgenciaIdAtiva = pendente.id
@@ -150,7 +154,7 @@ fun AppNavigation() {
         }
     }
 
-    // ── Loading enquanto DataStore é lido (~1 frame) ──────────────────────
+    // ── Loading ───────────────────────────────────────────────────────────
     if (tela.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = Verde)
@@ -161,44 +165,44 @@ fun AppNavigation() {
     // ── Roteador principal ────────────────────────────────────────────────
     when (tela) {
 
-        // ── ONBOARDING FASE 1.6 ───────────────────────────────────────────
+        // ── ONBOARDING ────────────────────────────────────────────────────
         "onboarding" -> OnboardingScreen(
             onIrParaCliente      = { tela = "welcome" },
             onIrParaProfissional = { tela = "welcome" },
-            // Ambos vão para welcome → o usuário faz login/cadastro depois.
-            // O role salvo no DataStore direciona na próxima abertura.
-            // Para ir direto ao cadastro, substitua por: tela = "cadastro"
         )
 
-        // ── FLUXO EXISTENTE (intocado) ────────────────────────────────────
+        // ── CHAT GERAL (tabela mensagens) ─────────────────────────────────
         "chat" -> ChatScreen(
             outroId   = chatOutroId,
             outroNome = chatOutroNome,
             onVoltar  = { tela = chatDestino },
         )
 
+        // ── VIDEOCHAMADA ──────────────────────────────────────────────────
         "sala-chamada" -> VideoCallScreen(
             urgenciaId  = urgenciaIdAtiva,
             onEncerrada = { tela = "avaliacao" },
             onVoltar    = { tela = "dashboard-profissional" },
         )
 
+        // ── AVALIAÇÃO ─────────────────────────────────────────────────────
         "avaliacao" -> AvaliacaoScreen(
             urgenciaId    = urgenciaIdAtiva,
             onConcluida   = {
-                // Após avaliação do cliente: ir para pagamento
                 urgenciaIdPagamento = urgenciaIdAtiva
                 tela = "pagamento"
             },
             onPularForced = { tela = "dashboard-cliente" },
         )
 
+        // ── PAGAMENTO ─────────────────────────────────────────────────────
         "pagamento" -> PagamentoScreen(
             urgenciaId   = urgenciaIdPagamento,
             onConfirmado = { tela = "dashboard-cliente" },
             onVoltar     = { tela = "dashboard-cliente" },
         )
 
+        // ── AUTH ──────────────────────────────────────────────────────────
         "welcome" -> WelcomeScreen(
             onEntrar   = { tela = "login" },
             onCadastro = { tela = "cadastro" },
@@ -228,10 +232,7 @@ fun AppNavigation() {
                 destino = when {
                     perfil?.tipo == "profissional_certificado" ||
                             perfil?.tipo == "profissional_liberal" -> {
-                        UrgenciasRealtimeManager.iniciar(
-                            profissionalId = uid,
-                            especialidade  = null,
-                        )
+                        UrgenciasRealtimeManager.iniciar(profissionalId = uid, especialidade = null)
                         "onboarding-profissional"
                     }
                     else -> "dashboard-cliente"
@@ -251,6 +252,7 @@ fun AppNavigation() {
             onPular     = { tela = "dashboard-profissional" },
         )
 
+        // ── DASHBOARDS ────────────────────────────────────────────────────
         "dashboard-profissional" -> DashboardProfissionalComRealtime(
             onSair           = { UrgenciasRealtimeManager.parar(); tela = "welcome" },
             onEstudio        = { tela = "estudio-dashboard" },
@@ -260,22 +262,6 @@ fun AppNavigation() {
                 StreamVideoRepository.solicitarToken(urgenciaId)
                 tela = "sala-chamada"
             },
-        )
-
-        "busca" -> BuscaScreen(
-            onVoltar  = { tela = "welcome" },
-            onEstudio = { profId -> estudioProfId = profId; tela = "estudio-vitrine" },
-            onPagar   = { tela = "pagamento" },
-        )
-
-        "perfil-profissional" -> PerfilProfissionalScreen(
-            onVoltar = { tela = "dashboard-profissional" },
-            userId   = currentUserId ?: "",
-        )
-
-        "perfil-cliente" -> PerfilClienteScreen(
-            onVoltar = { tela = "dashboard-cliente" },
-            userId   = currentUserId ?: "",
         )
 
         "dashboard-cliente" -> DashboardClienteScreen(
@@ -288,8 +274,32 @@ fun AppNavigation() {
                 chatDestino   = "dashboard-cliente"
                 tela          = "chat"
             },
+            onSuporte = { agendamentoId ->          // ← adicionar
+                suporteAgendamentoId = agendamentoId
+                tela = "suporte"
+            },
         )
 
+        // ── PERFIS ────────────────────────────────────────────────────────
+        "perfil-profissional" -> PerfilProfissionalScreen(
+            onVoltar = { tela = "dashboard-profissional" },
+            userId   = currentUserId ?: "",
+        )
+
+        "perfil-cliente" -> PerfilClienteScreen(
+            onVoltar = { tela = "dashboard-cliente" },
+            userId   = currentUserId ?: "",
+            onReferral = { tela = "referral" },
+        )
+
+        // ── BUSCA DE PROFISSIONAIS (existente) ────────────────────────────
+        "busca" -> BuscaScreen(
+            onVoltar  = { tela = "welcome" },
+            onEstudio = { profId -> estudioProfId = profId; tela = "estudio-vitrine" },
+            onPagar   = { tela = "pagamento" },
+        )
+
+        // ── ESTÚDIO ───────────────────────────────────────────────────────
         "estudio-dashboard" -> EstudioDashboardScreen(
             userId   = currentUserId ?: "",
             onVoltar = { tela = "dashboard-profissional" },
@@ -304,12 +314,83 @@ fun AppNavigation() {
             onVoltar       = { tela = "busca" },
         )
 
+        // ── FASE 3.1 — PLAYER DE VÍDEO ────────────────────────────────────
+        "player-video" -> VideoPlayerScreen(
+            aulaId     = aulaIdAtiva,
+            cursoId    = cursoIdAtivo,
+            tituloAula = tituloAulaAtiva,
+            repository = ContentRepositoryFactory.create(),
+            onVoltar   = { tela = "estudio-vitrine" },
+        )
 
+        // ── FASE 3.2 — VISUALIZADOR DE PDF ───────────────────────────────
+        "pdf-viewer" -> PdfViewerScreen(
+            produtoId       = produtoIdAtivo,
+            tituloProduto   = tituloProdutoAtivo,
+            allowScreenshot = allowScreenshotAtivo,
+            repository      = ContentRepositoryFactory.create(),
+            onVoltar        = { tela = "biblioteca" },
+        )
+
+        // ── FASE 3.3 — BIBLIOTECA DO CLIENTE ─────────────────────────────
+        "biblioteca" -> BibliotecaScreen(
+            onVoltar     = { tela = "dashboard-cliente" },
+            onAbrirCurso = { produtoId, titulo ->
+                aulaIdAtiva     = produtoId
+                tituloAulaAtiva = titulo
+                tela            = "player-video"
+            },
+            onAbrirPdf = { produtoId, titulo, allowScreenshot ->
+                produtoIdAtivo       = produtoId
+                tituloProdutoAtivo   = titulo
+                allowScreenshotAtivo = allowScreenshot
+                tela                 = "pdf-viewer"
+            },
+        )
+
+        // ── FASE 3.4 — BUSCA DE CONTEÚDO ─────────────────────────────────
+        "busca-conteudo" -> SearchScreen(
+            onVoltar    = { tela = "dashboard-cliente" },
+            onAbrirItem = { item ->
+                searchItemSelecionado = item
+                tela = "estudio-detalhe-busca"
+            },
+        )
+
+        "estudio-detalhe-busca" -> searchItemSelecionado?.let { item ->
+            EstudioDetalheScreen(
+                item     = item.toItemEstudio(),
+                onVoltar = { tela = "busca-conteudo" },
+                onPagar  = { tela = "pagamento" },
+            )
+        }
+
+        // ── FASE 3.5 — CHAT PRÉ-CHAMADA ──────────────────────────────────
+        "chat-pre-chamada" -> ChatPreChamadaScreen(
+            sessionId = chatSessionId,
+            outroNome = chatOutroNomePre,
+            onVoltar  = { tela = "dashboard-cliente" },
+        )
+
+        // ── FASE 4.2 — PROGRAMA DE INDICAÇÃO ─────────────────────────────
+        "referral" -> ReferralScreen(
+            onVoltar = { tela = "perfil-cliente" },
+        )
+
+        // -- fase 4.3 - suporte e disputas
+        "suporte" -> SuporteScreen(
+            agendamentoId = suporteAgendamentoId,
+            onVoltar      = { tela = "dashboard-cliente" },
+        )
+
+        // -- fase 4.4 relatorios avançados para profissionais
+        "relatorios" -> RelatoriosProfissionalScreen(
+            onVoltar = { tela = "dashboard-profissional" },
+        )
     }
 }
 
 // ── Wrapper suspend para verificar pagamento pendente ────────────────────
-// Usado no LaunchedEffect(navState) para redirecionar ao abrir o app
 private suspend fun verificarPagamentoPendente(): String? =
     PagamentoRepository.verificarPendencia()
 

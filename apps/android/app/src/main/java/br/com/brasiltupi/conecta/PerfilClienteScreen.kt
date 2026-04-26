@@ -24,13 +24,14 @@ import br.com.brasiltupi.conecta.ui.theme.*
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
 
-// dadosClienteMock removido — todos os campos agora vêm do Supabase.
-// Fallbacks de string vazios são usados apenas enquanto os dados carregam.
-
 // ── TELA PRINCIPAL ────────────────────────────────────
 @Composable
-fun PerfilClienteScreen(onVoltar: () -> Unit, userId: String = "") {
-    var abaSelecionada by remember { mutableStateOf("perfil") }
+fun PerfilClienteScreen(
+    onVoltar:   () -> Unit,
+    userId:     String = "",
+    onReferral: () -> Unit = {},   // ← Fase 4.2
+) {
+    var abaSelecionada      by remember { mutableStateOf("perfil") }
     var fotoUrl             by remember { mutableStateOf<String?>(null) }
     var nomeReal            by remember { mutableStateOf("") }
     var emailReal           by remember { mutableStateOf("") }
@@ -58,17 +59,13 @@ fun PerfilClienteScreen(onVoltar: () -> Unit, userId: String = "") {
                 telefoneReal = perfil.telefone ?: ""
                 cidadeReal   = perfil.cidade   ?: ""
                 estadoReal   = perfil.estado   ?: ""
-                // membroDesde: derivado de criado_em real do banco
                 membroDesde  = formatarMembroDesde(perfil.criadoEm)
             }
-
             val todasConsultas  = buscarConsultasCliente(userId)
             consultasRealizadas = todasConsultas.count { it.status in listOf("concluida", "concluido") }
             consultasAgendadas  = todasConsultas.count { it.status in listOf("agendada", "agendado") }
-
-            // Avaliação média: das consultas avaliadas (nota > 0)
-            val notasValidas = todasConsultas.map { it.avaliacao }.filter { it > 0 }
-            avaliacaoMedia = if (notasValidas.isNotEmpty()) notasValidas.average() else null
+            val notasValidas    = todasConsultas.map { it.avaliacao }.filter { it > 0 }
+            avaliacaoMedia      = if (notasValidas.isNotEmpty()) notasValidas.average() else null
         }
         carregando = false
     }
@@ -95,7 +92,7 @@ fun PerfilClienteScreen(onVoltar: () -> Unit, userId: String = "") {
             .background(SurfaceWarm)
             .verticalScroll(rememberScrollState())
     ) {
-        // Header
+        // ── Header ───────────────────────────────────────────────────────
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -109,21 +106,23 @@ fun PerfilClienteScreen(onVoltar: () -> Unit, userId: String = "") {
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Avatar clicável
                     Box(modifier = Modifier.size(72.dp)) {
                         if (fotoUrl != null) {
                             AsyncImage(
-                                model = fotoUrl,
+                                model              = fotoUrl,
                                 contentDescription = "Foto de perfil",
-                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(50)).background(Verde),
-                                contentScale = ContentScale.Crop
+                                modifier           = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Verde),
+                                contentScale = ContentScale.Crop,
                             )
                         } else {
                             Box(
-                                modifier = Modifier
+                                modifier         = Modifier
                                     .fillMaxSize()
                                     .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(50)),
-                                contentAlignment = Alignment.Center
+                                contentAlignment = Alignment.Center,
                             ) {
                                 Text(iniciais, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             }
@@ -134,18 +133,26 @@ fun PerfilClienteScreen(onVoltar: () -> Unit, userId: String = "") {
                                 .align(Alignment.BottomEnd)
                                 .background(Color.White, RoundedCornerShape(50))
                                 .clickable { launcherFoto.launch("image/*") },
-                            contentAlignment = Alignment.Center
+                            contentAlignment = Alignment.Center,
                         ) {
                             Text("✏", fontSize = 10.sp)
                         }
                     }
                     Spacer(modifier = Modifier.width(14.dp))
                     Column {
-                        Text(nomeReal.ifEmpty { "Carregando..." }, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(
+                            nomeReal.ifEmpty { "Carregando..." },
+                            fontSize   = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color      = Color.White,
+                        )
                         Text("Cliente", fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f))
                         if (cidadeReal.isNotEmpty()) {
-                            Text("📍 $cidadeReal${if (estadoReal.isNotEmpty()) ", $estadoReal" else ""}",
-                                fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
+                            Text(
+                                "📍 $cidadeReal${if (estadoReal.isNotEmpty()) ", $estadoReal" else ""}",
+                                fontSize = 12.sp,
+                                color    = Color.White.copy(alpha = 0.6f),
+                            )
                         }
                     }
                 }
@@ -153,21 +160,23 @@ fun PerfilClienteScreen(onVoltar: () -> Unit, userId: String = "") {
                 Box(
                     modifier = Modifier
                         .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
-                        .padding(horizontal = 12.dp, vertical = 5.dp)
+                        .padding(horizontal = 12.dp, vertical = 5.dp),
                 ) {
                     Text(
                         if (membroDesde == "--") "Carregando..." else "Membro desde $membroDesde",
-                        fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.SemiBold
+                        fontSize   = 11.sp,
+                        color      = Color.White,
+                        fontWeight = FontWeight.SemiBold,
                     )
                 }
             }
         }
 
-        // Stats reais
+        // ── Stats ─────────────────────────────────────────────────────────
         Row(modifier = Modifier.fillMaxWidth().background(Surface).padding(vertical = 4.dp)) {
             Column(
-                modifier = Modifier.weight(1f).padding(vertical = 14.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                modifier            = Modifier.weight(1f).padding(vertical = 14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 if (carregando) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Verde, strokeWidth = 2.dp)
@@ -177,37 +186,51 @@ fun PerfilClienteScreen(onVoltar: () -> Unit, userId: String = "") {
                 Text("Consultas\nrealizadas", fontSize = 10.sp, color = InkMuted, lineHeight = 14.sp)
             }
             Column(
-                modifier = Modifier.weight(1f).padding(vertical = 14.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                modifier            = Modifier.weight(1f).padding(vertical = 14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text("$consultasAgendadas", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Text("Consultas\nagendadas", fontSize = 10.sp, color = InkMuted, lineHeight = 14.sp)
             }
             Column(
-                modifier = Modifier.weight(1f).padding(vertical = 14.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                modifier            = Modifier.weight(1f).padding(vertical = 14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
                     if (avaliacaoMedia != null) "⭐ ${"%.1f".format(avaliacaoMedia)}" else "⭐ --",
-                    fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink
+                    fontSize   = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color      = Ink,
                 )
                 Text("Média das\nconsultas", fontSize = 10.sp, color = InkMuted, lineHeight = 14.sp)
             }
         }
         HorizontalDivider(color = SurfaceOff)
 
-        // Tabs
+        // ── Tabs ──────────────────────────────────────────────────────────
         Row(
-            modifier = Modifier.fillMaxWidth().background(Surface).padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            modifier              = Modifier
+                .fillMaxWidth()
+                .background(Surface)
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            listOf("perfil" to "Meu Perfil", "endereco" to "Endereço", "seguranca" to "Segurança").forEach { (id, label) ->
+            listOf(
+                "perfil"    to "Meu Perfil",
+                "endereco"  to "Endereço",
+                "seguranca" to "Segurança",
+            ).forEach { (id, label) ->
                 TextButton(
                     onClick = { abaSelecionada = id },
-                    colors = ButtonDefaults.textButtonColors(contentColor = if (abaSelecionada == id) Verde else InkMuted)
+                    colors  = ButtonDefaults.textButtonColors(
+                        contentColor = if (abaSelecionada == id) Verde else InkMuted,
+                    ),
                 ) {
-                    Text(label, fontSize = 13.sp,
-                        fontWeight = if (abaSelecionada == id) FontWeight.Bold else FontWeight.Normal)
+                    Text(
+                        label,
+                        fontSize   = 13.sp,
+                        fontWeight = if (abaSelecionada == id) FontWeight.Bold else FontWeight.Normal,
+                    )
                 }
             }
         }
@@ -223,6 +246,7 @@ fun PerfilClienteScreen(onVoltar: () -> Unit, userId: String = "") {
                 telefoneInicial = telefoneReal,
                 membroDesde     = membroDesde,
                 userId          = userId,
+                onReferral      = onReferral,   // ← Fase 4.2
             )
             "endereco"  -> AbaEnderecoCliente(
                 cidadeInicial = cidadeReal,
@@ -237,14 +261,15 @@ fun PerfilClienteScreen(onVoltar: () -> Unit, userId: String = "") {
 // ── ABA: PERFIL ───────────────────────────────────────
 @Composable
 fun AbaPerfilCliente(
-    fotoUrl:         String? = null,
+    fotoUrl:         String?  = null,
     onEditarFoto:    () -> Unit = {},
-    nomeInicial:     String = "",
-    email:           String = "",
-    cpf:             String = "",
-    telefoneInicial: String = "",
-    membroDesde:     String = "--",
-    userId:          String = "",
+    nomeInicial:     String   = "",
+    email:           String   = "",
+    cpf:             String   = "",
+    telefoneInicial: String   = "",
+    membroDesde:     String   = "--",
+    userId:          String   = "",
+    onReferral:      () -> Unit = {},   // ← Fase 4.2
 ) {
     var editando by remember { mutableStateOf(false) }
     var nome     by remember(nomeInicial) { mutableStateOf(nomeInicial) }
@@ -252,13 +277,21 @@ fun AbaPerfilCliente(
     val scope    = rememberCoroutineScope()
     val iniciais = nomeInicial.split(" ").mapNotNull { it.firstOrNull()?.toString() }.joinToString("").take(2)
 
-    Column(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
+    Column(
+        modifier            = Modifier.fillMaxWidth().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        // ── Card dados pessoais ───────────────────────────────────────────
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(12.dp),
+            colors   = CardDefaults.cardColors(containerColor = Surface),
+        ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier              = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment     = Alignment.CenterVertically,
                 ) {
                     Text("Dados pessoais", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                     TextButton(onClick = { editando = !editando }) {
@@ -278,20 +311,19 @@ fun AbaPerfilCliente(
                         editando = false
                     }
                 } else {
-                    val campos = listOf(
-                        "Nome"          to nome.ifEmpty { "--" },
-                        "E-mail"        to email.ifEmpty { "--" },
-                        "CPF"           to cpf.ifEmpty { "--" },
-                        "Telefone"      to telefone.ifEmpty { "--" },
-                        "Membro desde"  to membroDesde,
-                    )
-                    campos.forEach { (label, valor) ->
+                    listOf(
+                        "Nome"         to nome.ifEmpty { "--" },
+                        "E-mail"       to email.ifEmpty { "--" },
+                        "CPF"          to cpf.ifEmpty { "--" },
+                        "Telefone"     to telefone.ifEmpty { "--" },
+                        "Membro desde" to membroDesde,
+                    ).forEach { (label, valor) ->
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            modifier              = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
                             Text(label, fontSize = 13.sp, color = InkMuted)
-                            Text(valor,  fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+                            Text(valor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
                         }
                         HorizontalDivider(color = SurfaceOff)
                     }
@@ -299,22 +331,34 @@ fun AbaPerfilCliente(
             }
         }
 
-        // Foto de perfil
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
+        // ── Card foto de perfil ───────────────────────────────────────────
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(12.dp),
+            colors   = CardDefaults.cardColors(containerColor = Surface),
+        ) {
             Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(modifier = Modifier.size(56.dp)) {
                     if (fotoUrl != null) {
                         AsyncImage(
-                            model = fotoUrl, contentDescription = null,
-                            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(50)),
-                            contentScale = ContentScale.Crop
+                            model              = fotoUrl,
+                            contentDescription = null,
+                            modifier           = Modifier.fillMaxSize().clip(RoundedCornerShape(50)),
+                            contentScale       = ContentScale.Crop,
                         )
                     } else {
                         Box(
-                            modifier = Modifier.fillMaxSize().background(VerdeClaro, RoundedCornerShape(50)),
-                            contentAlignment = Alignment.Center
+                            modifier         = Modifier
+                                .fillMaxSize()
+                                .background(VerdeClaro, RoundedCornerShape(50)),
+                            contentAlignment = Alignment.Center,
                         ) {
-                            Text(iniciais.ifEmpty { "?" }, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Verde)
+                            Text(
+                                iniciais.ifEmpty { "?" },
+                                fontSize   = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color      = Verde,
+                            )
                         }
                     }
                 }
@@ -328,17 +372,50 @@ fun AbaPerfilCliente(
                 }
             }
         }
+
+        // ── Card Indique e Ganhe — Fase 4.2 ──────────────────────────────
+        Card(
+            onClick   = onReferral,
+            modifier  = Modifier.fillMaxWidth(),
+            shape     = RoundedCornerShape(12.dp),
+            colors    = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            border    = androidx.compose.foundation.BorderStroke(
+                1.dp, Color(0xFFC49A2A).copy(alpha = 0.4f)
+            ),
+        ) {
+            Row(
+                modifier          = Modifier.padding(18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text("🎁", fontSize = 32.sp)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Indique e Ganhe",
+                        fontSize   = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color      = Color(0xFF856404),
+                    )
+                    Text(
+                        "Ganhe R\$20 por amigo indicado após a primeira consulta.",
+                        fontSize    = 12.sp,
+                        color       = Color(0xFF856404).copy(alpha = 0.8f),
+                        lineHeight  = 17.sp,
+                    )
+                }
+                Text("→", fontSize = 18.sp, color = Color(0xFFC49A2A), fontWeight = FontWeight.Bold)
+            }
+        }
     }
 }
 
 // ── ABA: ENDEREÇO ─────────────────────────────────────
-// Agora salva cidade e estado no Supabase via salvarDadosPerfilAndroid.
-// CEP e endereço completo ficam para implementação futura (campo não existe no banco ainda).
 @Composable
 fun AbaEnderecoCliente(
     cidadeInicial: String = "",
     estadoInicial: String = "",
-    userId: String = "",
+    userId:        String = "",
 ) {
     var editando by remember { mutableStateOf(false) }
     var cidade   by remember(cidadeInicial) { mutableStateOf(cidadeInicial) }
@@ -347,13 +424,20 @@ fun AbaEnderecoCliente(
     var erro     by remember { mutableStateOf(false) }
     val scope    = rememberCoroutineScope()
 
-    Column(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
+    Column(
+        modifier            = Modifier.fillMaxWidth().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(12.dp),
+            colors   = CardDefaults.cardColors(containerColor = Surface),
+        ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier              = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment     = Alignment.CenterVertically,
                 ) {
                     Text("Localização", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                     TextButton(onClick = { editando = !editando; erro = false }) {
@@ -374,32 +458,40 @@ fun AbaEnderecoCliente(
                         onClick = {
                             scope.launch {
                                 salvando = true
-                                erro = false
-                                val ok = if (userId.isNotEmpty()) {
-                                    // Salva cidade e estado no perfil
+                                erro     = false
+                                val ok   = if (userId.isNotEmpty()) {
                                     salvarBioProfissionalAndroid(userId, "", cidade, estado)
-                                        .also { } // reutiliza a função que já salva cidade/estado em perfis
                                 } else false
                                 salvando = false
                                 if (ok) editando = false else erro = true
                             }
                         },
-                        enabled = !salvando,
+                        enabled  = !salvando,
                         modifier = Modifier.fillMaxWidth().height(46.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
-                        shape = RoundedCornerShape(8.dp)
+                        colors   = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
+                        shape    = RoundedCornerShape(8.dp),
                     ) {
                         if (salvando) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                            CircularProgressIndicator(
+                                modifier    = Modifier.size(18.dp),
+                                color       = Color.White,
+                                strokeWidth = 2.dp,
+                            )
                         } else {
                             Text("Salvar localização", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 } else {
-                    listOf("Cidade" to cidade.ifEmpty { "--" }, "Estado" to estado.ifEmpty { "--" }).forEach { (label, valor) ->
-                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    listOf(
+                        "Cidade" to cidade.ifEmpty { "--" },
+                        "Estado" to estado.ifEmpty { "--" },
+                    ).forEach { (label, valor) ->
+                        Row(
+                            modifier              = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
                             Text(label, fontSize = 13.sp, color = InkMuted)
-                            Text(valor,  fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+                            Text(valor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
                         }
                         HorizontalDivider(color = SurfaceOff)
                     }
@@ -407,13 +499,20 @@ fun AbaEnderecoCliente(
             }
         }
         Row(
-            modifier = Modifier.fillMaxWidth().background(AzulClaro, RoundedCornerShape(10.dp)).padding(16.dp),
-            verticalAlignment = Alignment.Top
+            modifier          = Modifier
+                .fillMaxWidth()
+                .background(AzulClaro, RoundedCornerShape(10.dp))
+                .padding(16.dp),
+            verticalAlignment = Alignment.Top,
         ) {
             Text("ℹ", fontSize = 16.sp, color = Azul)
             Spacer(modifier = Modifier.width(10.dp))
-            Text("Sua localização é usada para encontrar profissionais próximos a você. Não é exibida publicamente.",
-                fontSize = 12.sp, color = Azul, lineHeight = 17.sp)
+            Text(
+                "Sua localização é usada para encontrar profissionais próximos a você. Não é exibida publicamente.",
+                fontSize   = 12.sp,
+                color      = Azul,
+                lineHeight = 17.sp,
+            )
         }
     }
 }
@@ -424,25 +523,32 @@ fun AbaSegurancaCliente(
     email:    String = "",
     telefone: String = "",
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
+    Column(
+        modifier            = Modifier.fillMaxWidth().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(12.dp),
+            colors   = CardDefaults.cardColors(containerColor = Surface),
+        ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Segurança da conta", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(12.dp))
                 listOf(
-                    Triple("E-mail",            email.ifEmpty { "--" },    "Alterar"),
-                    Triple("Senha",             "••••••••••",               "Alterar"),
-                    Triple("Telefone",          telefone.ifEmpty { "--" }, "Alterar"),
-                    Triple("Autenticação 2FA",  "Desativado",               "Ativar"),
+                    Triple("E-mail",           email.ifEmpty { "--" },    "Alterar"),
+                    Triple("Senha",            "••••••••••",               "Alterar"),
+                    Triple("Telefone",         telefone.ifEmpty { "--" }, "Alterar"),
+                    Triple("Autenticação 2FA", "Desativado",               "Ativar"),
                 ).forEach { (label, valor, acao) ->
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                        modifier              = Modifier.fillMaxWidth().padding(vertical = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment     = Alignment.CenterVertically,
                     ) {
                         Column {
                             Text(label, fontSize = 12.sp, color = InkMuted)
-                            Text(valor,  fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+                            Text(valor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
                         }
                         TextButton(onClick = {}) {
                             Text(acao, color = Verde, fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -454,21 +560,27 @@ fun AbaSegurancaCliente(
         }
 
         Card(
-            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = UrgenteClaro),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Urgente.copy(alpha = 0.3f))
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(12.dp),
+            colors   = CardDefaults.cardColors(containerColor = UrgenteClaro),
+            border   = androidx.compose.foundation.BorderStroke(1.dp, Urgente.copy(alpha = 0.3f)),
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Zona de perigo", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Urgente)
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Ao excluir sua conta, todos os seus dados serão removidos permanentemente.",
-                    fontSize = 13.sp, color = InkSoft, lineHeight = 18.sp)
+                Text(
+                    "Ao excluir sua conta, todos os seus dados serão removidos permanentemente.",
+                    fontSize   = 13.sp,
+                    color      = InkSoft,
+                    lineHeight = 18.sp,
+                )
                 Spacer(modifier = Modifier.height(14.dp))
                 OutlinedButton(
-                    onClick = {}, modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Urgente),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Urgente),
-                    shape = RoundedCornerShape(8.dp)
+                    onClick  = {},
+                    modifier = Modifier.fillMaxWidth(),
+                    colors   = ButtonDefaults.outlinedButtonColors(contentColor = Urgente),
+                    border   = androidx.compose.foundation.BorderStroke(1.dp, Urgente),
+                    shape    = RoundedCornerShape(8.dp),
                 ) {
                     Text("Excluir minha conta", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
@@ -476,15 +588,27 @@ fun AbaSegurancaCliente(
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth().background(VerdeClaro, RoundedCornerShape(10.dp)).padding(16.dp),
-            verticalAlignment = Alignment.Top
+            modifier          = Modifier
+                .fillMaxWidth()
+                .background(VerdeClaro, RoundedCornerShape(10.dp))
+                .padding(16.dp),
+            verticalAlignment = Alignment.Top,
         ) {
             Text("🔒", fontSize = 16.sp)
             Spacer(modifier = Modifier.width(10.dp))
             Column {
-                Text("Seus dados estão protegidos", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Verde)
-                Text("Criptografados e nunca compartilhados com terceiros.",
-                    fontSize = 12.sp, color = Verde.copy(alpha = 0.8f), modifier = Modifier.padding(top = 4.dp))
+                Text(
+                    "Seus dados estão protegidos",
+                    fontSize   = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color      = Verde,
+                )
+                Text(
+                    "Criptografados e nunca compartilhados com terceiros.",
+                    fontSize = 12.sp,
+                    color    = Verde.copy(alpha = 0.8f),
+                    modifier = Modifier.padding(top = 4.dp),
+                )
             }
         }
     }

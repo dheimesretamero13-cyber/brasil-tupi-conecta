@@ -33,15 +33,14 @@ import io.ktor.client.engine.android.*
 import io.ktor.client.plugins.websocket.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
 
 private const val TAG          = "PagamentoRepository"
-private const val SUPABASE_URL = "https://qfzdchrlbqcvewjivaqz.supabase.co"
 private const val API_KEY      = "sb_publishable_SM-UHBh_5lzTSBZ2YPUIYw_Sw1i8qeq"
 private const val WS_URL       = "wss://qfzdchrlbqcvewjivaqz.supabase.co/realtime/v1/websocket"
-private const val EDGE_URL     = "$SUPABASE_URL/functions/v1/criar-preferencia-pagamento"
+
+private const val EDGE_URL = "https://qfzdchrlbqcvewjivaqz.supabase.co/functions/v1/criar-preferencia-pagamento"
 
 // Timeout para aguardar confirmação via Realtime antes de ativar polling
 private const val REALTIME_CONFIRM_TIMEOUT_MS = 30_000L

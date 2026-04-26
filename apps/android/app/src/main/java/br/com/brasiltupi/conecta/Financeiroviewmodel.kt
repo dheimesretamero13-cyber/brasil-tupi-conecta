@@ -29,13 +29,11 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-private const val TAG          = "FinanceiroViewModel"
-private const val SUPABASE_URL = "https://qfzdchrlbqcvewjivaqz.supabase.co"
-private const val API_KEY      = "sb_publishable_SM-UHBh_5lzTSBZ2YPUIYw_Sw1i8qeq"
-private const val TAXA_PADRAO  = 15.0  // fallback se RPC não retornar taxa
+private const val TAG         = "FinanceiroViewModel"
+private const val API_KEY     = SUPABASE_KEY
+private const val TAXA_PADRAO = 15.0
 
 private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
-
 // ═══════════════════════════════════════════════════════════════════════════
 // DTOs — mapeados direto da RPC e da tabela payments
 // ═══════════════════════════════════════════════════════════════════════════

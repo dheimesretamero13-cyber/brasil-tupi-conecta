@@ -40,11 +40,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
+
 private const val TAG = "StreamVideoRepo"
 
-// ── URLs — mesmo projeto do SupabaseClient ────────────────────────────────
-private const val SUPABASE_URL        = "https://qfzdchrlbqcvewjivaqz.supabase.co"
-private const val EDGE_FUNCTION_URL   = "$SUPABASE_URL/functions/v1/get-call-token"
+private const val EDGE_FUNCTION_URL = "https://qfzdchrlbqcvewjivaqz.supabase.co/functions/v1/get-call-token"
 private const val API_KEY             = "sb_publishable_SM-UHBh_5lzTSBZ2YPUIYw_Sw1i8qeq"
 
 private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }

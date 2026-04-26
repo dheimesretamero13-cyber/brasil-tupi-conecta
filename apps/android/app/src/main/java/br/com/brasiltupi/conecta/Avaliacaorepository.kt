@@ -42,8 +42,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 
 private const val TAG            = "AvaliacaoRepository"
-private const val SUPABASE_URL   = "https://qfzdchrlbqcvewjivaqz.supabase.co"
-private const val API_KEY        = "sb_publishable_SM-UHBh_5lzTSBZ2YPUIYw_Sw1i8qeq"
+private const val API_KEY = SUPABASE_KEY
 
 private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
 

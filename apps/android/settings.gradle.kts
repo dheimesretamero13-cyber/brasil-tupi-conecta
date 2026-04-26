@@ -20,6 +20,7 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven("https://jitpack.io")
+        maven("https://repo.getstream.io/artifactory/libs-release")
     }
 }
 

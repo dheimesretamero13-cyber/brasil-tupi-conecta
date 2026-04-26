@@ -10,8 +10,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-private const val SUPABASE_URL = "https://qfzdchrlbqcvewjivaqz.supabase.co"
-private const val SUPABASE_KEY = "sb_publishable_SM-UHBh_5lzTSBZ2YPUIYw_Sw1i8qeq"
+internal const val SUPABASE_URL = "https://qfzdchrlbqcvewjivaqz.supabase.co"
+internal const val SUPABASE_KEY = "sb_publishable_SM-UHBh_5lzTSBZ2YPUIYw_Sw1i8qeq"
 
 private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
@@ -970,6 +970,13 @@ suspend fun verificarAcessoAgendamento(clienteId: String, profissionalId: String
         ResultadoAcesso(acesso = false, motivo = "erro")
     }
 }
+// ── PLANO DE ASSINATURA ───────────────────────────────
+data class PlanoInfo(
+    val id: String,           // tipo do plano: "basico", "pro", "premium"
+    val nome: String,
+    val precoDecimal: Double, // ex: 49.90
+    val limiteProfs: Int = 0, // 0 = ilimitado
+)
 
 // ── SALVAR DADOS PESSOAIS DO CLIENTE ─────────────────
 suspend fun salvarDadosPerfilAndroid(userId: String, nome: String, telefone: String): Boolean {

@@ -69,7 +69,6 @@ enum class TipoEstudio(
 // ── TELA BUSCA GLOBAL ─────────────────────────────────
 @Composable
 fun EstudioBuscaScreen(onVoltar: () -> Unit) {
-    val scope = rememberCoroutineScope()
     var itens by remember { mutableStateOf<List<ItemEstudio>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var busca by remember { mutableStateOf("") }
@@ -90,8 +89,9 @@ fun EstudioBuscaScreen(onVoltar: () -> Unit) {
     when {
         itemParaPagar != null -> {
             PagamentoScreen(
-                onVoltar    = { itemParaPagar = null },
-                onConcluido = { itemParaPagar = null }
+                urgenciaId   = itemParaPagar?.id ?: "",
+                onConfirmado = { itemParaPagar = null },
+                onVoltar     = { itemParaPagar = null },
             )
         }
 
@@ -528,8 +528,9 @@ fun EstudioVitrineScreen(profissionalId: String, onVoltar: () -> Unit) {
     when {
         itemParaPagar != null -> {
             PagamentoScreen(
-                onVoltar = { itemParaPagar = null },
-                onConcluido = { itemParaPagar = null }
+                urgenciaId   = itemParaPagar?.id ?: "",
+                onConfirmado = { itemParaPagar = null },
+                onVoltar     = { itemParaPagar = null },
             )
         }
 
