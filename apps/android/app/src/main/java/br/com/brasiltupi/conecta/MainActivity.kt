@@ -122,8 +122,23 @@ fun AppNavigation() {
         if (tela.isNotEmpty()) return@LaunchedEffect
         when (navState) {
             is OnboardingNavState.Carregando        -> Unit
-            is OnboardingNavState.MostrarOnboarding -> tela = "onboarding"
+            is OnboardingNavState.MostrarOnboarding -> {
+                // Primeiro acesso — app_install
+                AnalyticsTracker.appInstall()
+                tela = "onboarding"
+            }
             is OnboardingNavState.IrParaCliente     -> {
+                // Fase 4.5 — Retenção: mede dias desde o último acesso
+                val agora       = System.currentTimeMillis()
+                val ultimoAces  = onboardingVm.ultimoAcesso()
+                val diasAusente = if (ultimoAces > 0L) (agora - ultimoAces) / 86_400_000L else 0L
+                AnalyticsTracker.setUserType("cliente")
+                when {
+                    diasAusente >= 30 -> AnalyticsTracker.retention30d("cliente")
+                    diasAusente >= 7  -> AnalyticsTracker.retention7d("cliente")
+                }
+                onboardingVm.salvarUltimoAcesso(agora)
+
                 val pendenteAvaliacao = AvaliacaoRepository.verificarPendencia()
                 if (pendenteAvaliacao != null) {
                     urgenciaIdAtiva = pendenteAvaliacao.id
@@ -139,6 +154,17 @@ fun AppNavigation() {
                 tela = "dashboard-cliente"
             }
             is OnboardingNavState.IrParaProfissional -> {
+                // Fase 4.5 — Retenção: mede dias desde o último acesso
+                val agora       = System.currentTimeMillis()
+                val ultimoAces  = onboardingVm.ultimoAcesso()
+                val diasAusente = if (ultimoAces > 0L) (agora - ultimoAces) / 86_400_000L else 0L
+                AnalyticsTracker.setUserType("profissional")
+                when {
+                    diasAusente >= 30 -> AnalyticsTracker.retention30d("profissional")
+                    diasAusente >= 7  -> AnalyticsTracker.retention7d("profissional")
+                }
+                onboardingVm.salvarUltimoAcesso(agora)
+
                 BrasilTupiMessagingService.registrarTokenSeLogado(this, context)
                 val pendente = AvaliacaoRepository.verificarPendencia()
                 if (pendente != null) {

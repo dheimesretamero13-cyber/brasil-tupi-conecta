@@ -11,6 +11,7 @@ package br.com.brasiltupi.conecta
 // DataStore keys:
 //  • ONBOARDING_COMPLETED : Boolean  (default false)
 //  • USER_ROLE            : String?  (null | "client" | "professional")
+//  • ULTIMO_ACESSO        : Long     (timestamp ms — Fase 4.5 retenção)
 // ═══════════════════════════════════════════════════════════════════════════
 
 import android.content.Context
@@ -18,6 +19,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.ViewModel
@@ -27,6 +29,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 // ── DataStore singleton (extensão no Context) ─────────────────────────────
@@ -37,8 +40,9 @@ val Context.onboardingDataStore: DataStore<Preferences> by preferencesDataStore(
 
 // ── Keys ──────────────────────────────────────────────────────────────────
 private object OnboardingKeys {
-    val COMPLETED = booleanPreferencesKey("onboarding_completed")
-    val USER_ROLE = stringPreferencesKey("user_role")
+    val COMPLETED     = booleanPreferencesKey("onboarding_completed")
+    val USER_ROLE     = stringPreferencesKey("user_role")
+    val ULTIMO_ACESSO = longPreferencesKey("ultimo_acesso")   // Fase 4.5
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -79,10 +83,10 @@ class OnboardingViewModel(
             val role      = prefs[OnboardingKeys.USER_ROLE]
 
             _navState.value = when {
-                !completed          -> OnboardingNavState.MostrarOnboarding
-                role == "client"    -> OnboardingNavState.IrParaCliente
+                !completed             -> OnboardingNavState.MostrarOnboarding
+                role == "client"       -> OnboardingNavState.IrParaCliente
                 role == "professional" -> OnboardingNavState.IrParaProfissional
-                else                -> OnboardingNavState.MostrarOnboarding
+                else                   -> OnboardingNavState.MostrarOnboarding
             }
         }
     }
@@ -117,6 +121,21 @@ class OnboardingViewModel(
                 prefs.remove(OnboardingKeys.USER_ROLE)
             }
             _navState.value = OnboardingNavState.MostrarOnboarding
+        }
+    }
+
+    // ── Fase 4.5 — Retenção ───────────────────────────────────────────────
+
+    /** Retorna o timestamp (ms) do último acesso. 0L se nunca gravado. */
+    suspend fun ultimoAcesso(): Long =
+        dataStore.data.map { prefs ->
+            prefs[OnboardingKeys.ULTIMO_ACESSO] ?: 0L
+        }.first()
+
+    /** Grava o timestamp do acesso atual. */
+    suspend fun salvarUltimoAcesso(timestamp: Long) {
+        dataStore.edit { prefs ->
+            prefs[OnboardingKeys.ULTIMO_ACESSO] = timestamp
         }
     }
 }

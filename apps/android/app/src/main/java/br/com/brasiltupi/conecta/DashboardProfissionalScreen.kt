@@ -23,7 +23,8 @@ import br.com.brasiltupi.conecta.ui.theme.*
 fun DashboardProfissionalScreen(
     onSair: () -> Unit,
     onEstudio: (() -> Unit)? = null,
-    onPerfil: (() -> Unit)? = null
+    onPerfil: (() -> Unit)? = null,
+    onRelatorios: (() -> Unit)? = null,
 ) {
     var abaSelecionada by remember { mutableStateOf("visao") }
 
@@ -61,6 +62,7 @@ fun DashboardProfissionalScreen(
         "credibilidade" to "Credibilidade",
         "urgente"       to "Urgente",
         "financeiro"    to "Financeiro",   // Fase 2.4
+        "relatorios"    to "Relatórios",   // Fase 4.4
         "perfil"        to "Meu Perfil",
     )
 
@@ -126,11 +128,22 @@ fun DashboardProfissionalScreen(
                 consultas         = consultas,
                 carregando        = carregando,
                 disponivelUrgente = disponivelUrgente,
+                onRelatorios      = onRelatorios,
             )
             "atendimentos"  -> AbaAtendimentosDash(consultas = consultas, carregando = carregando)
             "credibilidade" -> AbaCredibilidadeDash(credibilidade = credibilidade)
             "urgente"       -> AbaUrgenteDash(onEstudio = onEstudio, disponivelUrgente = disponivelUrgente)
             "financeiro"    -> AbaFinanceiroDash()   // Fase 2.4 — sem parâmetros adicionais
+            "relatorios"    -> {
+                if (onRelatorios != null) {
+                    LaunchedEffect(Unit) { onRelatorios() }
+                } else {
+                    // fallback: não deve acontecer pois onRelatorios sempre é passado
+                    Box(Modifier.fillMaxSize(), Alignment.Center) {
+                        Text("Relatórios indisponíveis", color = InkMuted)
+                    }
+                }
+            }
             "perfil"        -> {
                 if (onPerfil != null) {
                     LaunchedEffect(Unit) { onPerfil() }
@@ -150,6 +163,7 @@ fun AbaVisaoGeralDash(
     consultas: List<ConsultaProfissional> = emptyList(),
     carregando: Boolean = false,
     disponivelUrgente: Boolean = false,
+    onRelatorios: (() -> Unit)? = null,
 ) {
     val concluidas = consultas.filter { it.status == "concluida" || it.status == "concluido" }
     val agendadas  = consultas.filter { it.status == "agendada" || it.status == "agendado" }
@@ -330,6 +344,19 @@ fun AbaVisaoGeralDash(
                         fontSize = 11.sp, color = InkMuted
                     )
                 }
+            }
+        }
+
+        // Botão de Relatórios — Fase 4.4
+        if (onRelatorios != null) {
+            OutlinedButton(
+                onClick  = onRelatorios,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape    = RoundedCornerShape(12.dp),
+                border   = androidx.compose.foundation.BorderStroke(1.dp, Azul.copy(alpha = 0.4f)),
+                colors   = ButtonDefaults.outlinedButtonColors(contentColor = Azul),
+            ) {
+                Text("📊  Relatórios", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }

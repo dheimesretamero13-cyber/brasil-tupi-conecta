@@ -80,6 +80,7 @@ dependencies {
     implementation("com.google.firebase:firebase-messaging-ktx")
     implementation("io.coil-kt:coil-compose:2.5.0")
     implementation("com.google.firebase:firebase-crashlytics-ktx")
+    implementation("com.google.firebase:firebase-analytics-ktx")
 
     // ViewModel + Compose
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")

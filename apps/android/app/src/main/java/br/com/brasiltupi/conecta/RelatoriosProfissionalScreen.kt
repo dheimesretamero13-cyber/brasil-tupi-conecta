@@ -27,11 +27,11 @@ import com.patrykandpatrick.vico.compose.chart.line.lineChart
 import com.patrykandpatrick.vico.compose.component.shape.shader.fromBrush
 import com.patrykandpatrick.vico.core.axis.AxisItemPlacer
 import com.patrykandpatrick.vico.core.chart.line.LineChart
-import com.patrykandpatrick.vico.core.component.shape.ShapeComponent
 import com.patrykandpatrick.vico.core.component.shape.Shapes
 import com.patrykandpatrick.vico.core.component.shape.shader.DynamicShaders
 import com.patrykandpatrick.vico.core.entry.entryModelOf
 import com.patrykandpatrick.vico.core.entry.entryOf
+import com.patrykandpatrick.vico.core.component.shape.LineComponent
 
 // ═══════════════════════════════════════════════════════════════════════════
 // RelatoriosProfissionalScreen.kt  · Fase 4.4
@@ -315,11 +315,12 @@ private fun CardGraficoHorarios(horarios: List<HorarioPico>) {
                 modifier = Modifier.padding(top = 2.dp, bottom = 16.dp),
             )
             Chart(
-                chart      = columnChart(
+                chart = columnChart(
                     columns = listOf(
-                        ShapeComponent(
-                            shape = Shapes.roundedCornerShape(topLeftPercent = 40, topRightPercent = 40),
-                            color = Azul.toArgb(),
+                        LineComponent(
+                            color       = Azul.toArgb(),
+                            thicknessDp = 8f,
+                            shape       = Shapes.roundedCornerShape(topLeftPercent = 40, topRightPercent = 40),
                         )
                     )
                 ),
