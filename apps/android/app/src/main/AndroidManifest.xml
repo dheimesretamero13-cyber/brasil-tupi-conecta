@@ -1,7 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ── PERMISSÕES ──────────────────────────────────────────────────── -->
+
+    <!-- Rede — já existia, mantida -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Stream SDK — videochamada (Fase 2) -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- required="false": o app funciona em dispositivos sem câmera/mic  -->
+    <!-- (ex: tablets sem câmera frontal) — a videochamada simplesmente    -->
+    <!-- fica indisponível nesses casos, sem bloquear a instalação na Play -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!-- Stream SDK — mantém chamada ativa com tela apagada -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- ── VISIBILIDADE DE PACOTES (Android 11+) ──────────────────────── -->
+    <!-- Necessário para abrir o browser no checkout do Mercado Pago       -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <!-- App oficial do Mercado Pago instalado no dispositivo (opcional) -->
+        <package android:name="com.mercadopago.android.px" />
+    </queries>
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -13,17 +44,56 @@
         android:theme="@style/Theme.BrasilTupiConecta"
         android:name=".BrasilTupiApp">
 
+        <!--
+            launchMode="singleTask" garante que o Intent de retorno do
+            Mercado Pago (deep link brasiltupi://pagamento) seja entregue
+            para a instância já existente do MainActivity — sem criar uma
+            segunda instância e perder o estado de navegação (var tela).
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.BrasilTupiConecta">
+
+            <!-- Launcher — existente, não alterado -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!--
+                Deep link: retorno após pagamento aprovado ou recusado.
+                O Mercado Pago redireciona para brasiltupi://pagamento?status=approved&payment_id=XXX
+                Use o mesmo scheme/host como back_url na criação da preferência
+                na Edge Function (Passo 3).
+            -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="brasiltupi"
+                    android:host="pagamento" />
+            </intent-filter>
+
+            <!--
+                Deep link: retorno quando o usuário fecha/cancela o checkout.
+                O Mercado Pago usa a failure_url / cancel_url separada.
+            -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="brasiltupi"
+                    android:host="pagamento-cancelado" />
+            </intent-filter>
+
         </activity>
+
+        <!-- FCM — existente, não alterado -->
         <service
             android:name=".BrasilTupiMessagingService"
             android:exported="false">
@@ -31,6 +101,7 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+
     </application>
 
 </manifest>

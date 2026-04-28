@@ -115,109 +115,109 @@ fun EstudioBuscaScreen(onVoltar: () -> Unit) {
                     }
                 }
             }
-    Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF8F7F4))) {
-        // Hero header
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.linearGradient(listOf(Color(0xFF0C2D6B), Color(0xFF1A5C3A)))
-                )
-                .padding(horizontal = 20.dp)
-                .padding(top = 52.dp, bottom = 24.dp)
-        ) {
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onVoltar) {
-                        Text("← Voltar", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
+            Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF8F7F4))) {
+                // Hero header
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.linearGradient(listOf(Color(0xFF0C2D6B), Color(0xFF1A5C3A)))
+                        )
+                        .padding(horizontal = 20.dp)
+                        .padding(top = 52.dp, bottom = 24.dp)
+                ) {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = onVoltar) {
+                                Text("← Voltar", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
+                            }
+                        }
+                        Text(
+                            "🎨 Estúdio",
+                            fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                            color = Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier
+                                .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            "Cursos, aulas e produtos",
+                            fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White
+                        )
+                        Text(
+                            "Criados por profissionais verificados",
+                            fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
+                        )
+                        OutlinedTextField(
+                            value = busca,
+                            onValueChange = { busca = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("Buscar cursos, aulas, produtos...", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp) },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFFC49A2A),
+                                unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                cursorColor = Color(0xFFC49A2A)
+                            ),
+                            singleLine = true
+                        )
                     }
                 }
-                Text(
-                    "🎨 Estúdio",
-                    fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                    color = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier
-                        .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    "Cursos, aulas e produtos",
-                    fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White
-                )
-                Text(
-                    "Criados por profissionais verificados",
-                    fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
-                )
-                OutlinedTextField(
-                    value = busca,
-                    onValueChange = { busca = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Buscar cursos, aulas, produtos...", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp) },
-                    shape = RoundedCornerShape(10.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFFC49A2A),
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        cursorColor = Color(0xFFC49A2A)
-                    ),
-                    singleLine = true
-                )
-            }
-        }
 
-        // Filtros
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(TipoEstudio.filtros) { (tipo, label) ->
-                FilterChip(
-                    selected = filtroTipo == tipo,
-                    onClick = { filtroTipo = tipo },
-                    label = { Text(label, fontSize = 12.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Verde,
-                        selectedLabelColor = Color.White,
-                    )
-                )
-            }
-        }
+                // Filtros
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(TipoEstudio.filtros) { (tipo, label) ->
+                        FilterChip(
+                            selected = filtroTipo == tipo,
+                            onClick = { filtroTipo = tipo },
+                            label = { Text(label, fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Verde,
+                                selectedLabelColor = Color.White,
+                            )
+                        )
+                    }
+                }
 
-        // Conteúdo
-        if (loading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = Color(0xFFC49A2A))
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text("Carregando Estúdios...", fontSize = 13.sp, color = Color(0xFF6B7280))
-                }
-            }
-        } else if (itensFiltrados.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("🎨", fontSize = 48.sp)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Nenhum item encontrado", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF111827))
-                    Text("Tente outros termos ou remova os filtros.", fontSize = 13.sp, color = Color(0xFF6B7280), modifier = Modifier.padding(top = 6.dp))
-                }
-            }
-        } else {
-            LazyColumn(
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(itensFiltrados) { item ->
-                    CardEstudio(item = item, onClick = { itemSelecionado = item })
+                // Conteúdo
+                if (loading) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(color = Color(0xFFC49A2A))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text("Carregando Estúdios...", fontSize = 13.sp, color = Color(0xFF6B7280))
+                        }
+                    }
+                } else if (itensFiltrados.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("🎨", fontSize = 48.sp)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("Nenhum item encontrado", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF111827))
+                            Text("Tente outros termos ou remova os filtros.", fontSize = 13.sp, color = Color(0xFF6B7280), modifier = Modifier.padding(top = 6.dp))
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(itensFiltrados) { item ->
+                            CardEstudio(item = item, onClick = { itemSelecionado = item })
+                        }
+                    }
                 }
             }
         }
     }
-            }
-        }
-    }
+}
 
 // ── CARD ITEM ─────────────────────────────────────────
 @Composable
@@ -294,17 +294,17 @@ fun CardEstudio(item: ItemEstudio, onClick: () -> Unit) {
                         Text("R$ ${"%.2f".format(item.preco)}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Verde)
                     }
 
-                        Text(
-                            "Ver →",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Verde
-                        )
-                    }
+                    Text(
+                        "Ver →",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Verde
+                    )
                 }
             }
         }
     }
+}
 
 
 // ── TELA DETALHE ──────────────────────────────────────
@@ -521,6 +521,12 @@ fun EstudioVitrineScreen(profissionalId: String, onVoltar: () -> Unit) {
             val perfil = getPerfilAndroid(profissionalId)
             nomeProf = perfil?.nome ?: ""
             fotoProf = perfil?.foto_url
+            if (profissionalId.isNotEmpty()) { // PA-05
+                AnalyticsTracker.profileView(
+                    profissionalId = profissionalId,
+                    area           = perfil?.tipo ?: "profissional",
+                )
+            }
         } catch (e: Exception) {
             println("[EstudioVitrine] erro perfil: ${e.message}")
         }

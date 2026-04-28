@@ -323,6 +323,7 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
                                                 preco = item.preco.toInt().toString(),
                                                 precoOriginal = item.precoOriginal?.toInt()?.toString() ?: "",
                                                 videoUrl = item.videoUrl ?: "",
+                                                arquivoUrl = item.linkExterno ?: "",
                                                 linkExterno = item.linkExterno ?: "",
                                                 temEntrega = item.temEntrega,
                                                 destaque = item.destaque,
@@ -405,26 +406,33 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
                         toast = "Preencha título e preço."
                         return@EstudioNovoItemScreen
                     }
-                    val dados = mapOf(
-                        "titulo" to form.titulo,
-                        "descricao" to form.descricao,
-                        "tipo" to form.tipo,
-                        "preco" to (form.preco.toDoubleOrNull() ?: 0.0),
-                        "temEntrega" to form.temEntrega,
-                        "destaque" to form.destaque,
-                    )
+                    val dados = buildMap<String, Any> {
+                        put("titulo",      form.titulo)
+                        put("descricao",   form.descricao)
+                        put("tipo",        form.tipo)
+                        put("preco",       form.preco.toDoubleOrNull() ?: 0.0)
+                        put("tem_entrega", form.temEntrega)
+                        put("destaque",    form.destaque)
+                        form.precoOriginal.toDoubleOrNull()?.let { put("preco_original", it) }
+                        form.videoUrl.ifEmpty { null }?.let   { put("video_url",      it) }
+                        form.arquivoUrl.ifEmpty { null }?.let  { put("arquivo_url",    it) }
+                        form.linkExterno.ifEmpty { null }?.let { put("link_externo",   it) }
+                    }
                     scope.launch {
                         try {
                             val ok = editarItemEstudio(editando.id, dados)
                             if (ok) {
                                 itens = itens.map { i ->
                                     if (i.id == editando.id) i.copy(
-                                        titulo = form.titulo,
-                                        descricao = form.descricao,
-                                        tipo = form.tipo,
-                                        preco = form.preco.toDoubleOrNull() ?: i.preco,
-                                        temEntrega = form.temEntrega,
-                                        destaque = form.destaque,
+                                        titulo        = form.titulo,
+                                        descricao     = form.descricao,
+                                        tipo          = form.tipo,
+                                        preco         = form.preco.toDoubleOrNull() ?: i.preco,
+                                        precoOriginal = form.precoOriginal.toDoubleOrNull(),
+                                        videoUrl      = form.videoUrl.ifEmpty { null },
+                                        linkExterno   = form.linkExterno.ifEmpty { null },
+                                        temEntrega    = form.temEntrega,
+                                        destaque      = form.destaque,
                                     ) else i
                                 }
                                 toast = "✅ Item atualizado!"
@@ -461,6 +469,7 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
             onTemEntrega = { form = form.copy(temEntrega = it) },
             destaque = form.destaque,
             onDestaque = { form = form.copy(destaque = it) },
+            isEditando = itemParaEditar != null,
         )
     }
 
@@ -557,6 +566,7 @@ fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
 fun EstudioNovoItemScreen(
     onCancelar: () -> Unit,
     onPublicar: () -> Unit,
+    isEditando: Boolean = false,
     titulo: String,
     onTitulo: (String) -> Unit,
     descricao: String,
@@ -602,7 +612,7 @@ fun EstudioNovoItemScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            "Novo item no Estúdio",
+                            if (isEditando) "Editar item do Estúdio" else "Novo item no Estúdio",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -806,7 +816,7 @@ fun EstudioNovoItemScreen(
                     ),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("Publicar no Estúdio", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(if (isEditando) "Salvar alterações" else "Publicar no Estúdio", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }

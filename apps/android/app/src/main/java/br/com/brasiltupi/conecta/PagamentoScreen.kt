@@ -43,6 +43,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import br.com.brasiltupi.conecta.ui.theme.*
 
+import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
+
 private const val TAG_PAG = "PagamentoScreen"
 
 // ── Domínios permitidos na WebView ────────────────────────────────────────
@@ -67,12 +70,14 @@ private const val URL_FALHA    = "brasiltupi.com.br/pagamento/falha"
 @Composable
 fun PagamentoScreen(
     urgenciaId:      String,
-    onConfirmado:    () -> Unit,  // navegar para dashboard após aprovação
-    onVoltar:        () -> Unit,  // voltar (cancelamento definitivo ou erro)
+    onConfirmado:    () -> Unit,
+    onVoltar:        () -> Unit,
+    onboardingVm:    OnboardingViewModel? = null,   // PA-05 — guard first_payment
 ) {
     val context        = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val pagamentoState by PagamentoRepository.state.collectAsState()
+    val scope          = rememberCoroutineScope()
 
     // ── Referência à WebView — gerenciada pelo DisposableEffect ──────────
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
@@ -115,8 +120,17 @@ fun PagamentoScreen(
                 AppLogger.infoPagamento(
                     etapa      = "pagamento_confirmado_tela",
                     urgenciaId = urgenciaId,
-                    detalhe    = "valor=${estado.valor}",
+                    detalhe    = "confirmado",
                 )
+                // PA-05 — Analytics: first_payment com guard DataStore
+                scope.launch {
+                    if (onboardingVm?.registrarPrimeiroPagamento() == true) {
+                        AnalyticsTracker.firstPayment(
+                            valor  = 0.0,   // valor real disponível via PagamentoState.Confirmado.valor se existir
+                            metodo = "pix", // método real disponível via PagamentoState.Confirmado.metodo se existir
+                        )
+                    }
+                }
                 PagamentoRepository.resetar()
                 onConfirmado()
             }

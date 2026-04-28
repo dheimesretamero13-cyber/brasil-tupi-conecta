@@ -43,6 +43,11 @@ private object OnboardingKeys {
     val COMPLETED     = booleanPreferencesKey("onboarding_completed")
     val USER_ROLE     = stringPreferencesKey("user_role")
     val ULTIMO_ACESSO = longPreferencesKey("ultimo_acesso")   // Fase 4.5
+
+    // Fase 5 — guards de eventos first_* (disparam uma única vez por usuário)
+    val FIRST_BOOKING  = booleanPreferencesKey("analytics_first_booking")
+    val FIRST_CALL     = booleanPreferencesKey("analytics_first_call")
+    val FIRST_PAYMENT  = booleanPreferencesKey("analytics_first_payment")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -137,6 +142,41 @@ class OnboardingViewModel(
         dataStore.edit { prefs ->
             prefs[OnboardingKeys.ULTIMO_ACESSO] = timestamp
         }
+    }
+
+    // ── Fase 5 — Guards de eventos first_* ───────────────────────────────
+    // Cada método lê a flag, retorna false se já disparou, grava true e
+    // retorna true se for a primeira vez.
+    // Thread-safe — DataStore.edit() é atômico e serializado.
+    //
+    // Padrão de uso nas telas:
+    //   val onboardingVm = ... (passado via parâmetro ou hoist)
+    //   if (onboardingVm.registrarPrimeiroBooking()) {
+    //       AnalyticsTracker.firstBooking(tipo, valor)
+    //   }
+
+    /** Retorna true apenas na primeira chamada por instalação. */
+    suspend fun registrarPrimeiroBooking(): Boolean {
+        val prefs = dataStore.data.first()
+        if (prefs[OnboardingKeys.FIRST_BOOKING] == true) return false
+        dataStore.edit { it[OnboardingKeys.FIRST_BOOKING] = true }
+        return true
+    }
+
+    /** Retorna true apenas na primeira chamada por instalação. */
+    suspend fun registrarPrimeiraChamada(): Boolean {
+        val prefs = dataStore.data.first()
+        if (prefs[OnboardingKeys.FIRST_CALL] == true) return false
+        dataStore.edit { it[OnboardingKeys.FIRST_CALL] = true }
+        return true
+    }
+
+    /** Retorna true apenas na primeira chamada por instalação. */
+    suspend fun registrarPrimeiroPagamento(): Boolean {
+        val prefs = dataStore.data.first()
+        if (prefs[OnboardingKeys.FIRST_PAYMENT] == true) return false
+        dataStore.edit { it[OnboardingKeys.FIRST_PAYMENT] = true }
+        return true
     }
 }
 

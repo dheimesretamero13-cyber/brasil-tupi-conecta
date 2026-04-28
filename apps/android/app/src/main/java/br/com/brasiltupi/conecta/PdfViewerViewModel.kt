@@ -112,6 +112,7 @@ class PdfViewerViewModel(
     // ── Renderizar páginas via PdfRenderer nativo ─────────────────────────
     // ParcelFileDescriptor.createPipe() para compatibilidade com API 24+.
     // fromData() exigiria API 31+ — não compatível com minSdk 24 do projeto.
+    // CORREÇÃO: readFd fechado explicitamente se PdfRenderer falhar na construção.
     private fun renderizarPaginas(bytes: ByteArray): List<Bitmap> {
         val pipe    = ParcelFileDescriptor.createPipe()
         val writeFd = pipe[1]
@@ -123,8 +124,15 @@ class PdfViewerViewModel(
             } catch (_: Exception) {}
         }.start()
 
-        val renderer = PdfRenderer(readFd)
-        val bitmaps  = mutableListOf<Bitmap>()
+        val renderer = try {
+            PdfRenderer(readFd)
+        } catch (e: Exception) {
+            // readFd não é fechado pelo PdfRenderer se ele falhar na construção
+            try { readFd.close() } catch (_: Exception) {}
+            throw e
+        }
+
+        val bitmaps = mutableListOf<Bitmap>()
         try {
             for (i in 0 until renderer.pageCount) {
                 val page   = renderer.openPage(i)

@@ -55,7 +55,7 @@ private const val TAG_SCREEN = "VideoCallScreen"
 // ── Publishable API Key do Stream (não é segredo) ────────────────────────
 // Substitua pelo valor real do seu projeto no console do Stream.
 // A chave secreta NUNCA entra no app — fica apenas no backend.
-private const val STREAM_API_KEY = "SUA_STREAM_API_KEY_AQUI"
+private const val STREAM_API_KEY = "38awru586kub"
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TELA PRINCIPAL
@@ -63,9 +63,10 @@ private const val STREAM_API_KEY = "SUA_STREAM_API_KEY_AQUI"
 
 @Composable
 fun VideoCallScreen(
-    urgenciaId: String,
-    onEncerrada: () -> Unit,    // navegar para tela de avaliação
-    onVoltar:    () -> Unit,    // navegar de volta (erro fatal / negação de permissão)
+    urgenciaId:   String,
+    onEncerrada:  () -> Unit,
+    onVoltar:     () -> Unit,
+    onboardingVm: OnboardingViewModel? = null,   // PA-05 — guard first_call
 ) {
     val context        = LocalContext.current
     val scope          = rememberCoroutineScope()
@@ -136,6 +137,15 @@ fun VideoCallScreen(
 
             is VideoCallState.Encerrada -> {
                 onEncerrada()
+            }
+
+            is VideoCallState.EmChamada -> {
+                // PA-05 — Analytics: first_call com guard DataStore
+                scope.launch {
+                    if (onboardingVm?.registrarPrimeiraChamada() == true) {
+                        AnalyticsTracker.firstCall(urgenciaId)
+                    }
+                }
             }
 
             else -> Unit

@@ -624,6 +624,7 @@ fun EtapaRevisao(tipo: String, nome: String, email: String, senha: String = "", 
 
 // 5. Trata o resultado
                     if (sucesso) {
+                        AnalyticsTracker.signUp(tipoSupabase) // PA-05
                         onProximo()
                     } else {
                         erro = "Erro ao criar conta. Tente novamente."

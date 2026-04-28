@@ -61,8 +61,8 @@ fun DashboardProfissionalScreen(
         "atendimentos"  to "Atendimentos",
         "credibilidade" to "Credibilidade",
         "urgente"       to "Urgente",
-        "financeiro"    to "Financeiro",   // Fase 2.4
-        "relatorios"    to "Relatórios",   // Fase 4.4
+        "financeiro"    to "Financeiro",
+        "relatorios"    to "Relatórios",
         "perfil"        to "Meu Perfil",
     )
 
@@ -132,13 +132,16 @@ fun DashboardProfissionalScreen(
             )
             "atendimentos"  -> AbaAtendimentosDash(consultas = consultas, carregando = carregando)
             "credibilidade" -> AbaCredibilidadeDash(credibilidade = credibilidade)
-            "urgente"       -> AbaUrgenteDash(onEstudio = onEstudio, disponivelUrgente = disponivelUrgente)
-            "financeiro"    -> AbaFinanceiroDash()   // Fase 2.4 — sem parâmetros adicionais
+            "urgente"       -> AbaUrgenteDash(
+                onEstudio         = onEstudio,
+                disponivelUrgente = disponivelUrgente,
+                consultas         = consultas,
+            )
+            "financeiro"    -> AbaFinanceiroDash()
             "relatorios"    -> {
                 if (onRelatorios != null) {
                     LaunchedEffect(Unit) { onRelatorios() }
                 } else {
-                    // fallback: não deve acontecer pois onRelatorios sempre é passado
                     Box(Modifier.fillMaxSize(), Alignment.Center) {
                         Text("Relatórios indisponíveis", color = InkMuted)
                     }
@@ -168,10 +171,8 @@ fun AbaVisaoGeralDash(
     val concluidas = consultas.filter { it.status == "concluida" || it.status == "concluido" }
     val agendadas  = consultas.filter { it.status == "agendada" || it.status == "agendado" }
 
-    // Ganhos: soma dos valores das consultas concluídas
     val ganhosMes = concluidas.sumOf { it.valor }
 
-    // Avaliação média: média das notas > 0
     val notasValidas = concluidas.map { it.avaliacao }.filter { it > 0 }
     val avaliacaoMedia = if (notasValidas.isNotEmpty())
         "%.1f".format(notasValidas.average())
@@ -217,7 +218,7 @@ fun AbaVisaoGeralDash(
                 numero = "$credibilidade", label = "Credibilidade", cor = Verde)
         }
 
-        // Próximos atendimentos (dados reais)
+        // Próximos atendimentos
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
@@ -279,7 +280,7 @@ fun AbaVisaoGeralDash(
             }
         }
 
-        // Últimas avaliações (dados reais)
+        // Últimas avaliações
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
@@ -508,7 +509,6 @@ fun AbaAtendimentosDash(
 // ── ABA: CREDIBILIDADE ────────────────────────────────
 @Composable
 fun AbaCredibilidadeDash(credibilidade: Int = 0) {
-    // Usa o valor real; se ainda não carregou (0), exibe 0 sem hardcode de mock
     val cred = credibilidade
 
     Column(
@@ -599,18 +599,38 @@ fun AbaCredibilidadeDash(credibilidade: Int = 0) {
 }
 
 // ── ABA: URGENTE ──────────────────────────────────────
+// Toggle de disponibilidade + histórico calculado a partir de consultas reais.
+// A videochamada é acionada pelo AlertDialogUrgencia no DashboardProfissionalComRealtime
+// (MainActivity) e navega direto para VideoCallScreen — não passa por esta aba.
 @Composable
-fun AbaUrgenteDash(onEstudio: (() -> Unit)? = null, disponivelUrgente: Boolean = false) {
+fun AbaUrgenteDash(
+    onEstudio: (() -> Unit)? = null,
+    disponivelUrgente: Boolean = false,
+    consultas: List<ConsultaProfissional> = emptyList(),
+) {
     val scope = rememberCoroutineScope()
     var ativo       by remember(disponivelUrgente) { mutableStateOf(disponivelUrgente) }
     var atualizando by remember { mutableStateOf(false) }
     var erroToggle  by remember { mutableStateOf(false) }
 
+    // Calcula urgentes reais a partir das consultas recebidas
+    val urgentesRealizadas = consultas.count {
+        it.tipo.contains("rgente", ignoreCase = true) &&
+                (it.status == "concluida" || it.status == "concluido")
+    }
+    val totalUrgentes = consultas.count { it.tipo.contains("rgente", ignoreCase = true) }
+    val pontualidade = if (totalUrgentes > 0)
+        "${(urgentesRealizadas * 100 / totalUrgentes)}%"
+    else "—"
+    val descumprimentos = totalUrgentes - urgentesRealizadas
+
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
+        // Toggle de disponibilidade
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Surface)) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -678,62 +698,66 @@ fun AbaUrgenteDash(onEstudio: (() -> Unit)? = null, disponivelUrgente: Boolean =
             }
         }
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Card(modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = UrgenteClaro),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Urgente.copy(alpha = 0.2f))) {
-                Column(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("45", fontSize = 36.sp, fontWeight = FontWeight.Black, color = Urgente)
-                    Text("minutos", fontSize = 11.sp, color = InkMuted)
-                    Text("Para iniciar", fontSize = 11.sp, color = InkMuted, modifier = Modifier.padding(top = 4.dp))
-                }
-            }
-            Card(modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFDF3D8)),
-                border = androidx.compose.foundation.BorderStroke(1.dp, DouradoMedio.copy(alpha = 0.2f))) {
-                Column(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("15", fontSize = 36.sp, fontWeight = FontWeight.Black, color = DouradoMedio)
-                    Text("minutos", fontSize = 11.sp, color = InkMuted)
-                    Text("Duração", fontSize = 11.sp, color = InkMuted, modifier = Modifier.padding(top = 4.dp))
-                }
-            }
-        }
-
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
+        // Histórico urgente — dados reais
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Surface)) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Histórico urgente", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(14.dp))
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    listOf(Triple("3", "Urgentes\nrealizadas", Verde), Triple("100%", "Pontua-\nlidade", Azul), Triple("0", "Descum-\nprimentos", Dourado)).forEach { (num, label, cor) ->
-                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(num, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = cor)
-                            Text(label, fontSize = 10.sp, color = InkMuted, lineHeight = 14.sp,
-                                textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
+                if (totalUrgentes == 0) {
+                    Text("Nenhuma urgência registrada ainda.",
+                        fontSize = 13.sp, color = InkMuted,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth())
+                } else {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        listOf(
+                            Triple("$urgentesRealizadas", "Urgentes\nrealizadas", Verde),
+                            Triple(pontualidade,           "Pontua-\nlidade",      Azul),
+                            Triple("$descumprimentos",    "Descum-\nprimentos",   if (descumprimentos == 0) Dourado else Urgente),
+                        ).forEach { (num, label, cor) ->
+                            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(num, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = cor)
+                                Text(label, fontSize = 10.sp, color = InkMuted, lineHeight = 14.sp,
+                                    textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
+                            }
                         }
                     }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .background(if (descumprimentos == 0) VerdeClaro else UrgenteClaro, RoundedCornerShape(8.dp))
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(if (descumprimentos == 0) "✓" else "⚠️", fontSize = 14.sp,
+                            color = if (descumprimentos == 0) Verde else Urgente,
+                            fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            if (descumprimentos == 0) "Histórico limpo — acesso integral à área urgente."
+                            else "$descumprimentos descumprimento(s) registrado(s).",
+                            fontSize = 12.sp,
+                            color = if (descumprimentos == 0) Verde else Urgente
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.height(14.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth().background(VerdeClaro, RoundedCornerShape(8.dp)).padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("✓", fontSize = 14.sp, color = Verde, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Histórico limpo — acesso integral à área urgente.", fontSize = 12.sp, color = Verde)
-                }
-            }
-            if (onEstudio != null) {
-                Button(
-                    onClick = onEstudio, modifier = Modifier.fillMaxWidth().height(52.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC49A2A), contentColor = Color.White),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text("🎨 Acessar meu Estúdio", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+
+                if (onEstudio != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = onEstudio, modifier = Modifier.fillMaxWidth().height(52.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC49A2A), contentColor = Color.White),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("🎨 Acessar meu Estúdio", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
     }
 }
+
 // ── ABA: PERFIL PROFISSIONAL (inline) ─────────────────
 @Composable
 fun AbaPerfilProfissional() {

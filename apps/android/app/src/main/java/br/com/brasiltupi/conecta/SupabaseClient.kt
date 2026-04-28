@@ -11,7 +11,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 internal const val SUPABASE_URL = "https://qfzdchrlbqcvewjivaqz.supabase.co"
-internal const val SUPABASE_KEY = "sb_publishable_SM-UHBh_5lzTSBZ2YPUIYw_Sw1i8qeq"
+internal const val SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFmemRjaHJsYnFjdmV3aml2YXF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY1NDg0NjEsImV4cCI6MjA5MjEyNDQ2MX0.yJCAjRbZoJf6pe68YG7bPFFcyJOaW4PXMnsjBIR4B3M"
 
 private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
@@ -19,8 +19,11 @@ val httpClient = HttpClient(Android) {
     install(ContentNegotiation) { json(json) }
 }
 
-var currentToken: String? = null
-var currentUserId: String? = null
+// ── ALIASES DE COMPATIBILIDADE (substituem as antigas `var` globais) ──────
+// Todo o restante do arquivo continua lendo currentToken/currentUserId
+// exatamente como antes — agora apontam para o AuthRepository (StateFlow).
+val currentToken: String?   get() = AuthRepository.token
+val currentUserId: String?  get() = AuthRepository.userId
 
 // ── RESULTADO DE AUTH (sealed class) ─────────────────
 sealed class AuthResult {
@@ -120,10 +123,6 @@ private data class ConsultaSupabase(
 )
 
 // ── REQUEST DTOs (substituem buildString) ─────────────
-// Cada função de escrita tem seu próprio DTO privado.
-// @Serializable garante escape correto de caracteres especiais —
-// um titulo com aspas ("Curso \"Avançado\"") não quebra o JSON.
-
 @Serializable
 private data class CriarItemEstudioRequest(
     val profissional_id: String,
@@ -222,8 +221,6 @@ private data class SalvarDescricaoProfissionalRequest(
 
 
 // ── HELPERS ───────────────────────────────────────────
-// Compatível com API 24+: parse manual do timestamptz do Supabase
-// Formato esperado: "2025-04-20T14:30:00+00:00" ou "2025-04-20T14:30:00.000000+00:00"
 private fun parseTimestamptz(raw: String?): Pair<String, String> {
     if (raw == null) return "--" to "--"
     return try {
@@ -239,7 +236,6 @@ private fun parseTimestamptz(raw: String?): Pair<String, String> {
     }
 }
 
-// Formata "2025-03-15T..." → "Março 2025" para exibição de "Membro desde"
 fun formatarMembroDesde(criadoEm: String?): String {
     if (criadoEm == null) return "--"
     return try {
@@ -279,8 +275,6 @@ private fun ConsultaSupabase.toConsultaCliente(): ConsultaCliente {
 
 // ── AUTH ──────────────────────────────────────────────
 
-// signInAndroid retorna AuthResult, diferenciando causas de erro.
-// signInAndroidLegado() removido — LoginScreen já usa AuthResult diretamente.
 suspend fun signInAndroid(email: String, senha: String): AuthResult {
     return try {
         val response = httpClient.post("$SUPABASE_URL/auth/v1/token?grant_type=password") {
@@ -289,16 +283,20 @@ suspend fun signInAndroid(email: String, senha: String): AuthResult {
             setBody(AuthRequest(email, senha))
         }.body<AuthResponse>()
 
-        // Supabase retorna 200 com access_token em sucesso,
-        // ou 400 com error_code em falha.
         if (response.access_token != null && response.user != null) {
-            currentToken = response.access_token
-            currentUserId = response.user.id
-            val perfil = getPerfilAndroid(currentUserId!!)
-            if (perfil != null) AuthResult.Sucesso(perfil)
-            else AuthResult.Desconhecido
+            // Buscar perfil completo antes de gravar no AuthRepository,
+            // para que o estado Autenticado já carregue nome/tipo/foto.
+            val perfil = getPerfilAndroid(response.user.id)
+            if (perfil != null) {
+                AuthRepository.login(
+                    token  = response.access_token,
+                    perfil = perfil,
+                )
+                AuthResult.Sucesso(perfil)
+            } else {
+                AuthResult.Desconhecido
+            }
         } else {
-            // Mapear error_code do Supabase para sealed class
             when (response.error_code) {
                 "invalid_credentials" -> AuthResult.SenhaErrada
                 "user_not_found"      -> AuthResult.EmailNaoEncontrado
@@ -312,8 +310,6 @@ suspend fun signInAndroid(email: String, senha: String): AuthResult {
     } catch (e: io.ktor.client.plugins.HttpRequestTimeoutException) {
         AuthResult.SemInternet
     } catch (e: Exception) {
-        // Ktor lança exceção em status 4xx dependendo da config —
-        // tenta extrair mensagem para diferenciar credenciais vs rede
         val msg = e.message?.lowercase() ?: ""
         when {
             msg.contains("invalid") || msg.contains("credentials") -> AuthResult.SenhaErrada
@@ -340,34 +336,40 @@ suspend fun signUpAndroid(
             setBody(AuthRequest(email, senha))
         }.body<AuthResponse>()
 
-        currentToken = response.access_token
-        currentUserId = response.user?.id
+        val token  = response.access_token ?: return false
+        val userId = response.user?.id      ?: return false
 
-        if (currentUserId != null) {
-            inserirPerfil(PerfilUsuario(
-                id       = currentUserId!!,
-                nome     = nome,
-                email    = email,
-                telefone = telefone,
-                tipo     = tipo,
-                cpf      = cpf,
-                cidade   = cidade,
-                estado   = estado,
-            ))
-            true
-        } else false
-    } catch (e: Exception) { false }
+        // Gravar no repositório antes de inserirPerfil() para que
+        // as chamadas autenticadas internas usem o token correto.
+        val perfilProvisorio = PerfilUsuario(
+            id       = userId,
+            nome     = nome,
+            email    = email,
+            telefone = telefone,
+            tipo     = tipo,
+            cpf      = cpf,
+            cidade   = cidade,
+            estado   = estado,
+        )
+        AuthRepository.login(token = token, perfil = perfilProvisorio)
+
+        inserirPerfil(perfilProvisorio)
+        true
+    } catch (e: Exception) {
+        false
+    }
 }
 
 suspend fun signOutAndroid() {
     try {
         httpClient.post("$SUPABASE_URL/auth/v1/logout") {
             header("apikey", SUPABASE_KEY)
-            header("Authorization", "Bearer $currentToken")
+            header("Authorization", "Bearer ${AuthRepository.token}")
         }
-    } catch (e: Exception) {}
-    currentToken = null
-    currentUserId = null
+    } catch (e: Exception) {
+        // falha silenciosa — logout local ocorre de qualquer forma
+    }
+    AuthRepository.logout()
 }
 
 // ── PERFIS ────────────────────────────────────────────
@@ -508,10 +510,6 @@ suspend fun atualizarAvaliacaoConsulta(consultaId: String, nota: Int): Boolean {
 }
 
 // ── PROFISSIONAIS PMP ─────────────────────────────────
-// aplicarFiltroPMP = true por padrão: BuscaScreen, DashboardClienteScreen e
-// demais telas recebem apenas profissionais PMP verificados automaticamente.
-// Passe aplicarFiltroPMP = false APENAS em contextos administrativos/internos.
-// Para buscar o próprio perfil use getMeuPerfilProfissional() — não usa este parâmetro.
 suspend fun getProfissionaisPMPAndroid(
     somenteUrgente: Boolean = false,
     busca: String = "",
@@ -593,9 +591,6 @@ private fun mapToItemEstudio(map: Map<String, Any?>): ItemEstudio {
     )
 }
 
-// criarItemEstudioAndroid — usa DTO @Serializable.
-// Antes: buildString com interpolação quebrava se titulo tivesse aspas.
-// Agora: kotlinx.serialization escapa corretamente qualquer caractere.
 suspend fun criarItemEstudioAndroid(
     profissionalId: String, titulo: String, descricao: String, tipo: String,
     preco: Double, precoOriginal: Double? = null, videoUrl: String? = null,
@@ -679,9 +674,6 @@ suspend fun resetSenhaAndroid(email: String): Boolean {
 }
 
 // ── ONBOARDING PROFISSIONAL ───────────────────────────
-// atualizarPerfilProfissional — usa DTO @Serializable.
-// Antes: replace("\"","\\\"") manual em cada campo — frágil.
-// Agora: serialização correta sem risco de injection.
 suspend fun atualizarPerfilProfissional(
     userId: String,
     bio: String,
@@ -733,7 +725,6 @@ suspend fun atualizarDisponibilidadeUrgente(profissionalId: String, disponivel: 
 }
 
 // ── AGENDAMENTO + PEDIDO ──────────────────────────────
-// criarAgendamento — usa DTOs @Serializable para consulta e pedido.
 suspend fun criarAgendamento(
     clienteId: String,
     profId: String,
@@ -743,7 +734,6 @@ suspend fun criarAgendamento(
     valor: Double,
 ): String? {
     return try {
-        // Montar timestamp ISO 8601: "dd/MM/yyyy" + "HH:mm" → "yyyy-MM-ddTHH:mm:00"
         val partes = data.split("/")
         val dataIso = if (partes.size == 3)
             "${partes[2]}-${partes[1]}-${partes[0]}T${hora}:00"
@@ -783,7 +773,6 @@ suspend fun criarAgendamento(
             setBody(pedidoRequest)
         }
 
-        // Se o pedido falhou, reverter a consulta criada
         if (pedidoResponse.status.value !in 200..299) {
             try {
                 httpClient.delete("$SUPABASE_URL/rest/v1/consultas?id=eq.$consultaId") {
@@ -813,8 +802,6 @@ data class Mensagem(
     val created_at: String = "",
 )
 
-// enviarMensagem — usa DTO @Serializable.
-// Antes: replace("\"","\\\"") manual deixava outros caracteres escapar errado.
 suspend fun enviarMensagem(remetenteId: String, destinoId: String, texto: String): Boolean {
     return try {
         val request = EnviarMensagemRequest(
@@ -970,12 +957,13 @@ suspend fun verificarAcessoAgendamento(clienteId: String, profissionalId: String
         ResultadoAcesso(acesso = false, motivo = "erro")
     }
 }
+
 // ── PLANO DE ASSINATURA ───────────────────────────────
 data class PlanoInfo(
-    val id: String,           // tipo do plano: "basico", "pro", "premium"
+    val id: String,
     val nome: String,
-    val precoDecimal: Double, // ex: 49.90
-    val limiteProfs: Int = 0, // 0 = ilimitado
+    val precoDecimal: Double,
+    val limiteProfs: Int = 0,
 )
 
 // ── SALVAR DADOS PESSOAIS DO CLIENTE ─────────────────
@@ -1054,12 +1042,11 @@ suspend fun getMeuPerfilProfissional(userId: String): ProfissionalComPerfil? {
 }
 
 // ── SALVAR TOKEN FCM ──────────────────────────────────
-// Corrigido: usa SUPABASE_URL e currentToken das constantes do arquivo,
-// não mais strings duplicadas. Token salvo via PATCH em perfis.fcm_token.
 @Serializable
 private data class SalvarFcmTokenRequest(
     val fcm_token: String,
 )
+
 suspend fun salvarFcmTokenAndroid(userId: String, token: String): Boolean {
     return try {
         val response = httpClient.patch("$SUPABASE_URL/rest/v1/perfis?id=eq.$userId") {
@@ -1077,12 +1064,6 @@ suspend fun salvarFcmTokenAndroid(userId: String, token: String): Boolean {
 }
 
 // ── ASSINATURAS ───────────────────────────────────────
-// Cria assinatura na tabela `assinaturas` e marca plano_ativo=true em `perfis`.
-// IMPORTANTE: Em produção, a criação da assinatura deve ser feita por uma
-// Edge Function do Supabase acionada pelo webhook do MercadoPago (usando
-// service_role), não diretamente pelo app. Esta função é usada apenas
-// enquanto a integração real com MercadoPago não está implementada.
-// Quando o webhook estiver pronto: aplicar bloco 2 do supabase_rls.sql.
 @Serializable
 private data class CriarAssinaturaRequest(
     val usuario_id: String,
@@ -1128,6 +1109,184 @@ suspend fun criarAssinaturaAndroid(plano: PlanoInfo): Boolean {
         resPerfil.status.value in 200..299
     } catch (e: Exception) {
         android.util.Log.e("Assinatura", "Erro: ${e.message}")
+        false
+    }
+}
+
+// ── LGPD — CONSENTIMENTO ──────────────────────────────
+@Serializable
+private data class GravarConsentimentoRequest(
+    val user_id:            String,
+    val aceito_termos:      Boolean,
+    val aceito_privacidade: Boolean,
+    val versao_termos:      String,
+    val timestamp_ms:       Long,
+)
+
+suspend fun gravarConsentimento(
+    userId:       String,
+    aceitoTermos: Boolean,
+    aceitoPriv:   Boolean,
+    versaoTermos: String,
+): Boolean {
+    return try {
+        val response = httpClient.post("$SUPABASE_URL/rest/v1/user_consents") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Content-Type", "application/json")
+            header("Prefer", "return=minimal")
+            setBody(
+                GravarConsentimentoRequest(
+                    user_id            = userId,
+                    aceito_termos      = aceitoTermos,
+                    aceito_privacidade = aceitoPriv,
+                    versao_termos      = versaoTermos,
+                    timestamp_ms       = System.currentTimeMillis(),
+                )
+            )
+        }
+        response.status.value in 200..299
+    } catch (e: Exception) {
+        android.util.Log.e("LGPD", "Erro ao gravar consentimento: ${e.message}")
+        false
+    }
+}
+
+suspend fun verificarConsentimentoExiste(userId: String): Boolean {
+    if (userId.isEmpty()) return false
+    return try {
+        val result = httpClient.get("$SUPABASE_URL/rest/v1/user_consents") {
+            header("apikey",        SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Accept",        "application/json")
+            parameter("user_id",       "eq.$userId")
+            parameter("aceito_termos", "eq.true")
+            parameter("select",        "id")
+            parameter("limit",         "1")
+        }.body<List<Map<String, String?>>>()
+        result.isNotEmpty()
+    } catch (e: Exception) {
+        android.util.Log.e("LGPD", "Erro ao verificar consentimento: ${e.message}")
+        false
+    }
+}
+
+// ── KYC — DOCUMENTOS ──────────────────────────────────
+@Serializable
+private data class GravarKycDocumentoRequest(
+    val user_id:        String,
+    val tipo_documento: String,
+    val storage_path:   String,
+    val mime_type:      String,
+    val status:         String = "pending",
+)
+
+@Serializable
+data class KycDocumento(
+    val id:              String,
+    val tipo_documento:  String,
+    val status:          String,
+    val motivo_rejeicao: String? = null,
+    val criado_em:       String,
+    val atualizado_em:   String? = null,
+)
+
+suspend fun gravarKycDocumento(
+    userId:      String,
+    tipo:        String,
+    storagePath: String,
+    mimeType:    String,
+): Boolean {
+    return try {
+        val response = httpClient.post("$SUPABASE_URL/rest/v1/kyc_documents") {
+            header("apikey",        SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Content-Type",  "application/json")
+            header("Prefer",        "return=minimal")
+            setBody(GravarKycDocumentoRequest(
+                user_id        = userId,
+                tipo_documento = tipo,
+                storage_path   = storagePath,
+                mime_type      = mimeType,
+            ))
+        }
+        response.status.value in 200..299
+    } catch (e: Exception) {
+        android.util.Log.e("KYC", "Erro ao gravar documento: ${e.message}")
+        false
+    }
+}
+
+suspend fun buscarKycDocumentos(userId: String): List<KycDocumento> {
+    return try {
+        httpClient.get("$SUPABASE_URL/rest/v1/kyc_documents") {
+            header("apikey",        SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Accept",        "application/json")
+            parameter("user_id", "eq.$userId")
+            parameter("select",  "id,tipo_documento,status,motivo_rejeicao,criado_em,atualizado_em")
+            parameter("order",   "criado_em.desc")
+        }.body<List<KycDocumento>>()
+    } catch (e: Exception) {
+        android.util.Log.e("KYC", "Erro ao buscar documentos: ${e.message}")
+        emptyList()
+    }
+}
+
+suspend fun uploadKycDocumento(
+    userId:   String,
+    tipo:     String,
+    bytes:    ByteArray,
+    mimeType: String,
+): String? {
+    return try {
+        val ext = when (mimeType) {
+            "image/jpeg" -> "jpg"
+            "image/png"  -> "png"
+            else         -> "pdf"
+        }
+        val caminho = "profissionais/$userId/${tipo.lowercase()}_${System.currentTimeMillis()}.$ext"
+
+        val response = httpClient.put("$SUPABASE_URL/storage/v1/object/kyc-documents/$caminho") {
+            header("apikey",        SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Content-Type",  mimeType)
+            setBody(bytes)
+        }
+        if (response.status.value in 200..299) caminho else null
+    } catch (e: Exception) {
+        android.util.Log.e("KYC", "Erro no upload: ${e.message}")
+        null
+    }
+}
+// ── EXCLUIR CONTA — PA-01 LGPD ───────────────────────────────────────────
+// Chama a Edge Function excluir-conta que:
+//   1. Anonimiza dados pessoais em `perfis` (nome, email, cpf, telefone)
+//   2. Cancela assinaturas ativas
+//   3. Remove tokens FCM
+//   4. Deleta o usuário do Supabase Auth (impede re-login)
+// Retorna true em sucesso, false em qualquer falha.
+suspend fun excluirContaAndroid(): Boolean {
+    val token = currentToken ?: return false
+    return try {
+        val response = httpClient.post("$SUPABASE_URL/functions/v1/excluir-conta") {
+            header("Authorization", "Bearer $token")
+            header("apikey",        SUPABASE_KEY)
+            header("Content-Type",  "application/json")
+            setBody("{}")
+        }
+        if (response.status.value in 200..299) {
+            AppLogger.info("SupabaseClient", "Conta excluída com sucesso")
+            true
+        } else {
+            AppLogger.erroAuth(
+                operacao      = "excluir_conta",
+                mensagemExtra = "HTTP ${response.status.value}",
+            )
+            false
+        }
+    } catch (e: Exception) {
+        AppLogger.erroRede("functions/v1/excluir-conta", e, "excluir_conta")
         false
     }
 }

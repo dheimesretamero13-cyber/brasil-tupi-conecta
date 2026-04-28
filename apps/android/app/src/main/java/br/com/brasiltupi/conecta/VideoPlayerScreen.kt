@@ -101,16 +101,17 @@ fun VideoPlayerScreen(
     }
 
     // ── Cleanup: salvar posicao final e liberar player ────────────────────
+    // CORREÇÃO: posicao/duracao capturados antes do release (valores locais,
+    // sem referência ao player). salvarProgresso() usa viewModelScope interno
+    // do ViewModel — sobrevive ao onDispose, não depende do scope Compose.
     DisposableEffect(Unit) {
         onDispose {
             val posicao = exoPlayer.currentPosition
             val duracao = exoPlayer.duration.takeIf { it > 0 } ?: 0L
-            if (duracao > 0L) {
-                scope.launch {
-                    vm.salvarProgresso(posicaoMs = posicao, duracaoMs = duracao)
-                }
-            }
             exoPlayer.release()
+            if (duracao > 0L) {
+                vm.salvarProgresso(posicaoMs = posicao, duracaoMs = duracao)
+            }
         }
     }
 

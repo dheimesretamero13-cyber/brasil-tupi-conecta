@@ -29,6 +29,9 @@ class SearchViewModel(
     val filtro:   StateFlow<FiltroBusca>   = _filtro.asStateFlow()
     val uiState:  StateFlow<SearchUiState> = _uiState.asStateFlow()
 
+    // PA-05 — flag em memória: Firebase agrega first_search por usuário no console
+    private var primeiraQueryDisparada = false
+
     init {
         // Debounce de 400ms no query — dispara busca automática ao digitar
         viewModelScope.launch {
@@ -39,6 +42,10 @@ class SearchViewModel(
                     if (f.query.isBlank() && f == FiltroBusca()) {
                         _uiState.value = SearchUiState.Idle
                     } else {
+                        if (!primeiraQueryDisparada && f.query.isNotBlank()) { // PA-05
+                            primeiraQueryDisparada = true
+                            AnalyticsTracker.firstSearch(f.query)
+                        }
                         executarBusca(f)
                     }
                 }

@@ -4,7 +4,7 @@ package br.com.brasiltupi.conecta
 // StreamVideoRepository.kt
 //
 // Responsabilidades deste arquivo:
-//  1. Solicitar token à Edge Function Supabase (get-call-token) via Ktor
+//  1. Solicitar token à Edge Function Supabase (stream-token) via Ktor
 //  2. Gerenciar o StateFlow<VideoCallState> que a UI observa
 //  3. Transicionar status da urgência para 'in_progress' após join()
 //  4. Renovar token quando o SDK reportar expiração (HTTP 401)
@@ -13,18 +13,18 @@ package br.com.brasiltupi.conecta
 // O QUE ESTE ARQUIVO NÃO FAZ:
 //  • NÃO importa o Stream SDK diretamente
 //  • A inicialização do StreamVideoClient, join() e leave() ficam na
-//    VideoCallScreen.kt (próxima etapa), onde o Context é garantido
-//    e o ciclo de vida do Composable gerencia os recursos do SDK.
-//
-// MOTIVO DA SEPARAÇÃO:
-//  O Stream SDK precisa de Context para inicializar e de um ciclo de vida
-//  Compose para gerenciar reconexão. Misturar isso num singleton sem
-//  Context é a causa dos erros anteriores. O repositório cuida apenas
-//  do que é puro Kotlin: rede + estado.
+//    VideoCallScreen.kt, onde o Context é garantido e o ciclo de vida
+//    do Composable gerencia os recursos do SDK.
 //
 // PRINCÍPIO DE SEGURANÇA:
 //  Nenhuma chave secreta do Stream existe no app. O token vem exclusivamente
 //  do backend (Edge Function), que valida ownership e status antes de gerar.
+//
+// CHAVES:
+//  • SUPABASE_KEY  → anon key JWT (eyJ...) — usada no header apikey
+//  • SUPABASE_URL  → constante do SupabaseClient.kt
+//  Ambas já estão declaradas no SupabaseClient.kt e são acessíveis aqui
+//  por estarem no mesmo pacote (nível de arquivo, sem classe).
 // ═══════════════════════════════════════════════════════════════════════════
 
 import android.util.Log
@@ -40,11 +40,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
-
 private const val TAG = "StreamVideoRepo"
 
-private const val EDGE_FUNCTION_URL = "https://qfzdchrlbqcvewjivaqz.supabase.co/functions/v1/get-call-token"
-private const val API_KEY             = "sb_publishable_SM-UHBh_5lzTSBZ2YPUIYw_Sw1i8qeq"
+// URL da Edge Function — usa SUPABASE_URL do SupabaseClient.kt
+// Nome da função deve bater com o deploy: supabase functions deploy stream-token
+private val EDGE_FUNCTION_URL get() = "$SUPABASE_URL/functions/v1/stream-token"
 
 private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
 
@@ -75,7 +75,7 @@ object StreamVideoRepository {
 
     /**
      * Solicita token à Edge Function e avança o estado para TokenObtido.
-     * Chamado pelo ViewModel após aceitarViaRpc() retornar Sucesso.
+     * Chamado pelo VideoCallScreen após permissões concedidas.
      *
      * A VideoCallScreen observa callState e, ao receber TokenObtido,
      * inicializa o StreamVideoClient com os dados retornados.
@@ -86,7 +86,8 @@ object StreamVideoRepository {
             AppLogger.chave("video_urgencia_id", urgenciaId)
             AppLogger.info(TAG, "Solicitando token para urgencia=$urgenciaId")
 
-            val token = currentToken ?: run {
+            // Guard: usuário autenticado via AuthRepository (thread-safe)
+            val token = AuthRepository.token ?: run {
                 AppLogger.erroAuth("get_call_token", mensagemExtra = "token Supabase ausente")
                 _callState.emit(VideoCallState.Erro(
                     motivo = "Sessão inválida. Faça login novamente.",
@@ -98,7 +99,7 @@ object StreamVideoRepository {
             try {
                 val response = httpClient.post(EDGE_FUNCTION_URL) {
                     header("Authorization", "Bearer $token")
-                    header("apikey", API_KEY)
+                    header("apikey", SUPABASE_KEY)          // anon key JWT — funciona no /functions/v1/
                     contentType(ContentType.Application.Json)
                     setBody(CallTokenRequest(urgenciaId = urgenciaId))
                 }
@@ -110,7 +111,8 @@ object StreamVideoRepository {
                     200 -> {
                         val resposta = jsonParser.decodeFromString<CallTokenResponse>(corpo)
                         AppLogger.info(TAG, "Token obtido para call=${resposta.callId}")
-                        // Avança o estado — a VideoCallScreen inicializa o SDK a partir daqui
+                        // NUNCA logar resposta.token — é uma credencial de acesso
+                        AppLogger.chave("stream_call_id", resposta.callId)
                         _callState.emit(VideoCallState.TokenObtido(
                             token  = resposta.token,
                             userId = resposta.userId,
@@ -128,6 +130,7 @@ object StreamVideoRepository {
                         ))
                     }
                     409 -> {
+                        // Urgência com status incompatível com videochamada
                         AppLogger.aviso(TAG, "Status inválido para urgencia=$urgenciaId: $corpo")
                         _callState.emit(VideoCallState.Erro(
                             motivo = "Esta chamada não está mais disponível.",
@@ -171,6 +174,7 @@ object StreamVideoRepository {
         scope.launch {
             _callState.emit(VideoCallState.EmChamada(callId = callId, userId = userId))
             AppLogger.info(TAG, "Chamada ativa: call=$callId user=$userId")
+            AppLogger.chave("stream_call_ativa", true)
             // Atualizar status no banco APÓS join() confirmado pela UI
             atualizarStatusInProgress(callId)
         }
@@ -180,14 +184,14 @@ object StreamVideoRepository {
 
     /**
      * Chamado pela VideoCallScreen quando o Stream SDK reportar erro 401.
-     * Emite TokenExpirado (a UI mostra indicador de reconexão) e solicita
+     * Emite TokenExpirado (UI mostra indicador de reconexão) e solicita
      * novo token — a VideoCallScreen reage ao TokenObtido para re-inicializar.
      */
     fun renovarToken(urgenciaId: String) {
         scope.launch {
             AppLogger.aviso(TAG, "Token expirado. Renovando para urgencia=$urgenciaId")
             _callState.emit(VideoCallState.TokenExpirado(urgenciaId))
-            // Solicitar novo token — reutiliza o mesmo fluxo
+            // Reutiliza o mesmo fluxo de solicitarToken
             solicitarToken(urgenciaId)
         }
     }
@@ -201,14 +205,14 @@ object StreamVideoRepository {
      */
     private suspend fun atualizarStatusInProgress(urgenciaId: String) {
         try {
-            val token = currentToken ?: API_KEY
+            val token = AuthRepository.token ?: SUPABASE_KEY
             val response = httpClient.patch(
                 "$SUPABASE_URL/rest/v1/urgencias?id=eq.$urgenciaId&status=eq.accepted"
             ) {
-                header("apikey", API_KEY)
+                header("apikey",        SUPABASE_KEY)   // anon key JWT (eyJ...)
                 header("Authorization", "Bearer $token")
-                header("Content-Type", "application/json")
-                header("Prefer", "return=minimal")
+                header("Content-Type",  "application/json")
+                header("Prefer",        "return=minimal")
                 setBody(AtualizarStatusRequest(status = "in_progress"))
             }
             if (response.status.value in 200..299) {
@@ -226,6 +230,30 @@ object StreamVideoRepository {
         }
     }
 
+    // ── NOTIFICAÇÕES DE ESTADO ────────────────────────────────────────────
+
+    /** Emite Conectando — chamado pela VideoCallScreen antes de join(). */
+    fun notificarConectando(callId: String) {
+        scope.launch {
+            AppLogger.info(TAG, "Conectando à sala call=$callId")
+            _callState.emit(VideoCallState.Conectando(callId))
+        }
+    }
+
+    /**
+     * Chamado pela VideoCallScreen se o Stream SDK reportar erro fatal.
+     */
+    fun notificarErroChamada(motivo: String, tipo: TipoErroVideo, throwable: Throwable? = null) {
+        scope.launch {
+            AppLogger.erroRealtime(
+                fase           = tipo.name.lowercase(),
+                profissionalId = AuthRepository.userId ?: "desconhecido",
+                throwable      = throwable ?: RuntimeException(motivo),
+            )
+            _callState.emit(VideoCallState.Erro(motivo = motivo, tipo = tipo))
+        }
+    }
+
     // ── ENCERRAMENTO ──────────────────────────────────────────────────────
 
     /**
@@ -235,27 +263,16 @@ object StreamVideoRepository {
     fun notificarChamadaEncerrada(callId: String) {
         scope.launch {
             AppLogger.info(TAG, "Chamada encerrada: call=$callId")
+            AppLogger.chave("stream_call_ativa", false)
             _callState.emit(VideoCallState.Encerrada(callId))
-        }
-    }
-
-    /**
-     * Chamado pela VideoCallScreen se o Stream SDK reportar erro fatal.
-     */
-    fun notificarErroChamada(motivo: String, tipo: TipoErroVideo, throwable: Throwable? = null) {
-        scope.launch {
-            AppLogger.erro(TAG, "Erro na chamada: $motivo", throwable)
-            _callState.emit(VideoCallState.Erro(motivo = motivo, tipo = tipo))
         }
     }
 
     /** Volta para Idle após o usuário dispensar um diálogo de erro. */
     fun resetar() {
-        scope.launch { _callState.emit(VideoCallState.Idle) }
-    }
-
-    /** Emite Conectando — chamado pela VideoCallScreen antes de join(). */
-    fun notificarConectando(callId: String) {
-        scope.launch { _callState.emit(VideoCallState.Conectando(callId)) }
+        scope.launch {
+            AppLogger.info(TAG, "Estado resetado para Idle")
+            _callState.emit(VideoCallState.Idle)
+        }
     }
 }

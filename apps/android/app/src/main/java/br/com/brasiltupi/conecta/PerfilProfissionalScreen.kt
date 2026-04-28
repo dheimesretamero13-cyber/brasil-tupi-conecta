@@ -3,6 +3,7 @@ package br.com.brasiltupi.conecta
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -28,7 +29,11 @@ import kotlinx.coroutines.launch
 
 // ── TELA PRINCIPAL ────────────────────────────────────
 @Composable
-fun PerfilProfissionalScreen(onVoltar: () -> Unit, userId: String = "") {
+fun PerfilProfissionalScreen(
+    onVoltar: () -> Unit,
+    userId:   String = "",
+    onKyc:    () -> Unit = {},   // navega para kyc-status
+) {
     var carregando      by remember { mutableStateOf(userId.isNotEmpty()) }
     var abaSelecionada  by remember { mutableStateOf("perfil") }
     var fotoUrl         by remember { mutableStateOf<String?>(null) }
@@ -43,7 +48,8 @@ fun PerfilProfissionalScreen(onVoltar: () -> Unit, userId: String = "") {
     var credReal        by remember { mutableStateOf(0) }
     var isPMPReal       by remember { mutableStateOf(false) }
     var dispUrgenteReal by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    var kycStatus       by remember { mutableStateOf("") }   // "approved" | "pending" | "rejected" | "not_submitted" | ""
+    val scope   = rememberCoroutineScope()
     val context = LocalContext.current
 
     LaunchedEffect(userId) {
@@ -69,6 +75,14 @@ fun PerfilProfissionalScreen(onVoltar: () -> Unit, userId: String = "") {
                 credReal        = meu.credibilidade
                 isPMPReal       = meu.is_pmp
                 dispUrgenteReal = meu.disponivel_urgente
+            }
+            // ── Carregar status KYC para exibir badge ─────────────────────
+            // buscarKycDocumentos usa currentToken — mesmo padrao do projeto
+            try {
+                val docs = buscarKycDocumentos(userId)
+                kycStatus = docs.firstOrNull()?.status ?: "not_submitted"
+            } catch (_: Exception) {
+                // Badge simplesmente nao exibe se a consulta falhar
             }
         } finally {
             carregando = false
@@ -112,20 +126,25 @@ fun PerfilProfissionalScreen(onVoltar: () -> Unit, userId: String = "") {
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(SurfaceWarm).verticalScroll(rememberScrollState())) {
-        // Capa + Header
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(SurfaceWarm)
+            .verticalScroll(rememberScrollState())
+    ) {
+
+        // ── Capa + Header ─────────────────────────────────────────────────
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(200.dp)
         ) {
-            // Capa
             if (capaUrl != null) {
                 AsyncImage(
-                    model = capaUrl,
+                    model              = capaUrl,
                     contentDescription = "Capa",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                    modifier           = Modifier.fillMaxSize(),
+                    contentScale       = ContentScale.Crop,
                 )
             } else {
                 Box(
@@ -149,13 +168,15 @@ fun PerfilProfissionalScreen(onVoltar: () -> Unit, userId: String = "") {
 
             // Voltar
             TextButton(
-                onClick = onVoltar,
-                modifier = Modifier.align(Alignment.TopStart).padding(top = 36.dp)
+                onClick  = onVoltar,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = 36.dp),
             ) {
                 Text("← Voltar", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
             }
 
-            // Avatar sobre a capa
+            // Avatar
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -165,35 +186,37 @@ fun PerfilProfissionalScreen(onVoltar: () -> Unit, userId: String = "") {
                 Box(modifier = Modifier.size(72.dp)) {
                     if (fotoUrl != null) {
                         AsyncImage(
-                            model = fotoUrl,
+                            model              = fotoUrl,
                             contentDescription = "Foto de perfil",
-                            modifier = Modifier
+                            modifier           = Modifier
                                 .fillMaxSize()
                                 .clip(RoundedCornerShape(50))
                                 .background(Azul),
-                            contentScale = ContentScale.Crop
+                            contentScale       = ContentScale.Crop,
                         )
                     } else {
                         Box(
-                            modifier = Modifier
+                            modifier         = Modifier
                                 .fillMaxSize()
                                 .background(Azul, RoundedCornerShape(50)),
-                            contentAlignment = Alignment.Center
+                            contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 nomeReal.split(" ").map { it[0] }.joinToString("").take(2),
-                                fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White
+                                fontSize   = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                color      = Color.White,
                             )
                         }
                     }
                     // Botão editar foto
                     Box(
-                        modifier = Modifier
+                        modifier         = Modifier
                             .size(22.dp)
                             .align(Alignment.BottomEnd)
                             .background(Verde, RoundedCornerShape(50))
                             .clickable { launcherFoto.launch("image/*") },
-                        contentAlignment = Alignment.Center
+                        contentAlignment = Alignment.Center,
                     ) {
                         Text("✏", fontSize = 10.sp)
                     }
@@ -203,19 +226,79 @@ fun PerfilProfissionalScreen(onVoltar: () -> Unit, userId: String = "") {
 
         Spacer(modifier = Modifier.height(40.dp))
 
-        // Nome e info
+        // ── Nome, área, cidade e badges ───────────────────────────────────
         Column(modifier = Modifier.padding(horizontal = 20.dp)) {
             Text(nomeReal, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink)
             Text(areaReal, fontSize = 13.sp, color = InkMuted)
             Text("📍 $cidadeReal", fontSize = 12.sp, color = InkMuted, modifier = Modifier.padding(top = 2.dp))
             Spacer(modifier = Modifier.height(10.dp))
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(modifier = Modifier.background(Color(0xFFFDF3D8), RoundedCornerShape(20.dp)).padding(horizontal = 12.dp, vertical = 5.dp)) {
-                    Text("Profissional Certificado", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC49A2A))
+
+                // Badge: Profissional Certificado (sempre visível)
+                Box(
+                    modifier = Modifier
+                        .background(Color(0xFFFDF3D8), RoundedCornerShape(20.dp))
+                        .padding(horizontal = 12.dp, vertical = 5.dp)
+                ) {
+                    Text(
+                        "Profissional Certificado",
+                        fontSize   = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color      = Color(0xFFC49A2A),
+                    )
                 }
+
+                // Badge: PMP (condicional)
                 if (isPMPReal) {
-                    Box(modifier = Modifier.background(DouradoClaro, RoundedCornerShape(20.dp)).padding(horizontal = 12.dp, vertical = 5.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .background(DouradoClaro, RoundedCornerShape(20.dp))
+                            .padding(horizontal = 12.dp, vertical = 5.dp)
+                    ) {
                         Text("🏆 PMP", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Dourado)
+                    }
+                }
+
+                // ── Badge KYC — estado dinâmico ───────────────────────────
+                when (kycStatus) {
+                    "approved"                       -> Box(
+                        modifier = Modifier
+                            .background(Color(0xFFE8F5E9), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 12.dp, vertical = 5.dp)
+                    ) {
+                        Text(
+                            "✅ Verificado",
+                            fontSize   = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color      = Color(0xFF2E7D32),
+                        )
+                    }
+                    "pending"                        -> Box(
+                        modifier = Modifier
+                            .background(Color(0xFFFFF8E1), RoundedCornerShape(20.dp))
+                            .clickable { onKyc() }
+                            .padding(horizontal = 12.dp, vertical = 5.dp)
+                    ) {
+                        Text(
+                            "⏳ Em análise",
+                            fontSize   = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color      = Color(0xFFF57F17),
+                        )
+                    }
+                    "rejected", "not_submitted", "" -> Box(
+                        modifier = Modifier
+                            .background(SurfaceOff, RoundedCornerShape(20.dp))
+                            .clickable { onKyc() }
+                            .padding(horizontal = 12.dp, vertical = 5.dp)
+                    ) {
+                        Text(
+                            text       = if (kycStatus == "rejected") "❌ Doc. rejeitado" else "🔓 Verificar",
+                            fontSize   = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color      = InkMuted,
+                        )
                     }
                 }
             }
@@ -223,14 +306,24 @@ fun PerfilProfissionalScreen(onVoltar: () -> Unit, userId: String = "") {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Stats
-        Row(modifier = Modifier.fillMaxWidth().background(Surface).padding(vertical = 4.dp)) {
+        // ── Stats ─────────────────────────────────────────────────────────
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Surface)
+                .padding(vertical = 4.dp)
+        ) {
             listOf(
-                "--" to "Atendimentos",
-                "⭐ --" to "Avaliação",
+                "--"            to "Atendimentos",
+                "⭐ --"         to "Avaliação",
                 "$credReal/100" to "Credibilidade",
             ).forEach { (num, label) ->
-                Column(modifier = Modifier.weight(1f).padding(vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    modifier            = Modifier
+                        .weight(1f)
+                        .padding(vertical = 14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     Text(num, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                     Text(label, fontSize = 10.sp, color = InkMuted)
                 }
@@ -238,11 +331,30 @@ fun PerfilProfissionalScreen(onVoltar: () -> Unit, userId: String = "") {
         }
         HorizontalDivider(color = SurfaceOff)
 
-        // Tabs
-        Row(modifier = Modifier.fillMaxWidth().background(Surface).padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            listOf("perfil" to "Meu Perfil", "seguranca" to "Segurança", "urgente" to "Urgente").forEach { (id, label) ->
-                TextButton(onClick = { abaSelecionada = id }, colors = ButtonDefaults.textButtonColors(contentColor = if (abaSelecionada == id) Verde else InkMuted)) {
-                    Text(label, fontSize = 13.sp, fontWeight = if (abaSelecionada == id) FontWeight.Bold else FontWeight.Normal)
+        // ── Tabs ──────────────────────────────────────────────────────────
+        Row(
+            modifier              = Modifier
+                .fillMaxWidth()
+                .background(Surface)
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            listOf(
+                "perfil"    to "Meu Perfil",
+                "seguranca" to "Segurança",
+                "urgente"   to "Urgente",
+            ).forEach { (id, label) ->
+                TextButton(
+                    onClick = { abaSelecionada = id },
+                    colors  = ButtonDefaults.textButtonColors(
+                        contentColor = if (abaSelecionada == id) Verde else InkMuted,
+                    ),
+                ) {
+                    Text(
+                        label,
+                        fontSize   = 13.sp,
+                        fontWeight = if (abaSelecionada == id) FontWeight.Bold else FontWeight.Normal,
+                    )
                 }
             }
         }
@@ -278,18 +390,30 @@ fun AbaPerfilProfissional(
     isPMP:            Boolean = false,
     userId:           String  = "",
     telefoneReal:     String  = "",
-)
-{
+) {
     var editando  by remember { mutableStateOf(false) }
     var nome      by remember { mutableStateOf(nomeInicial) }
     var descricao by remember { mutableStateOf(descricaoInicial) }
     var cidade    by remember { mutableStateOf(cidadeInicial) }
     val scope     = rememberCoroutineScope()
 
-    Column(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
+    Column(
+        modifier            = Modifier
+            .fillMaxWidth()
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(12.dp),
+            colors   = CardDefaults.cardColors(containerColor = Surface),
+        ) {
             Column(modifier = Modifier.padding(20.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
                     Text("Dados do perfil", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                     TextButton(onClick = { editando = !editando }) {
                         Text(if (editando) "Cancelar" else "✏ Editar", color = Verde, fontSize = 13.sp)
@@ -302,7 +426,17 @@ fun AbaPerfilProfissional(
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Text("Descrição profissional", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
                         Spacer(modifier = Modifier.height(5.dp))
-                        OutlinedTextField(value = descricao, onValueChange = { descricao = it }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), minLines = 3, colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)))
+                        OutlinedTextField(
+                            value         = descricao,
+                            onValueChange = { descricao = it },
+                            modifier      = Modifier.fillMaxWidth(),
+                            shape         = RoundedCornerShape(8.dp),
+                            minLines      = 3,
+                            colors        = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor   = Verde,
+                                unfocusedBorderColor = Color(0xFFE0E0E0),
+                            ),
+                        )
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     CampoTexto("Cidade / Estado", cidade, { cidade = it }, "Sua cidade")
@@ -313,18 +447,28 @@ fun AbaPerfilProfissional(
                                 salvarDadosPerfilAndroid(userId, nome, telefoneReal)
                                 val partesCidade = cidade.split(",")
                                 salvarBioProfissionalAndroid(
-                                    userId  = userId,
-                                    bio     = descricao,
-                                    cidade  = partesCidade.getOrNull(0)?.trim() ?: cidade,
-                                    estado  = partesCidade.getOrNull(1)?.trim() ?: "",
+                                    userId = userId,
+                                    bio    = descricao,
+                                    cidade = partesCidade.getOrNull(0)?.trim() ?: cidade,
+                                    estado = partesCidade.getOrNull(1)?.trim() ?: "",
                                 )
                             }
                         }
                         editando = false
                     }
                 } else {
-                    listOf("Nome" to nome, "Área" to areaInicial, "Cidade" to cidade, "Membro desde" to "--").forEach { (label, valor) ->
-                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    listOf(
+                        "Nome"          to nome,
+                        "Área"          to areaInicial,
+                        "Cidade"        to cidade,
+                        "Membro desde"  to "--",
+                    ).forEach { (label, valor) ->
+                        Row(
+                            modifier              = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
                             Text(label, fontSize = 13.sp, color = InkMuted)
                             Text(valor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
                         }
@@ -338,12 +482,26 @@ fun AbaPerfilProfissional(
             }
         }
 
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(12.dp),
+            colors   = CardDefaults.cardColors(containerColor = Surface),
+        ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Dados profissionais", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(12.dp))
-                listOf("Tipo de conta" to "Profissional", "Conselho" to conselho, "Atendimentos" to "--", "Avaliação média" to "⭐ --").forEach { (label, valor) ->
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                listOf(
+                    "Tipo de conta"   to "Profissional",
+                    "Conselho"        to conselho,
+                    "Atendimentos"    to "--",
+                    "Avaliação média" to "⭐ --",
+                ).forEach { (label, valor) ->
+                    Row(
+                        modifier              = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
                         Text(label, fontSize = 13.sp, color = InkMuted)
                         Text(valor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
                     }
@@ -352,32 +510,79 @@ fun AbaPerfilProfissional(
             }
         }
 
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFDF8F0)), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE8B832).copy(alpha = 0.4f))) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(12.dp),
+            colors   = CardDefaults.cardColors(containerColor = Color(0xFFFDF8F0)),
+            border   = BorderStroke(1.dp, Color(0xFFE8B832).copy(alpha = 0.4f)),
+        ) {
             Column(modifier = Modifier.padding(20.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
                     Column {
                         Text("Programa PMP", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Dourado)
                         Text("Faltam ${100 - credibilidade} pontos", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink)
                     }
-                    Box(modifier = Modifier.size(48.dp).background(Azul, RoundedCornerShape(50)), contentAlignment = Alignment.Center) {
+                    Box(
+                        modifier         = Modifier
+                            .size(48.dp)
+                            .background(Azul, RoundedCornerShape(50)),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         Text("✓", fontSize = 20.sp, color = DouradoMedio, fontWeight = FontWeight.Bold)
                     }
                 }
                 Spacer(modifier = Modifier.height(14.dp))
-                LinearProgressIndicator(progress = { credibilidade / 100f }, modifier = Modifier.fillMaxWidth().height(8.dp), color = DouradoMedio, trackColor = SurfaceOff)
+                LinearProgressIndicator(
+                    progress   = { credibilidade / 100f },
+                    modifier   = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp),
+                    color      = DouradoMedio,
+                    trackColor = SurfaceOff,
+                )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text("$credibilidade/100 pontos de credibilidade", fontSize = 12.sp, color = InkMuted)
                 Spacer(modifier = Modifier.height(14.dp))
-                listOf("Prioridade nas buscas", "Melhores comissões", "Acesso antecipado", "Selo visível").forEach { b ->
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 3.dp)) {
+                listOf(
+                    "Prioridade nas buscas",
+                    "Melhores comissões",
+                    "Acesso antecipado",
+                    "Selo visível",
+                ).forEach { b ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier          = Modifier.padding(vertical = 3.dp),
+                    ) {
                         Text("→", fontSize = 12.sp, color = Dourado)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(b, fontSize = 13.sp, color = InkSoft)
                     }
                 }
                 Spacer(modifier = Modifier.height(14.dp))
-                Button(onClick = {}, modifier = Modifier.fillMaxWidth().height(46.dp), enabled = credibilidade >= 80, colors = ButtonDefaults.buttonColors(containerColor = Azul, contentColor = Color.White, disabledContainerColor = SurfaceOff, disabledContentColor = InkMuted), shape = RoundedCornerShape(8.dp)) {
-                    Text(if (credibilidade >= 80) "Candidatar-me ao PMP" else "Disponível com 80 pontos ($credibilidade/80)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Button(
+                    onClick  = {},
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp),
+                    enabled  = credibilidade >= 80,
+                    colors   = ButtonDefaults.buttonColors(
+                        containerColor         = Azul,
+                        contentColor           = Color.White,
+                        disabledContainerColor = SurfaceOff,
+                        disabledContentColor   = InkMuted,
+                    ),
+                    shape    = RoundedCornerShape(8.dp),
+                ) {
+                    Text(
+                        if (credibilidade >= 80) "Candidatar-me ao PMP"
+                        else "Disponível com 80 pontos ($credibilidade/80)",
+                        fontSize   = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
             }
         }
@@ -390,29 +595,69 @@ fun AbaSegurancaProfissional(
     email:    String = "",
     telefone: String = "",
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
+    Column(
+        modifier            = Modifier
+            .fillMaxWidth()
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(12.dp),
+            colors   = CardDefaults.cardColors(containerColor = Surface),
+        ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Segurança da conta", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(12.dp))
-                listOf(Triple("E-mail", email, "Alterar"), Triple("Senha", "••••••••••", "Alterar"), Triple("Telefone", telefone, "Alterar"), Triple("Autenticação 2FA", "Desativado", "Ativar")).forEach { (label, valor, acao) ->
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                listOf(
+                    Triple("E-mail",              email,        "Alterar"),
+                    Triple("Senha",               "••••••••••", "Alterar"),
+                    Triple("Telefone",            telefone,     "Alterar"),
+                    Triple("Autenticação 2FA",    "Desativado", "Ativar"),
+                ).forEach { (label, valor, acao) ->
+                    Row(
+                        modifier              = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment     = Alignment.CenterVertically,
+                    ) {
                         Column {
                             Text(label, fontSize = 12.sp, color = InkMuted)
                             Text(valor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
                         }
-                        TextButton(onClick = {}) { Text(acao, color = Verde, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                        TextButton(onClick = {}) {
+                            Text(acao, color = Verde, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                     HorizontalDivider(color = SurfaceOff)
                 }
             }
         }
-        Row(modifier = Modifier.fillMaxWidth().background(VerdeClaro, RoundedCornerShape(10.dp)).padding(16.dp), verticalAlignment = Alignment.Top) {
+
+        Row(
+            modifier          = Modifier
+                .fillMaxWidth()
+                .background(VerdeClaro, RoundedCornerShape(10.dp))
+                .padding(16.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
             Text("🔒", fontSize = 16.sp)
             Spacer(modifier = Modifier.width(10.dp))
             Column {
-                Text("Seus dados estão protegidos", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Verde)
-                Text("Todas as informações são criptografadas e nunca compartilhadas com terceiros.", fontSize = 12.sp, color = Verde.copy(alpha = 0.8f), lineHeight = 17.sp, modifier = Modifier.padding(top = 4.dp))
+                Text(
+                    "Seus dados estão protegidos",
+                    fontSize   = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color      = Verde,
+                )
+                Text(
+                    "Todas as informações são criptografadas e nunca compartilhadas com terceiros.",
+                    fontSize   = 12.sp,
+                    color      = Verde.copy(alpha = 0.8f),
+                    lineHeight = 17.sp,
+                    modifier   = Modifier.padding(top = 4.dp),
+                )
             }
         }
     }
@@ -424,27 +669,50 @@ fun AbaUrgenteProfissional(
     disponivelInicial: Boolean = false,
     userId:            String  = "",
 ) {
-    var ativo      by remember { mutableStateOf(disponivelInicial) }
+    var ativo       by remember { mutableStateOf(disponivelInicial) }
     var atualizando by remember { mutableStateOf(false) }
-    val scope      = rememberCoroutineScope()
+    val scope       = rememberCoroutineScope()
 
-    Column(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
+    Column(
+        modifier            = Modifier
+            .fillMaxWidth()
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(12.dp),
+            colors   = CardDefaults.cardColors(containerColor = Surface),
+        ) {
             Column(modifier = Modifier.padding(20.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Área Urgente", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
-                        Text("Quando ativo, você aparece para clientes que precisam de atendimento imediato.", fontSize = 13.sp, color = InkMuted, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp))
+                        Text(
+                            "Quando ativo, você aparece para clientes que precisam de atendimento imediato.",
+                            fontSize   = 13.sp,
+                            color      = InkMuted,
+                            lineHeight = 18.sp,
+                            modifier   = Modifier.padding(top = 4.dp),
+                        )
                     }
                     if (atualizando) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Verde, strokeWidth = 2.dp)
+                        CircularProgressIndicator(
+                            modifier    = Modifier.size(24.dp),
+                            color       = Verde,
+                            strokeWidth = 2.dp,
+                        )
                     } else {
                         Switch(
-                            checked = ativo,
+                            checked         = ativo,
                             onCheckedChange = { novoValor ->
                                 val anterior = ativo
-                                ativo = novoValor
-                                atualizando = true
+                                ativo        = novoValor
+                                atualizando  = true
                                 scope.launch {
                                     val ok = if (userId.isNotEmpty())
                                         atualizarDisponibilidadeUrgente(userId, novoValor)
@@ -453,26 +721,55 @@ fun AbaUrgenteProfissional(
                                     if (!ok) ativo = anterior
                                 }
                             },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Verde)
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor  = Color.White,
+                                checkedTrackColor  = Verde,
+                            ),
                         )
                     }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
-                Row(modifier = Modifier.fillMaxWidth().background(if (ativo) VerdeClaro else UrgenteClaro, RoundedCornerShape(8.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier          = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            if (ativo) VerdeClaro else UrgenteClaro,
+                            RoundedCornerShape(8.dp),
+                        )
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(if (ativo) "🟢" else "🔴", fontSize = 14.sp)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (ativo) "Você está disponível para consultas urgentes" else "Você está indisponível para consultas urgentes", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (ativo) Verde else Urgente)
+                    Text(
+                        if (ativo) "Você está disponível para consultas urgentes"
+                        else "Você está indisponível para consultas urgentes",
+                        fontSize   = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color      = if (ativo) Verde else Urgente,
+                    )
                 }
             }
         }
 
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(12.dp),
+            colors   = CardDefaults.cardColors(containerColor = Surface),
+        ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Regras do Acordo de Prontidão", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(14.dp))
-                listOf("⏱" to "45 minutos" to "Tempo máximo para iniciar o atendimento.", "📋" to "15 minutos" to "Duração máxima da consulta.", "⚠" to "Descumprimento" to "Atrasos resultam em perda de credibilidade.", "🚫" to "Reincidência" to "Suspensão do acesso à área urgente.").forEach { (iconTitulo, desc) ->
-                    val (icon, titulo) = iconTitulo
-                    Row(modifier = Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
+                listOf(
+                    Triple("⏱", "45 minutos",     "Tempo máximo para iniciar o atendimento."),
+                    Triple("📋", "15 minutos",     "Duração máxima da consulta."),
+                    Triple("⚠",  "Descumprimento", "Atrasos resultam em perda de credibilidade."),
+                    Triple("🚫", "Reincidência",   "Suspensão do acesso à área urgente."),
+                ).forEach { (icon, titulo, desc) ->
+                    Row(
+                        modifier          = Modifier.padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
                         Text(icon, fontSize = 18.sp)
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
@@ -485,24 +782,50 @@ fun AbaUrgenteProfissional(
             }
         }
 
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape    = RoundedCornerShape(12.dp),
+            colors   = CardDefaults.cardColors(containerColor = Surface),
+        ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Seu histórico urgente", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(14.dp))
                 Row(modifier = Modifier.fillMaxWidth()) {
-                    listOf("3" to "Urgentes\nrealizadas" to Verde, "100%" to "Taxa de\npontualidade" to Azul, "0" to "Descum-\nprimenetos" to Dourado).forEach { (numLabel, cor) ->
-                        val (num, label) = numLabel
-                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    listOf(
+                        Triple("3",    "Urgentes\nrealizadas",    Verde),
+                        Triple("100%", "Taxa de\npontualidade",   Azul),
+                        Triple("0",    "Descum-\nprimenetos",     Dourado),
+                    ).forEach { (num, label, cor) ->
+                        Column(
+                            modifier            = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
                             Text(num, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = cor)
-                            Text(label, fontSize = 10.sp, color = InkMuted, lineHeight = 14.sp, modifier = Modifier.padding(top = 4.dp))
+                            Text(
+                                label,
+                                fontSize   = 10.sp,
+                                color      = InkMuted,
+                                lineHeight = 14.sp,
+                                modifier   = Modifier.padding(top = 4.dp),
+                            )
                         }
                     }
                 }
                 Spacer(modifier = Modifier.height(14.dp))
-                Row(modifier = Modifier.fillMaxWidth().background(VerdeClaro, RoundedCornerShape(8.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier          = Modifier
+                        .fillMaxWidth()
+                        .background(VerdeClaro, RoundedCornerShape(8.dp))
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text("✓", fontSize = 14.sp, color = Verde, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Histórico limpo — acesso integral à área urgente.", fontSize = 12.sp, color = Verde)
+                    Text(
+                        "Histórico limpo — acesso integral à área urgente.",
+                        fontSize = 12.sp,
+                        color    = Verde,
+                    )
                 }
             }
         }

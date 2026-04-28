@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,12 +31,32 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+
+    // Referência ao ViewModel de onboarding — necessária para onResume
+    // poder gravar o timestamp sem depender do escopo Compose.
+    // Lazy: inicializado apenas quando o Compose sobe e passa a referência.
+    private var onboardingVmRef: OnboardingViewModel? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             BrasilTupiConectaTheme {
-                AppNavigation()
+                AppNavigation(onVmReady = { vm -> onboardingVmRef = vm })
+            }
+        }
+    }
+
+    // ── Fase 5: gravação do timestamp aqui garante persistência mesmo em ──
+    // process kill. O LaunchedEffect do Compose pode não terminar se o SO
+    // matar o processo antes do DataStore.edit() completar.
+    // onResume é chamado sempre que o app volta ao foreground — seguro e
+    // confiável independente do estado do Compose.
+    override fun onResume() {
+        super.onResume()
+        onboardingVmRef?.let { vm ->
+            lifecycleScope.launch {
+                vm.salvarUltimoAcesso(System.currentTimeMillis())
             }
         }
     }
@@ -52,12 +73,16 @@ class MainActivity : ComponentActivity() {
 // ═════════════════════════════════════════════════════════════════════════════
 
 @Composable
-fun AppNavigation() {
+fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
     val context = LocalContext.current
     val onboardingVm: OnboardingViewModel = viewModel(
         factory = OnboardingViewModelFactory(context.onboardingDataStore)
     )
     val navState by onboardingVm.navState.collectAsState()
+
+    // Expõe o ViewModel para a Activity logo que o Composable sobe.
+    // A Activity usa a referência em onResume() para salvar o timestamp.
+    LaunchedEffect(onboardingVm) { onVmReady(onboardingVm) }
 
     // ── Estado de navegação ───────────────────────────────────────────────
     var tela                      by remember { mutableStateOf("") }
@@ -84,10 +109,11 @@ fun AppNavigation() {
     // Fase 3.5 — Chat pré-chamada
     var chatSessionId             by remember { mutableStateOf("") }
     var chatOutroNomePre          by remember { mutableStateOf("") }
-    // Fase 4.2 — Referral (sem variáveis extras — tela não precisa de parâmetros)
-    var suporteAgendamentoId by remember { mutableStateOf<String?>(null) }
-    // fase 4.3 suporte e disputas
-
+    // Fase 4.2 — Referral
+    var suporteAgendamentoId      by remember { mutableStateOf<String?>(null) }
+    // Fase 4.3 — Suporte e disputas
+    // Fase 1 — LGPD: dashboard destino após consentimento gravado
+    var destinoAposLegal          by remember { mutableStateOf("") }
 
     // ── Deep link FCM ─────────────────────────────────────────────────────
     val activity = context as? android.app.Activity
@@ -122,13 +148,14 @@ fun AppNavigation() {
         if (tela.isNotEmpty()) return@LaunchedEffect
         when (navState) {
             is OnboardingNavState.Carregando        -> Unit
+
             is OnboardingNavState.MostrarOnboarding -> {
-                // Primeiro acesso — app_install
                 AnalyticsTracker.appInstall()
                 tela = "onboarding"
             }
+
             is OnboardingNavState.IrParaCliente     -> {
-                // Fase 4.5 — Retenção: mede dias desde o último acesso
+                // Fase 4.5 — Retenção
                 val agora       = System.currentTimeMillis()
                 val ultimoAces  = onboardingVm.ultimoAcesso()
                 val diasAusente = if (ultimoAces > 0L) (agora - ultimoAces) / 86_400_000L else 0L
@@ -137,7 +164,7 @@ fun AppNavigation() {
                     diasAusente >= 30 -> AnalyticsTracker.retention30d("cliente")
                     diasAusente >= 7  -> AnalyticsTracker.retention7d("cliente")
                 }
-                onboardingVm.salvarUltimoAcesso(agora)
+                // Fase 5: gravação do timestamp movida para MainActivity.onResume()
 
                 val pendenteAvaliacao = AvaliacaoRepository.verificarPendencia()
                 if (pendenteAvaliacao != null) {
@@ -151,10 +178,24 @@ fun AppNavigation() {
                     tela = "pagamento"
                     return@LaunchedEffect
                 }
-                tela = "dashboard-cliente"
+
+                // Fase 1 — LGPD: só executado se já logado
+                val uid = currentUserId
+                if (uid.isNullOrEmpty()) {
+                    tela = "welcome"
+                    return@LaunchedEffect
+                }
+                val jaAceitou = verificarConsentimentoExiste(uid)
+                if (!jaAceitou) {
+                    destinoAposLegal = "dashboard-cliente"
+                    tela = "legal-onboarding"
+                } else {
+                    tela = "dashboard-cliente"
+                }
             }
+
             is OnboardingNavState.IrParaProfissional -> {
-                // Fase 4.5 — Retenção: mede dias desde o último acesso
+                // Fase 4.5 — Retenção
                 val agora       = System.currentTimeMillis()
                 val ultimoAces  = onboardingVm.ultimoAcesso()
                 val diasAusente = if (ultimoAces > 0L) (agora - ultimoAces) / 86_400_000L else 0L
@@ -163,17 +204,29 @@ fun AppNavigation() {
                     diasAusente >= 30 -> AnalyticsTracker.retention30d("profissional")
                     diasAusente >= 7  -> AnalyticsTracker.retention7d("profissional")
                 }
-                onboardingVm.salvarUltimoAcesso(agora)
+                // Fase 5: gravação do timestamp movida para MainActivity.onResume()
 
                 BrasilTupiMessagingService.registrarTokenSeLogado(this, context)
+
                 val pendente = AvaliacaoRepository.verificarPendencia()
                 if (pendente != null) {
                     urgenciaIdAtiva = pendente.id
                     tela = "avaliacao"
+                    return@LaunchedEffect
+                }
+
+                // Fase 1 — LGPD: só executado se já logado
+                val uidProf = currentUserId
+                if (uidProf.isNullOrEmpty()) {
+                    tela = "welcome"
+                    return@LaunchedEffect
+                }
+                val jaAceitouProf = verificarConsentimentoExiste(uidProf)
+                if (!jaAceitouProf) {
+                    destinoAposLegal = "dashboard-profissional"
+                    tela = "legal-onboarding"
                 } else {
-                    currentUserId?.let { uid ->
-                        UrgenciasRealtimeManager.iniciar(profissionalId = uid, especialidade = null)
-                    }
+                    UrgenciasRealtimeManager.iniciar(profissionalId = uidProf, especialidade = null)
                     tela = "dashboard-profissional"
                 }
             }
@@ -191,10 +244,55 @@ fun AppNavigation() {
     // ── Roteador principal ────────────────────────────────────────────────
     when (tela) {
 
+        // ── FASE 1 — LGPD ─────────────────────────────────────────────────
+        // Exibida APÓS login — userId e currentToken sempre preenchidos aqui.
+        "legal-onboarding" -> LegalOnboardingScreen(
+            userId                   = currentUserId ?: "",
+            onConsentimentoConcluido = {
+                val destino = destinoAposLegal.ifEmpty { "welcome" }
+                if (destino == "dashboard-profissional") {
+                    currentUserId?.let { uid ->
+                        UrgenciasRealtimeManager.iniciar(profissionalId = uid, especialidade = null)
+                    }
+                }
+                tela = destino
+            },
+            onVerTermos   = { tela = "termos-uso" },
+            onVerPolitica = { tela = "politica-privacidade" },
+        )
+
+        "termos-uso" -> TermosUsoScreen(
+            onVoltar = { tela = "legal-onboarding" },
+        )
+
+        "politica-privacidade" -> PoliticaPrivacidadeScreen(
+            onVoltar = { tela = "legal-onboarding" },
+        )
+
+        // ── FASE 1 — KYC ──────────────────────────────────────────────────
+        "kyc-upload" -> KycUploadScreen(
+            userId            = currentUserId ?: "",
+            onUploadConcluido = { tela = "kyc-status" },
+            onVoltar          = { tela = "kyc-status" },
+        )
+
+        "kyc-status" -> KycStatusScreen(
+            userId            = currentUserId ?: "",
+            onEnviarDocumento = { tela = "kyc-upload" },
+            onVoltar          = { tela = "perfil-profissional" },
+        )
+
         // ── ONBOARDING ────────────────────────────────────────────────────
+        // Vai direto para welcome — LGPD só é exibida após login no LaunchedEffect acima.
         "onboarding" -> OnboardingScreen(
-            onIrParaCliente      = { tela = "welcome" },
-            onIrParaProfissional = { tela = "welcome" },
+            onIrParaCliente      = {
+                onboardingVm.selecionarCliente()
+                tela = "welcome"
+            },
+            onIrParaProfissional = {
+                onboardingVm.selecionarProfissional()
+                tela = "welcome"
+            },
         )
 
         // ── CHAT GERAL (tabela mensagens) ─────────────────────────────────
@@ -237,8 +335,14 @@ fun AppNavigation() {
 
         "login" -> LoginScreen(
             onVoltar             = { tela = "welcome" },
-            onEntrarProfissional = { tela = "dashboard-profissional" },
-            onEntrarCliente      = { tela = "dashboard-cliente" },
+            onEntrarProfissional = {
+                destinoAposLegal = "dashboard-profissional"
+                tela = "legal-onboarding"
+            },
+            onEntrarCliente      = {
+                destinoAposLegal = "dashboard-cliente"
+                tela = "legal-onboarding"
+            },
             onCadastro           = { tela = "cadastro" },
         )
 
@@ -283,6 +387,7 @@ fun AppNavigation() {
             onSair           = { UrgenciasRealtimeManager.parar(); tela = "welcome" },
             onEstudio        = { tela = "estudio-dashboard" },
             onPerfil         = { tela = "perfil-profissional" },
+            onRelatorios     = { tela = "relatorios" },
             onIniciarChamada = { urgenciaId ->
                 urgenciaIdAtiva = urgenciaId
                 StreamVideoRepository.solicitarToken(urgenciaId)
@@ -300,7 +405,7 @@ fun AppNavigation() {
                 chatDestino   = "dashboard-cliente"
                 tela          = "chat"
             },
-            onSuporte = { agendamentoId ->          // ← adicionar
+            onSuporte = { agendamentoId ->
                 suporteAgendamentoId = agendamentoId
                 tela = "suporte"
             },
@@ -310,15 +415,16 @@ fun AppNavigation() {
         "perfil-profissional" -> PerfilProfissionalScreen(
             onVoltar = { tela = "dashboard-profissional" },
             userId   = currentUserId ?: "",
+            onKyc    = { tela = "kyc-status" },
         )
 
         "perfil-cliente" -> PerfilClienteScreen(
-            onVoltar = { tela = "dashboard-cliente" },
-            userId   = currentUserId ?: "",
+            onVoltar   = { tela = "dashboard-cliente" },
+            userId     = currentUserId ?: "",
             onReferral = { tela = "referral" },
         )
 
-        // ── BUSCA DE PROFISSIONAIS (existente) ────────────────────────────
+        // ── BUSCA DE PROFISSIONAIS ─────────────────────────────────────────
         "busca" -> BuscaScreen(
             onVoltar  = { tela = "welcome" },
             onEstudio = { profId -> estudioProfId = profId; tela = "estudio-vitrine" },
@@ -403,13 +509,13 @@ fun AppNavigation() {
             onVoltar = { tela = "perfil-cliente" },
         )
 
-        // -- fase 4.3 - suporte e disputas
+        // ── FASE 4.3 — SUPORTE E DISPUTAS ────────────────────────────────
         "suporte" -> SuporteScreen(
             agendamentoId = suporteAgendamentoId,
             onVoltar      = { tela = "dashboard-cliente" },
         )
 
-        // -- fase 4.4 relatorios avançados para profissionais
+        // ── FASE 4.4 — RELATÓRIOS AVANÇADOS ──────────────────────────────
         "relatorios" -> RelatoriosProfissionalScreen(
             onVoltar = { tela = "dashboard-profissional" },
         )
@@ -429,6 +535,7 @@ fun DashboardProfissionalComRealtime(
     onSair:           () -> Unit,
     onEstudio:        () -> Unit,
     onPerfil:         () -> Unit,
+    onRelatorios:     () -> Unit = {},
     onIniciarChamada: (urgenciaId: String) -> Unit = {},
 ) {
     var urgenciaAtiva           by remember { mutableStateOf<Urgencia?>(null) }
@@ -492,9 +599,10 @@ fun DashboardProfissionalComRealtime(
 
     Box(modifier = Modifier.fillMaxSize()) {
         DashboardProfissionalScreen(
-            onSair    = onSair,
-            onEstudio = onEstudio,
-            onPerfil  = onPerfil,
+            onSair       = onSair,
+            onEstudio    = onEstudio,
+            onPerfil     = onPerfil,
+            onRelatorios = onRelatorios,
         )
         when (statusRealtime) {
             StatusRealtime.INSTAVEL -> BannerRealtimeInstavel(offline = false)

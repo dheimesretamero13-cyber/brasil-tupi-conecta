@@ -16,6 +16,7 @@ package br.com.brasiltupi.conecta
 // ═══════════════════════════════════════════════════════════════════════════
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
@@ -173,6 +174,9 @@ fun AgendaClienteScreen(
                     )
 
                     HorizontalDivider(color = SurfaceOff)
+
+                    // ── PA-03: Política de cancelamento ───────────────────
+                    BannerPoliticaCancelamento()
 
                     // ── Grid de slots ─────────────────────────────────────
                     val slotsHoje = estado.slotsPorDia[diaValido] ?: emptyList()
@@ -337,6 +341,42 @@ fun AgendaClienteScreen(
                 }
             },
         )
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BANNER DE POLÍTICA DE CANCELAMENTO — PA-03
+// ═══════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun BannerPoliticaCancelamento() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .background(Color(0xFFFFF8E1), RoundedCornerShape(10.dp))
+            .border(1.dp, Color(0xFFC49A2A).copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+            .padding(12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text("⚠️", fontSize = 15.sp)
+        Spacer(modifier = Modifier.width(10.dp))
+        Column {
+            Text(
+                text       = "Política de cancelamento",
+                fontSize   = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color      = Color(0xFF7A5C00),
+            )
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                text       = "Cancelamentos em até 10 minutos após o agendamento são gratuitos. " +
+                        "Após esse prazo, uma taxa de 30% do valor da consulta será cobrada.",
+                fontSize   = 12.sp,
+                color      = Color(0xFF7A5C00).copy(alpha = 0.85f),
+                lineHeight = 17.sp,
+            )
+        }
     }
 }
 

@@ -171,6 +171,8 @@ class BibliotecaRepository(private val context: Context) {
     // ── 3. DOWNLOAD CRIPTOGRAFADO ─────────────────────────────────────────
     // Baixa PDF via URL assinada e salva com EncryptedFile no dir privado.
     // O arquivo NUNCA fica em texto plano no disco.
+    // CORREÇÃO: GeneralSecurityException separada — falha de Keystore gera
+    // entrada no Crashlytics em vez de ser engolida pelo catch genérico.
     suspend fun downloadPdfOffline(
         produtoId: String,
         signedUrl: String,
@@ -183,13 +185,16 @@ class BibliotecaRepository(private val context: Context) {
                 onProgress(0.1f + progresso * 0.7f)
             }
 
-            // Salvar com EncryptedFile
+            // Salvar com EncryptedFile (write-then-swap internamente)
             onProgress(0.8f)
             salvarCriptografado(produtoId, bytes)
             onProgress(1.0f)
 
             AppLogger.info("BibliotecaRepo", "PDF offline salvo: produto=$produtoId")
             Result.success(Unit)
+        } catch (e: java.security.GeneralSecurityException) {
+            AppLogger.erro("BibliotecaRepo", "Keystore inválido ao salvar PDF offline=$produtoId", e)
+            Result.failure(e)
         } catch (e: Exception) {
             AppLogger.erro("BibliotecaRepo", "Falha ao salvar PDF offline: produto=$produtoId", e)
             Result.failure(e)
@@ -199,6 +204,9 @@ class BibliotecaRepository(private val context: Context) {
     // ── 4. LER PDF CRIPTOGRAFADO EM MEMÓRIA ──────────────────────────────
     // Retorna ByteArray para o PdfViewerViewModel renderizar.
     // Nunca extrai para disco em texto plano.
+    // CORREÇÃO: GeneralSecurityException separada de IOException — Keystore
+    // inválido (ex: update de OS) gera entrada no Crashlytics e remove o
+    // arquivo corrompido. IOException é aviso silencioso (sem entrada).
     fun lerPdfOffline(produtoId: String): ByteArray? {
         return try {
             val arquivo = arquivoOffline(produtoId)
@@ -213,8 +221,15 @@ class BibliotecaRepository(private val context: Context) {
             ).build()
 
             encryptedFile.openFileInput().use { it.readBytes() }
-        } catch (e: Exception) {
-            AppLogger.aviso("BibliotecaRepo", "Falha ao ler PDF offline: ${e.message}")
+        } catch (e: java.security.GeneralSecurityException) {
+            // Keystore comprometido ou chave inválida após update de OS.
+            // Remove o arquivo inutilizável para não ocupar espaço e não
+            // repetir o erro em aberturas futuras.
+            AppLogger.erro("BibliotecaRepo", "Keystore inválido — removendo PDF corrompido=$produtoId", e)
+            arquivoOffline(produtoId).delete()
+            null
+        } catch (e: java.io.IOException) {
+            AppLogger.aviso("BibliotecaRepo", "IO falhou ao ler PDF offline=$produtoId: ${e.message}")
             null
         }
     }
@@ -240,19 +255,26 @@ class BibliotecaRepository(private val context: Context) {
             .build()
 
     private fun salvarCriptografado(produtoId: String, bytes: ByteArray) {
-        val arquivo = arquivoOffline(produtoId)
-        // EncryptedFile exige que o arquivo não exista — deletar se houver versão anterior
-        if (arquivo.exists()) arquivo.delete()
+        val arquivoFinal = arquivoOffline(produtoId)
+        // CORREÇÃO write-then-swap: escreve em arquivo temporário e só substitui
+        // o original após write bem-sucedido. Evita deixar arquivo parcialmente
+        // corrompido se houver falta de espaço ou exceção no meio do write.
+        val arquivoTemp = File(arquivoFinal.parent, "$produtoId.tmp.enc")
+        if (arquivoTemp.exists()) arquivoTemp.delete()
 
         val masterKey = masterKey()
         val encryptedFile = EncryptedFile.Builder(
             context,
-            arquivo,
+            arquivoTemp,
             masterKey,
             EncryptedFile.FileEncryptionScheme.AES256_GCM_HKDF_4KB,
         ).build()
 
         encryptedFile.openFileOutput().use { it.write(bytes) }
+
+        // Write concluído com sucesso — substituir o arquivo final
+        if (arquivoFinal.exists()) arquivoFinal.delete()
+        arquivoTemp.renameTo(arquivoFinal)
     }
 
     private fun baixarBytes(url: String, onProgress: (Float) -> Unit): ByteArray {
