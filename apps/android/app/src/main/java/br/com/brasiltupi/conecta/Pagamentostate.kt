@@ -22,11 +22,17 @@ package br.com.brasiltupi.conecta
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-// ── REQUEST para a Edge Function criar-preferencia-pagamento ──────────────
+// ── REQUEST para a Edge Function criar-preferencia-pagamento (urgências) ──
 @Serializable
 data class CriarPreferenciaRequest(
-    @SerialName("urgencia_id")    val urgenciaId:    String,
-    @SerialName("idempotency_key") val idempotencyKey: String,  // = urgencia_id por convenção
+    @SerialName("urgencia_id")     val urgenciaId:     String,
+    @SerialName("idempotency_key") val idempotencyKey: String,
+)
+
+// ── REQUEST para a Edge Function criar-preferencia-regular ────────────────
+@Serializable
+data class CriarPreferenciaRegularRequest(
+    @SerialName("agendamento_regular_id") val agendamentoRegularId: String,
 )
 
 // ── RESPOSTA da Edge Function ─────────────────────────────────────────────
@@ -43,8 +49,9 @@ data class PreferenciaResponse(
 @Serializable
 data class Payment(
     val id:          String,
-    @SerialName("urgencia_id")  val urgenciaId:  String,
-    val status:      String,    // pending | approved | rejected | refunded
+    @SerialName("urgencia_id")            val urgenciaId:           String?  = null,
+    @SerialName("agendamento_regular_id") val agendamentoRegularId: String?  = null,
+    val status:      String,
     val valor:       Double,
     @SerialName("mp_payment_id") val mpPaymentId: String? = null,
     @SerialName("criado_em")    val criadoEm:    String? = null,
@@ -69,42 +76,34 @@ sealed class PagamentoState {
      * [descricao] e [valor] são exibidos na tela antes de abrir o checkout.
      */
     data class CheckoutAberto(
-        val initPoint:    String,
-        val preferenceId: String,
-        val descricao:    String,
-        val valor:        Double,
-        val urgenciaId:   String,
+        val initPoint:            String,
+        val preferenceId:         String,
+        val descricao:            String,
+        val valor:                Double,
+        val urgenciaId:           String = "",
+        val agendamentoRegularId: String = "",
     ) : PagamentoState()
 
-    /**
-     * Usuário voltou do checkout via URL de sucesso.
-     * AGUARDANDO confirmação via Realtime (webhook → tabela payments).
-     * Exibir loading com mensagem "Confirmando pagamento...".
-     */
-    data class Processando(val urgenciaId: String) : PagamentoState()
+    data class Processando(
+        val urgenciaId:           String = "",
+        val agendamentoRegularId: String = "",
+    ) : PagamentoState()
 
-    /**
-     * Realtime confirmou `status = approved` na tabela payments.
-     * Navegar para dashboard. Ciclo financeiro fechado.
-     */
     data class Confirmado(
-        val urgenciaId: String,
-        val valor:      Double,
+        val urgenciaId:           String = "",
+        val agendamentoRegularId: String = "",
+        val valor:                Double,
     ) : PagamentoState()
 
-    /**
-     * Pagamento em análise (boleto, pix com delay, antifraude).
-     * Exibir feedback: "Pagamento pendente — você receberá uma notificação."
-     */
-    data class Pendente(val urgenciaId: String) : PagamentoState()
+    data class Pendente(
+        val urgenciaId:           String = "",
+        val agendamentoRegularId: String = "",
+    ) : PagamentoState()
 
-    /**
-     * Usuário fechou o checkout sem concluir (URL de failure ou back).
-     * Oferecer retry sem criar nova preferência (reutilizar initPoint).
-     */
     data class Cancelado(
-        val urgenciaId: String,
-        val initPoint:  String,  // guardar para retry sem nova chamada ao backend
+        val urgenciaId:           String = "",
+        val agendamentoRegularId: String = "",
+        val initPoint:            String,
     ) : PagamentoState()
 
     /**

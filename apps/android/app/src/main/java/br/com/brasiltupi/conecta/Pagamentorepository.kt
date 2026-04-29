@@ -48,6 +48,10 @@ private const val POLLING_INTERVAL_MS         = 5_000L
 
 private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
 
+// ── ATENDIMENTOS REGULARES: EDGE FUNCTION ────────────────────────────────
+private const val EDGE_URL_REGULAR =
+    "https://qfzdchrlbqcvewjivaqz.supabase.co/functions/v1/criar-preferencia-regular"
+
 // ═══════════════════════════════════════════════════════════════════════════
 // OBJETO REPOSITÓRIO
 // ═══════════════════════════════════════════════════════════════════════════
@@ -493,7 +497,7 @@ object PagamentoRepository {
         }
     }
 
-    // ── RESET ─────────────────────────────────────────────────────────────
+    // ── VERIFICAR PENDÊNCIA ───────────────────────────────────────────────
 
     /**
      * Verifica se existe um pagamento pending para o usuário logado.
@@ -530,9 +534,170 @@ object PagamentoRepository {
         }
     }
 
+    // ── RESET ─────────────────────────────────────────────────────────────
+
     fun resetar() {
         realtimeJob?.cancel()
         pollingJob?.cancel()
         scope.launch { _state.emit(PagamentoState.Idle) }
     }
-}
+
+    // ── ATENDIMENTOS REGULARES: CRIAR PREFERÊNCIA ─────────────────────────
+
+    /**
+     * Solicita preferência de pagamento para um Atendimento Regular.
+     * Fluxo idêntico ao de urgências, mas usa a Edge Function separada
+     * e filtra o Realtime por agendamento_regular_id.
+     */
+    fun criarPreferenciaRegular(agendamentoRegularId: String) {
+        scope.launch {
+            _state.emit(PagamentoState.CriandoPreferencia(agendamentoRegularId))
+
+            val token = currentToken ?: run {
+                _state.emit(PagamentoState.Erro(
+                    motivo = "Sessão inválida. Faça login novamente.",
+                    tipo   = TipoErroPagamento.PREFERENCIA_NEGADA,
+                ))
+                return@launch
+            }
+
+            try {
+                val response = httpClient.post(EDGE_URL_REGULAR) {
+                    header("Authorization",   "Bearer $token")
+                    header("apikey",          SUPABASE_KEY)
+                    header("Idempotency-Key", "regular_$agendamentoRegularId")
+                    contentType(ContentType.Application.Json)
+                    setBody(CriarPreferenciaRegularRequest(
+                        agendamentoRegularId = agendamentoRegularId,
+                    ))
+                }
+
+                val corpo = response.bodyAsText()
+                Log.d(TAG, "Edge Function regular HTTP ${response.status.value}")
+
+                when (response.status.value) {
+                    200, 409 -> {
+                        val preferencia = jsonParser.decodeFromString<PreferenciaResponse>(corpo)
+                        _state.emit(PagamentoState.CheckoutAberto(
+                            initPoint            = preferencia.initPoint,
+                            preferenceId         = preferencia.preferenceId,
+                            descricao            = preferencia.descricao,
+                            valor                = preferencia.valor,
+                            urgenciaId           = "",
+                            agendamentoRegularId = agendamentoRegularId,
+                        ))
+                        iniciarEscutaRealtimeRegular(agendamentoRegularId)
+                    }
+                    else -> {
+                        _state.emit(PagamentoState.Erro(
+                            motivo = "Erro ao iniciar pagamento (${response.status.value}).",
+                            tipo   = TipoErroPagamento.REDE,
+                        ))
+                    }
+                }
+            } catch (e: java.net.UnknownHostException) {
+                AppLogger.erroRede(EDGE_URL_REGULAR, e, "regular=$agendamentoRegularId")
+                _state.emit(PagamentoState.Erro(
+                    motivo = "Sem conexão com a internet.",
+                    tipo   = TipoErroPagamento.REDE,
+                ))
+            } catch (e: Exception) {
+                AppLogger.erroRede(EDGE_URL_REGULAR, e, "regular=$agendamentoRegularId")
+                _state.emit(PagamentoState.Erro(
+                    motivo = "Falha inesperada ao criar preferência.",
+                    tipo   = TipoErroPagamento.DESCONHECIDO,
+                ))
+            }
+        }
+    }
+
+    // ── REALTIME PARA ATENDIMENTOS REGULARES ──────────────────────────────
+
+    private fun iniciarEscutaRealtimeRegular(agendamentoRegularId: String) {
+        realtimeJob?.cancel()
+        realtimeJob = scope.launch {
+            val wsClient = io.ktor.client.HttpClient(Android) {
+                install(WebSockets) { pingInterval = 25_000L }
+            }
+            try {
+                val token = currentToken ?: SUPABASE_KEY
+                wsClient.webSocket(
+                    urlString = "$WS_URL?apikey=$API_KEY&vsn=1.0.0",
+                    request   = { header("Authorization", "Bearer $token") },
+                ) {
+                    val joinMsg = buildJsonObject {
+                        put("event", "phx_join")
+                        put("topic", "realtime:payments:agendamento_regular_id=eq.$agendamentoRegularId")
+                        putJsonObject("payload") {
+                            putJsonObject("config") {
+                                putJsonObject("broadcast") { put("self", false) }
+                                putJsonArray("postgres_changes") {
+                                    addJsonObject {
+                                        put("event",  "INSERT")
+                                        put("schema", "public")
+                                        put("table",  "payments")
+                                        put("filter", "agendamento_regular_id=eq.$agendamentoRegularId")
+                                    }
+                                    addJsonObject {
+                                        put("event",  "UPDATE")
+                                        put("schema", "public")
+                                        put("table",  "payments")
+                                        put("filter", "agendamento_regular_id=eq.$agendamentoRegularId")
+                                    }
+                                }
+                            }
+                        }
+                        put("ref", "regular_1")
+                    }.toString()
+                    send(Frame.Text(joinMsg))
+
+                    for (frame in incoming) {
+                        if (frame !is Frame.Text) continue
+                        val confirmado = processarFramePaymentRegular(frame.readText(), agendamentoRegularId)
+                        if (confirmado) break
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLogger.aviso(TAG, "Realtime regular falhou: ${e.message}")
+            } finally {
+                wsClient.close()
+            }
+        }
+    }
+
+    private suspend fun processarFramePaymentRegular(texto: String, agendamentoRegularId: String): Boolean {
+        return try {
+            val obj    = jsonParser.parseToJsonElement(texto).jsonObject
+            val event  = obj["event"]?.jsonPrimitive?.content ?: return false
+            if (event != "postgres_changes") return false
+            val record = obj["payload"]?.jsonObject?.get("data")?.jsonObject?.get("record")?.jsonObject ?: return false
+            val status = record["status"]?.jsonPrimitive?.content ?: return false
+            val valor  = record["valor"]?.jsonPrimitive?.doubleOrNull ?: 0.0
+
+            when (status) {
+                "approved" -> {
+                    realtimeJob?.cancel()
+                    pollingJob?.cancel()
+                    _state.emit(PagamentoState.Confirmado(
+                        agendamentoRegularId = agendamentoRegularId,
+                        valor                = valor,
+                    ))
+                    true
+                }
+                "rejected" -> {
+                    realtimeJob?.cancel()
+                    pollingJob?.cancel()
+                    _state.emit(PagamentoState.Erro(
+                        motivo = "Pagamento recusado. Tente novamente.",
+                        tipo   = TipoErroPagamento.DESCONHECIDO,
+                    ))
+                    true
+                }
+                else -> false
+            }
+        } catch (_: Exception) { false }
+    }
+
+} // fim do object PagamentoRepository

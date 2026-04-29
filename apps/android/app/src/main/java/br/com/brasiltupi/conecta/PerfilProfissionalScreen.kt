@@ -30,9 +30,11 @@ import kotlinx.coroutines.launch
 // ── TELA PRINCIPAL ────────────────────────────────────
 @Composable
 fun PerfilProfissionalScreen(
-    onVoltar: () -> Unit,
-    userId:   String = "",
-    onKyc:    () -> Unit = {},   // navega para kyc-status
+    onVoltar:        () -> Unit,
+    userId:          String = "",
+    onKyc:           () -> Unit = {},
+    // [FIX-UX] Callback de exclusão de conta — necessário para navegar após exclusão
+    onContaExcluida: () -> Unit = {},
 ) {
     var carregando      by remember { mutableStateOf(userId.isNotEmpty()) }
     var abaSelecionada  by remember { mutableStateOf("perfil") }
@@ -48,7 +50,7 @@ fun PerfilProfissionalScreen(
     var credReal        by remember { mutableStateOf(0) }
     var isPMPReal       by remember { mutableStateOf(false) }
     var dispUrgenteReal by remember { mutableStateOf(false) }
-    var kycStatus       by remember { mutableStateOf("") }   // "approved" | "pending" | "rejected" | "not_submitted" | ""
+    var kycStatus       by remember { mutableStateOf("") }
     val scope   = rememberCoroutineScope()
     val context = LocalContext.current
 
@@ -76,14 +78,10 @@ fun PerfilProfissionalScreen(
                 isPMPReal       = meu.is_pmp
                 dispUrgenteReal = meu.disponivel_urgente
             }
-            // ── Carregar status KYC para exibir badge ─────────────────────
-            // buscarKycDocumentos usa currentToken — mesmo padrao do projeto
             try {
                 val docs = buscarKycDocumentos(userId)
                 kycStatus = docs.firstOrNull()?.status ?: "not_submitted"
-            } catch (_: Exception) {
-                // Badge simplesmente nao exibe se a consulta falhar
-            }
+            } catch (_: Exception) { }
         } finally {
             carregando = false
         }
@@ -154,7 +152,6 @@ fun PerfilProfissionalScreen(
                 )
             }
 
-            // Botão editar capa
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -166,7 +163,6 @@ fun PerfilProfissionalScreen(
                 Text("📷 Editar capa", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
             }
 
-            // Voltar
             TextButton(
                 onClick  = onVoltar,
                 modifier = Modifier
@@ -176,7 +172,6 @@ fun PerfilProfissionalScreen(
                 Text("← Voltar", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
             }
 
-            // Avatar
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -209,7 +204,6 @@ fun PerfilProfissionalScreen(
                             )
                         }
                     }
-                    // Botão editar foto
                     Box(
                         modifier         = Modifier
                             .size(22.dp)
@@ -234,8 +228,6 @@ fun PerfilProfissionalScreen(
             Spacer(modifier = Modifier.height(10.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-
-                // Badge: Profissional Certificado (sempre visível)
                 Box(
                     modifier = Modifier
                         .background(Color(0xFFFDF3D8), RoundedCornerShape(20.dp))
@@ -249,7 +241,6 @@ fun PerfilProfissionalScreen(
                     )
                 }
 
-                // Badge: PMP (condicional)
                 if (isPMPReal) {
                     Box(
                         modifier = Modifier
@@ -260,32 +251,21 @@ fun PerfilProfissionalScreen(
                     }
                 }
 
-                // ── Badge KYC — estado dinâmico ───────────────────────────
                 when (kycStatus) {
-                    "approved"                       -> Box(
+                    "approved" -> Box(
                         modifier = Modifier
                             .background(Color(0xFFE8F5E9), RoundedCornerShape(20.dp))
                             .padding(horizontal = 12.dp, vertical = 5.dp)
                     ) {
-                        Text(
-                            "✅ Verificado",
-                            fontSize   = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color      = Color(0xFF2E7D32),
-                        )
+                        Text("✅ Verificado", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
                     }
-                    "pending"                        -> Box(
+                    "pending" -> Box(
                         modifier = Modifier
                             .background(Color(0xFFFFF8E1), RoundedCornerShape(20.dp))
                             .clickable { onKyc() }
                             .padding(horizontal = 12.dp, vertical = 5.dp)
                     ) {
-                        Text(
-                            "⏳ Em análise",
-                            fontSize   = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color      = Color(0xFFF57F17),
-                        )
+                        Text("⏳ Em análise", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF57F17))
                     }
                     "rejected", "not_submitted", "" -> Box(
                         modifier = Modifier
@@ -361,7 +341,7 @@ fun PerfilProfissionalScreen(
         HorizontalDivider(color = SurfaceOff)
 
         when (abaSelecionada) {
-            "perfil"    -> AbaPerfilProfissional(
+            "perfil" -> AbaPerfilProfissional(
                 nomeInicial      = nomeReal,
                 areaInicial      = areaReal,
                 cidadeInicial    = cidadeReal,
@@ -372,8 +352,18 @@ fun PerfilProfissionalScreen(
                 userId           = userId,
                 telefoneReal     = telefoneReal,
             )
-            "seguranca" -> AbaSegurancaProfissional(email = emailReal, telefone = telefoneReal)
-            "urgente"   -> AbaUrgenteProfissional(disponivelInicial = dispUrgenteReal, userId = userId)
+            // [FIX-UX] Passar userId e onContaExcluida — guard de dono de conta
+            //           e zona de perigo agora vivem dentro da aba
+            "seguranca" -> AbaSegurancaProfissional(
+                email           = emailReal,
+                telefone        = telefoneReal,
+                userId          = userId,
+                onContaExcluida = onContaExcluida,
+            )
+            "urgente" -> AbaUrgenteProfissional(
+                disponivelInicial = dispUrgenteReal,
+                userId            = userId,
+            )
         }
     }
 }
@@ -458,10 +448,10 @@ fun AbaPerfilProfissional(
                     }
                 } else {
                     listOf(
-                        "Nome"          to nome,
-                        "Área"          to areaInicial,
-                        "Cidade"        to cidade,
-                        "Membro desde"  to "--",
+                        "Nome"         to nome,
+                        "Área"         to areaInicial,
+                        "Cidade"       to cidade,
+                        "Membro desde" to "--",
                     ).forEach { (label, valor) ->
                         Row(
                             modifier              = Modifier
@@ -590,17 +580,36 @@ fun AbaPerfilProfissional(
 }
 
 // ── ABA: SEGURANÇA ────────────────────────────────────
+// [FIX-UX] Assinatura atualizada: recebe userId e onContaExcluida.
+//           Guard isDonoDoPerfilAtual controla visibilidade da zona de perigo.
 @Composable
 fun AbaSegurancaProfissional(
-    email:    String = "",
-    telefone: String = "",
+    email:           String  = "",
+    telefone:        String  = "",
+    // [FIX-UX] userId do perfil exibido — comparado com AuthRepository.userId
+    userId:          String  = "",
+    onContaExcluida: () -> Unit = {},
 ) {
+    // [FIX-UX] Guard: botão só aparece quando o usuário logado é o dono do perfil.
+    // Isso impede que admins ou visualizações externas exponham a opção de exclusão.
+    val isDonoDoPerfilAtual = remember(userId) {
+        userId.isNotEmpty() && userId == AuthRepository.userId
+    }
+
+    var mostrarDialogConfirmacao1 by remember { mutableStateOf(false) }
+    var mostrarDialogConfirmacao2 by remember { mutableStateOf(false) }
+    var excluindo                 by remember { mutableStateOf(false) }
+    var erroExclusao              by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
     Column(
         modifier            = Modifier
             .fillMaxWidth()
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+
+        // ── Card: Segurança da conta ──────────────────────────────────────
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape    = RoundedCornerShape(12.dp),
@@ -610,10 +619,10 @@ fun AbaSegurancaProfissional(
                 Text("Segurança da conta", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(12.dp))
                 listOf(
-                    Triple("E-mail",              email,        "Alterar"),
-                    Triple("Senha",               "••••••••••", "Alterar"),
-                    Triple("Telefone",            telefone,     "Alterar"),
-                    Triple("Autenticação 2FA",    "Desativado", "Ativar"),
+                    Triple("E-mail",           email,        "Alterar"),
+                    Triple("Senha",            "••••••••••", "Alterar"),
+                    Triple("Telefone",         telefone,     "Alterar"),
+                    Triple("Autenticação 2FA", "Desativado", "Ativar"),
                 ).forEach { (label, valor, acao) ->
                     Row(
                         modifier              = Modifier
@@ -635,6 +644,7 @@ fun AbaSegurancaProfissional(
             }
         }
 
+        // ── Banner: dados protegidos ──────────────────────────────────────
         Row(
             modifier          = Modifier
                 .fillMaxWidth()
@@ -660,6 +670,180 @@ fun AbaSegurancaProfissional(
                 )
             }
         }
+
+        // ── [FIX-UX] Zona de perigo — visível SOMENTE para o dono da conta ──
+        if (isDonoDoPerfilAtual) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape    = RoundedCornerShape(12.dp),
+                colors   = CardDefaults.cardColors(containerColor = UrgenteClaro),
+                border   = BorderStroke(1.dp, Urgente.copy(alpha = 0.3f)),
+            ) {
+                Column(
+                    modifier            = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("⚠️", fontSize = 18.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Zona de perigo",
+                            fontSize   = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color      = Urgente,
+                        )
+                    }
+                    Text(
+                        "A exclusão da conta remove permanentemente seus dados pessoais conforme a " +
+                                "Lei Geral de Proteção de Dados (LGPD, Art. 18). Esta ação não pode ser desfeita.",
+                        fontSize   = 13.sp,
+                        color      = Urgente.copy(alpha = 0.85f),
+                        lineHeight = 19.sp,
+                    )
+                    OutlinedButton(
+                        onClick  = { mostrarDialogConfirmacao1 = true },
+                        enabled  = !excluindo,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape    = RoundedCornerShape(8.dp),
+                        border   = BorderStroke(1.dp, Urgente),
+                        colors   = ButtonDefaults.outlinedButtonColors(
+                            contentColor         = Urgente,
+                            disabledContentColor = Urgente.copy(alpha = 0.5f),
+                        ),
+                    ) {
+                        Text(
+                            "Excluir minha conta",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize   = 14.sp,
+                        )
+                    }
+
+                    // Mensagem de erro (exibida inline, abaixo do botão)
+                    if (erroExclusao != null) {
+                        LaunchedEffect(erroExclusao) {
+                            kotlinx.coroutines.delay(5_000)
+                            erroExclusao = null
+                        }
+                        Row(
+                            modifier          = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFFFEBEE), RoundedCornerShape(8.dp))
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("⚠️", fontSize = 14.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(erroExclusao!!, fontSize = 12.sp, color = Urgente, lineHeight = 17.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── [FIX-UX] Dialog passo 1 — aviso sobre consequências ──────────────
+    if (mostrarDialogConfirmacao1) {
+        AlertDialog(
+            onDismissRequest = { mostrarDialogConfirmacao1 = false },
+            title = {
+                Text("Excluir conta?", fontWeight = FontWeight.Bold, color = Ink)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Esta ação é permanente e não pode ser desfeita. Ao confirmar:",
+                        fontSize = 14.sp,
+                        color    = Ink,
+                    )
+                    listOf(
+                        "• Seu perfil será desativado imediatamente",
+                        "• Todos os seus dados pessoais serão anonimizados em até 30 dias",
+                        "• Atendimentos pendentes serão cancelados",
+                        "• Saldos disponíveis serão processados conforme nossos Termos",
+                    ).forEach { item ->
+                        Text(item, fontSize = 13.sp, color = InkMuted)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    mostrarDialogConfirmacao1 = false
+                    mostrarDialogConfirmacao2 = true
+                }) {
+                    Text("Entendi, continuar", color = Urgente, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { mostrarDialogConfirmacao1 = false }) {
+                    Text("Cancelar", color = InkMuted)
+                }
+            },
+            containerColor = Surface,
+        )
+    }
+
+    // ── [FIX-UX] Dialog passo 2 — confirmação final (duplo opt-in LGPD) ──
+    if (mostrarDialogConfirmacao2) {
+        AlertDialog(
+            onDismissRequest = { if (!excluindo) mostrarDialogConfirmacao2 = false },
+            title = {
+                Text("Tem certeza absoluta?", fontWeight = FontWeight.Bold, color = Urgente)
+            },
+            text = {
+                Text(
+                    "Esta é a última etapa. Ao confirmar, sua conta será excluída de forma permanente " +
+                            "e seus dados serão removidos conforme a LGPD (Art. 18).",
+                    fontSize = 14.sp,
+                    color    = Ink,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        excluindo    = true
+                        erroExclusao = null
+                        scope.launch {
+                            val ok = excluirContaAndroid()
+                            if (ok) {
+                                signOutAndroid()
+                                mostrarDialogConfirmacao2 = false
+                                onContaExcluida()
+                            } else {
+                                excluindo    = false
+                                erroExclusao = "Não foi possível excluir a conta. Tente novamente ou contate o suporte."
+                                mostrarDialogConfirmacao2 = false
+                            }
+                        }
+                    },
+                    enabled = !excluindo,
+                    colors  = ButtonDefaults.buttonColors(containerColor = Urgente),
+                ) {
+                    if (excluindo) {
+                        CircularProgressIndicator(
+                            modifier    = Modifier.size(16.dp),
+                            color       = Color.White,
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Text(
+                        if (excluindo) "Excluindo..." else "Sim, excluir minha conta",
+                        color      = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize   = 14.sp,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick  = { if (!excluindo) mostrarDialogConfirmacao2 = false },
+                    enabled  = !excluindo,
+                ) {
+                    Text("Voltar", color = InkMuted)
+                }
+            },
+            containerColor = Surface,
+        )
     }
 }
 
@@ -722,8 +906,8 @@ fun AbaUrgenteProfissional(
                                 }
                             },
                             colors = SwitchDefaults.colors(
-                                checkedThumbColor  = Color.White,
-                                checkedTrackColor  = Verde,
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Verde,
                             ),
                         )
                     }
@@ -792,9 +976,9 @@ fun AbaUrgenteProfissional(
                 Spacer(modifier = Modifier.height(14.dp))
                 Row(modifier = Modifier.fillMaxWidth()) {
                     listOf(
-                        Triple("3",    "Urgentes\nrealizadas",    Verde),
-                        Triple("100%", "Taxa de\npontualidade",   Azul),
-                        Triple("0",    "Descum-\nprimenetos",     Dourado),
+                        Triple("3",    "Urgentes\nrealizadas",  Verde),
+                        Triple("100%", "Taxa de\npontualidade", Azul),
+                        Triple("0",    "Descum-\nprimenetos",   Dourado),
                     ).forEach { (num, label, cor) ->
                         Column(
                             modifier            = Modifier.weight(1f),

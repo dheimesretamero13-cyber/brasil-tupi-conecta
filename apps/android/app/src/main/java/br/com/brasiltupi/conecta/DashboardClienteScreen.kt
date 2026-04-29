@@ -18,7 +18,12 @@ import androidx.compose.ui.unit.sp
 import br.com.brasiltupi.conecta.ui.theme.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
+import androidx.compose.material3.ExperimentalMaterial3Api
 import kotlinx.coroutines.coroutineScope
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.layout.PaddingValues
 
 // ── DADOS ─────────────────────────────────────────────
 @Serializable
@@ -37,15 +42,19 @@ data class ConsultaCliente(
 )
 
 // ── TELA PRINCIPAL ────────────────────────────────────
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardClienteScreen(
-    onSair:    () -> Unit,
-    onEstudio: ((String) -> Unit)?       = null,
-    onPerfil:  (() -> Unit)?             = null,
-    onChat:    ((String, String) -> Unit)? = null,
-    onSuporte: ((String?) -> Unit)?      = null,   // ← Fase 4.3
+    onSair:       () -> Unit,
+    onEstudio:    ((String) -> Unit)?         = null,
+    onPerfil:     (() -> Unit)?               = null,
+    onAgendar:    ((String, String) -> Unit)? = null,
+    onChat:       ((String, String) -> Unit)? = null,
+    onSuporte:    ((String?) -> Unit)?        = null,
+    onBiblioteca: (() -> Unit)?               = null,
 ) {
     var abaSelecionada by remember { mutableStateOf("visao") }
+    var menuExpandido  by remember { mutableStateOf(false) }
     var consultas      by remember { mutableStateOf<List<ConsultaCliente>>(emptyList()) }
     var loading        by remember { mutableStateOf(true) }
     var nomeUsuario    by remember { mutableStateOf("") }
@@ -55,7 +64,7 @@ fun DashboardClienteScreen(
 
     LaunchedEffect(userId) {
         if (userId == null) return@LaunchedEffect
-        coroutineScope {
+        kotlinx.coroutines.coroutineScope {
             val consultasDeferred = async { buscarConsultasCliente(userId) }
             val perfilDeferred    = async { getPerfilAndroid(userId) }
             consultas = consultasDeferred.await()
@@ -71,128 +80,157 @@ fun DashboardClienteScreen(
     val pendentes    = consultas.count { it.status == "concluida" && !it.avaliada }
     val primeiroNome = nomeUsuario.split(" ").firstOrNull() ?: "Cliente"
 
-    val abas = listOf(
-        "visao"     to "Visão Geral",
-        "consultas" to "Consultas",
-        "busca"     to "Buscar",
-        "perfil"    to "Meu Perfil",
+    // ── Abas primárias e menu (espelho do DashboardProfissional) ─────────
+    val abasPrimarias = listOf(
+        Triple("visao",      "Início",    "🏠"),
+        Triple("consultas",  "Consultas",  "📋"),
+        Triple("busca",      "Buscar",     "🔍"),
+        Triple("biblioteca", "Biblioteca", "📚"),
+    )
+    val menuItens = listOf(
+        Triple("perfil",  "Meu Perfil", "👤"),
+        Triple("suporte", "Suporte",    "🛡️"),
+        Triple("sair",    "Sair",       "🚪"),
     )
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(SurfaceWarm)
-            .verticalScroll(rememberScrollState()),
-    ) {
-        // ── Topbar ────────────────────────────────────────────────────────
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Surface)
-                .padding(horizontal = 20.dp)
-                .padding(top = 48.dp, bottom = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment     = Alignment.CenterVertically,
-        ) {
-            Column {
-                Text("Brasil Tupi", fontSize = 16.sp, fontWeight = FontWeight.Black, color = Azul)
-                Text(
-                    "Conecta", fontSize = 16.sp, fontWeight = FontWeight.Black, color = Verde,
-                    modifier = Modifier.offset(y = (-4).dp),
-                )
-            }
-            Row(
-                verticalAlignment     = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                if (pendentes > 0) {
-                    Box {
-                        IconButton(onClick = { abaSelecionada = "consultas" }) {
-                            Text("🔔", fontSize = 20.sp)
-                        }
+    val scope = rememberCoroutineScope()
+
+    Scaffold(
+        containerColor = SurfaceWarm,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
-                            modifier         = Modifier
-                                .size(16.dp)
-                                .background(Urgente, RoundedCornerShape(50))
-                                .align(Alignment.TopEnd),
+                            modifier         = Modifier.size(34.dp)
+                                .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(50)),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text("$pendentes", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text(iniciais.ifEmpty { "?" }, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                nomeUsuario.ifEmpty { "Brasil Tupi" },
+                                fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White,
+                            )
+                            Text("Painel do Cliente", fontSize = 11.sp, color = Color.White.copy(alpha = 0.75f))
                         }
                     }
+                },
+                actions = {
+                    if (pendentes > 0) {
+                        Box {
+                            IconButton(onClick = { abaSelecionada = "consultas" }) {
+                                Text("🔔", fontSize = 20.sp)
+                            }
+                            Box(
+                                modifier         = Modifier
+                                    .size(16.dp)
+                                    .background(Urgente, RoundedCornerShape(50))
+                                    .align(Alignment.TopEnd),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("$pendentes", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                        }
+                    }
+                    Box {
+                        IconButton(onClick = { menuExpandido = true }) {
+                            Text("⋮", fontSize = 24.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                        DropdownMenu(
+                            expanded         = menuExpandido,
+                            onDismissRequest = { menuExpandido = false },
+                        ) {
+                            menuItens.forEach { (id, label, icon) ->
+                                if (id == "sair") HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = SurfaceOff)
+                                DropdownMenuItem(
+                                    leadingIcon = { Text(icon, fontSize = 16.sp) },
+                                    text = {
+                                        Text(
+                                            label,
+                                            fontSize   = 14.sp,
+                                            color      = if (id == "sair") Urgente else Ink,
+                                            fontWeight = if (id == "sair") FontWeight.Bold else FontWeight.Normal,
+                                        )
+                                    },
+                                    onClick = {
+                                        menuExpandido = false
+                                        when (id) {
+                                            "perfil"  -> if (onPerfil != null) onPerfil() else Unit
+                                            "suporte" -> onSuporte?.invoke(null)
+                                            "sair"    -> scope.launch { signOutAndroid(); onSair() }
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Verde),
+            )
+        },
+        bottomBar = {
+            NavigationBar(containerColor = Surface, tonalElevation = 4.dp) {
+                abasPrimarias.forEach { (id, label, icon) ->
+                    NavigationBarItem(
+                        selected = abaSelecionada == id,
+                        onClick  = {
+                            when (id) {
+                                "biblioteca" -> onBiblioteca?.invoke()
+                                else         -> abaSelecionada = id
+                            }
+                        },
+                        icon  = { Text(icon, fontSize = if (abaSelecionada == id) 22.sp else 20.sp) },
+                        label = { Text(label, fontSize = 10.sp, fontWeight = if (abaSelecionada == id) FontWeight.Bold else FontWeight.Normal, maxLines = 1) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor   = Verde,
+                            selectedTextColor   = Verde,
+                            unselectedIconColor = InkMuted,
+                            unselectedTextColor = InkMuted,
+                            indicatorColor      = Verde.copy(alpha = 0.10f),
+                        ),
+                    )
                 }
+            }
+        },
+    ) { innerPadding ->
+        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            if (loading) {
                 Box(
-                    modifier         = Modifier.size(36.dp).background(Verde, RoundedCornerShape(50)),
+                    modifier         = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(iniciais.ifEmpty { "?" }, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    CircularProgressIndicator(color = Verde)
                 }
-                val scope = rememberCoroutineScope()
-                TextButton(onClick = {
-                    scope.launch { signOutAndroid(); onSair() }
-                }) {
-                    Text("Sair", color = InkMuted, fontSize = 13.sp)
-                }
-            }
-        }
-        HorizontalDivider(color = SurfaceOff)
-
-        // ── Tabs ──────────────────────────────────────────────────────────
-        TabRow(
-            selectedTabIndex = abas.indexOfFirst { it.first == abaSelecionada },
-            containerColor   = Surface,
-            contentColor     = Verde,
-        ) {
-            abas.forEach { (id, label) ->
-                Tab(
-                    selected = abaSelecionada == id,
-                    onClick  = { abaSelecionada = id },
-                    text     = {
-                        Text(
-                            label,
-                            fontSize   = 13.sp,
-                            fontWeight = if (abaSelecionada == id) FontWeight.Bold else FontWeight.Normal,
-                            color      = if (abaSelecionada == id) Verde else InkMuted,
-                        )
-                    },
-                )
-            }
-        }
-
-        // ── Conteúdo ──────────────────────────────────────────────────────
-        if (loading) {
-            Box(
-                modifier         = Modifier.fillMaxWidth().padding(48.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator(color = Verde)
-            }
-        } else {
-            when (abaSelecionada) {
-                "visao" -> AbaVisaoGeralCliente(
-                    consultas          = consultas,
-                    onNavegar          = { abaSelecionada = it },
-                    primeiroNome       = primeiroNome,
-                    onConsultaAvaliada = { id, n ->
-                        consultas = consultas.map { c ->
-                            if (c.id == id) c.copy(avaliada = true, avaliacao = n) else c
+            } else {
+                when (abaSelecionada) {
+                    "visao" -> AbaVisaoGeralCliente(
+                        consultas          = consultas,
+                        onNavegar          = { abaSelecionada = it },
+                        primeiroNome       = primeiroNome,
+                        onConsultaAvaliada = { id, n ->
+                            consultas = consultas.map { c ->
+                                if (c.id == id) c.copy(avaliada = true, avaliacao = n) else c
+                            }
+                        },
+                    )
+                    "consultas" -> AbaConsultasCliente(
+                        consultas          = consultas,
+                        onConsultaAvaliada = { id, n ->
+                            consultas = consultas.map { c ->
+                                if (c.id == id) c.copy(avaliada = true, avaliacao = n) else c
+                            }
+                        },
+                        onChat    = onChat,
+                        onSuporte = onSuporte,
+                    )
+                    "busca"  -> AbaBuscaCliente(onEstudio = onEstudio, onAgendarRegular = onAgendar)
+                    "perfil" -> {
+                        if (onPerfil != null) {
+                            LaunchedEffect(Unit) { onPerfil() }
                         }
-                    },
-                )
-                "consultas" -> AbaConsultasCliente(
-                    consultas          = consultas,
-                    onConsultaAvaliada = { id, n ->
-                        consultas = consultas.map { c ->
-                            if (c.id == id) c.copy(avaliada = true, avaliacao = n) else c
-                        }
-                    },
-                    onChat    = onChat,
-                    onSuporte = onSuporte,
-                )
-                "busca"  -> AbaBuscaCliente(onEstudio = onEstudio)
-                "perfil" -> {
-                    if (onPerfil != null) {
-                        LaunchedEffect(Unit) { onPerfil() }
                     }
                 }
             }
@@ -213,7 +251,7 @@ fun AbaVisaoGeralCliente(
     var avaliarConsulta by remember { mutableStateOf<ConsultaCliente?>(null) }
 
     Column(
-        modifier            = Modifier.fillMaxWidth().padding(16.dp),
+        modifier            = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Card(
@@ -367,13 +405,26 @@ fun AbaVisaoGeralCliente(
                             modifier          = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            // Alerta: vermelho = hoje, verde = futuro
+                            val isHojeLocal = run {
+                                try {
+                                    val p   = c.data.split("/")
+                                    val cal = java.util.Calendar.getInstance()
+                                    p[0].toInt() == cal.get(java.util.Calendar.DAY_OF_MONTH) &&
+                                            p[1].toInt() == cal.get(java.util.Calendar.MONTH) + 1
+                                } catch (e: Exception) { false }
+                            }
+                            val corBox  = if (isHojeLocal) UrgenteClaro else VerdeClaro
+                            val corNum  = if (isHojeLocal) Urgente else Verde
+                            val mesAbbr = listOf("","jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez")
+                                .getOrElse(try { c.data.split("/").getOrElse(1){"0"}.toInt() } catch (e: Exception){ 0 }) { "" }
                             Box(
-                                modifier         = Modifier.size(44.dp).background(VerdeClaro, RoundedCornerShape(10.dp)),
+                                modifier         = Modifier.size(44.dp).background(corBox, RoundedCornerShape(10.dp)),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(c.data.split("/")[0], fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Verde)
-                                    Text("abr", fontSize = 9.sp, color = Verde)
+                                    Text(c.data.split("/").getOrElse(0){"--"}, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = corNum)
+                                    Text(mesAbbr, fontSize = 9.sp, color = corNum)
                                 }
                             }
                             Spacer(modifier = Modifier.width(12.dp))
@@ -537,7 +588,7 @@ fun AbaConsultasCliente(
     }
 
     Column(
-        modifier            = Modifier.fillMaxWidth().padding(16.dp),
+        modifier            = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -732,19 +783,16 @@ fun AbaConsultasCliente(
 }
 
 // ── ABA: BUSCA ────────────────────────────────────────
+// Fase 7 — 3 abas internas: Urgente | PMP | Geral
+// Cada aba tem estado de carregamento e filtros independentes.
 @Composable
-fun AbaBuscaCliente(onEstudio: ((String) -> Unit)? = null) {
+fun AbaBuscaCliente(
+    onEstudio:        ((String) -> Unit)?         = null,
+    onAgendarRegular: ((String, String) -> Unit)? = null,
+) {
+    // ── Estado de navegação interna ───────────────────
     var profSelecionado by remember { mutableStateOf<ProfissionalPMP?>(null) }
     var agendando       by remember { mutableStateOf<Pair<ProfissionalPMP, String>?>(null) }
-    var profissionais   by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
-    var loadingProfs    by remember { mutableStateOf(true) }
-    var urgentesCount   by remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(Unit) {
-        profissionais = getProfissionaisPMPAndroid(false, "")
-        urgentesCount = profissionais.count { it.disponivel_urgente }
-        loadingProfs  = false
-    }
 
     if (profSelecionado != null) {
         PerfilPublicoScreen(
@@ -754,7 +802,6 @@ fun AbaBuscaCliente(onEstudio: ((String) -> Unit)? = null) {
         )
         return
     }
-
     if (agendando != null) {
         AgendarScreen(
             prof        = agendando!!.first,
@@ -765,44 +812,344 @@ fun AbaBuscaCliente(onEstudio: ((String) -> Unit)? = null) {
         return
     }
 
-    Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Card(onClick = {}, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0808))) {
-            Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("⚡", fontSize = 28.sp)
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Atendimento urgente", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    Text("$urgentesCount disponíveis agora · 45min", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
-                }
+    // ── Estado por aba ────────────────────────────────
+    var abaAtiva by remember { mutableStateOf(0) }  // 0=Urgente 1=PMP 2=Geral
+
+    // Aba Urgente
+    var listaUrgente  by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
+    var loadUrgente   by remember { mutableStateOf(true) }
+    var filtroUrgente by remember { mutableStateOf("") }  // filtro por area
+
+    // Aba PMP
+    var listaPMP      by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
+    var loadPMP       by remember { mutableStateOf(true) }
+    var filtroPMP     by remember { mutableStateOf("") }  // filtro por area
+
+    // Aba Geral — filtros múltiplos
+    var listaGeral        by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
+    var listaGeralBase    by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
+    var loadGeral         by remember { mutableStateOf(true) }
+    var filtroGeralArea   by remember { mutableStateOf("") }
+    var filtroSomentePMP  by remember { mutableStateOf(false) }
+    var filtroSomenteUrg  by remember { mutableStateOf(false) }
+    var filtroSomenteVer  by remember { mutableStateOf(false) }
+
+    // ── Carregamento lazy por aba ─────────────────────
+    LaunchedEffect(abaAtiva) {
+        when (abaAtiva) {
+            0 -> if (loadUrgente) {
+                listaUrgente = getProfissionaisPMPAndroid(
+                    somenteUrgente   = true,
+                    busca            = "",
+                    aplicarFiltroPMP = false,
+                )
+                loadUrgente = false
+            }
+            1 -> if (loadPMP) {
+                listaPMP = getProfissionaisPMPAndroid(
+                    somenteUrgente   = false,
+                    busca            = "",
+                    aplicarFiltroPMP = true,
+                )
+                loadPMP = false
+            }
+            2 -> if (loadGeral) {
+                listaGeralBase = getProfissionaisPMPAndroid(
+                    somenteUrgente   = false,
+                    busca            = "",
+                    aplicarFiltroPMP = false,
+                )
+                listaGeral = listaGeralBase
+                loadGeral  = false
+            }
+        }
+    }
+
+    // Aplicar filtros da aba Geral em tempo real
+    LaunchedEffect(filtroGeralArea, filtroSomentePMP, filtroSomenteUrg, filtroSomenteVer) {
+        listaGeral = listaGeralBase.filter { p ->
+            val matchArea = filtroGeralArea.isBlank() ||
+                    p.area.contains(filtroGeralArea, ignoreCase = true) ||
+                    (p.perfis?.nome ?: "").contains(filtroGeralArea, ignoreCase = true)
+            val matchPMP = !filtroSomentePMP || p.is_pmp
+            val matchUrg = !filtroSomenteUrg || p.disponivel_urgente
+            val matchVer = !filtroSomenteVer || p.verificado
+            matchArea && matchPMP && matchUrg && matchVer
+        }
+    }
+
+    // ── Layout ────────────────────────────────────────
+    Column(modifier = Modifier.fillMaxSize()) {
+
+        // TabRow das 3 abas
+        TabRow(
+            selectedTabIndex = abaAtiva,
+            containerColor   = Surface,
+            contentColor     = Verde,
+        ) {
+            listOf(
+                Triple(0, "⚡ Urgente", UrgenteClaro),
+                Triple(1, "🏆 PMP",     DouradoClaro),
+                Triple(2, "🔍 Geral",   SurfaceWarm),
+            ).forEach { (idx, label, _) ->
+                Tab(
+                    selected = abaAtiva == idx,
+                    onClick  = { abaAtiva = idx },
+                    text     = {
+                        Text(
+                            label,
+                            fontSize   = 13.sp,
+                            fontWeight = if (abaAtiva == idx) FontWeight.Bold else FontWeight.Normal,
+                            color      = if (abaAtiva == idx) Verde else InkMuted,
+                        )
+                    },
+                )
             }
         }
 
-        Text("Profissionais PMP", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
+        // Conteúdo por aba
+        when (abaAtiva) {
 
-        if (loadingProfs) {
-            Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Verde)
+            // ── ABA URGENTE ───────────────────────────
+            0 -> {
+                AbaInternaBusca(
+                    descricao = "Profissionais disponíveis agora · respondem em até 45 min",
+                    corBanner = Color(0xFF1A0808),
+                    corTexto  = Color(0xFFFF8A80),
+                    icone     = "⚡",
+                    loading   = loadUrgente,
+                    lista     = listaUrgente.filter { p ->
+                        filtroUrgente.isBlank() ||
+                                p.area.contains(filtroUrgente, ignoreCase = true) ||
+                                (p.perfis?.nome ?: "").contains(filtroUrgente, ignoreCase = true)
+                    },
+                    filtroTexto     = filtroUrgente,
+                    onFiltroChange  = { filtroUrgente = it },
+                    placeholderFiltro = "Tipo de profissional (ex: psicólogo)",
+                    onClickProf     = { profSelecionado = it.toProfissionalPMP() },
+                    onEstudio       = onEstudio,
+                    onAgendar       = onAgendarRegular,
+                    mostrarBotaoUrg = true,
+                )
             }
-        } else {
-            profissionais.forEach { prof ->
-                CardProfissionalReal(prof = prof, onClick = { profSelecionado = prof.toProfissionalPMP() }, onEstudio = onEstudio)
+
+            // ── ABA PMP ───────────────────────────────
+            1 -> {
+                AbaInternaBusca(
+                    descricao = "Profissionais com Selo de Maestria — avaliação 4★ ou superior",
+                    corBanner = DouradoClaro,
+                    corTexto  = Dourado,
+                    icone     = "🏆",
+                    loading   = loadPMP,
+                    lista     = listaPMP.filter { p ->
+                        filtroPMP.isBlank() ||
+                                p.area.contains(filtroPMP, ignoreCase = true) ||
+                                (p.perfis?.nome ?: "").contains(filtroPMP, ignoreCase = true)
+                    },
+                    filtroTexto       = filtroPMP,
+                    onFiltroChange    = { filtroPMP = it },
+                    placeholderFiltro = "Tipo de profissional (ex: médico)",
+                    onClickProf       = { profSelecionado = it.toProfissionalPMP() },
+                    onEstudio         = onEstudio,
+                    onAgendar         = onAgendarRegular,
+                    mostrarBotaoUrg   = false,
+                )
+            }
+
+            // ── ABA GERAL ─────────────────────────────
+            2 -> {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Painel de filtros
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Surface)
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedTextField(
+                            value         = filtroGeralArea,
+                            onValueChange = { filtroGeralArea = it },
+                            placeholder   = { Text("Médico, psicólogo, nutricionista...", fontSize = 12.sp) },
+                            singleLine    = true,
+                            modifier      = Modifier.fillMaxWidth(),
+                            shape         = RoundedCornerShape(8.dp),
+                            colors        = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde),
+                        )
+                        Row(
+                            modifier              = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            FilterChip(
+                                selected = filtroSomentePMP,
+                                onClick  = { filtroSomentePMP = !filtroSomentePMP },
+                                label    = { Text("🏆 PMP", fontSize = 11.sp) },
+                                colors   = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = DouradoClaro,
+                                    selectedLabelColor     = Dourado,
+                                ),
+                            )
+                            FilterChip(
+                                selected = filtroSomenteVer,
+                                onClick  = { filtroSomenteVer = !filtroSomenteVer },
+                                label    = { Text("✅ Verificado", fontSize = 11.sp) },
+                                colors   = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Verde.copy(alpha = 0.15f),
+                                    selectedLabelColor     = Verde,
+                                ),
+                            )
+                            FilterChip(
+                                selected = filtroSomenteUrg,
+                                onClick  = { filtroSomenteUrg = !filtroSomenteUrg },
+                                label    = { Text("⚡ Urgente", fontSize = 11.sp) },
+                                colors   = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = UrgenteClaro,
+                                    selectedLabelColor     = Urgente,
+                                ),
+                            )
+                        }
+                    }
+                    HorizontalDivider(color = SurfaceOff)
+
+                    if (loadGeral) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = Verde)
+                        }
+                    } else if (listaGeral.isEmpty()) {
+                        EmptyBusca("Nenhum profissional encontrado", "Tente remover alguns filtros.")
+                    } else {
+                        LazyColumn(
+                            modifier        = Modifier.fillMaxSize(),
+                            contentPadding  = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            item {
+                                Text(
+                                    "${listaGeral.size} profissional${if (listaGeral.size != 1) "is" else ""} encontrado${if (listaGeral.size != 1) "s" else ""}",
+                                    fontSize = 12.sp, color = InkMuted,
+                                )
+                            }
+                            items(listaGeral) { prof ->
+                                CardProfissionalBusca(
+                                    prof           = prof,
+                                    mostrarBotaoUrg = false,
+                                    onClickProf    = { profSelecionado = prof.toProfissionalPMP() },
+                                    onEstudio      = onEstudio,
+                                    onAgendar      = onAgendarRegular,
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
+// ── SUB-COMPOSABLE: conteúdo compartilhado das abas Urgente e PMP ──────────
 @Composable
-private fun CardProfissionalReal(
-    prof:      ProfissionalComPerfil,
-    onClick:   () -> Unit,
-    onEstudio: ((String) -> Unit)? = null,
+private fun AbaInternaBusca(
+    descricao:         String,
+    corBanner:         Color,
+    corTexto:          Color,
+    icone:             String,
+    loading:           Boolean,
+    lista:             List<ProfissionalComPerfil>,
+    filtroTexto:       String,
+    onFiltroChange:    (String) -> Unit,
+    placeholderFiltro: String,
+    onClickProf:       (ProfissionalComPerfil) -> Unit,
+    onEstudio:         ((String) -> Unit)?,
+    onAgendar:         ((String, String) -> Unit)?,
+    mostrarBotaoUrg:   Boolean,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Banner da aba
+        Row(
+            modifier          = Modifier
+                .fillMaxWidth()
+                .background(corBanner)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(icone, fontSize = 16.sp)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(descricao, fontSize = 12.sp, color = corTexto, lineHeight = 16.sp)
+        }
+        // Campo de filtro por tipo
+        Box(modifier = Modifier.fillMaxWidth().background(Surface).padding(horizontal = 16.dp, vertical = 8.dp)) {
+            OutlinedTextField(
+                value         = filtroTexto,
+                onValueChange = onFiltroChange,
+                placeholder   = { Text(placeholderFiltro, fontSize = 12.sp) },
+                singleLine    = true,
+                modifier      = Modifier.fillMaxWidth(),
+                shape         = RoundedCornerShape(8.dp),
+                trailingIcon  = {
+                    if (filtroTexto.isNotBlank()) {
+                        TextButton(onClick = { onFiltroChange("") }) {
+                            Text("✕", fontSize = 12.sp, color = InkMuted)
+                        }
+                    }
+                },
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde),
+            )
+        }
+        HorizontalDivider(color = SurfaceOff)
+
+        if (loading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Verde)
+            }
+        } else if (lista.isEmpty()) {
+            EmptyBusca(
+                titulo    = if (mostrarBotaoUrg) "Nenhum profissional urgente agora"
+                else "Nenhum profissional PMP encontrado",
+                subtitulo = "Tente outro termo de busca.",
+            )
+        } else {
+            LazyColumn(
+                modifier            = Modifier.fillMaxSize(),
+                contentPadding      = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                item {
+                    Text(
+                        "${lista.size} profissional${if (lista.size != 1) "is" else ""} encontrado${if (lista.size != 1) "s" else ""}",
+                        fontSize = 12.sp, color = InkMuted,
+                    )
+                }
+                items(lista) { prof ->
+                    CardProfissionalBusca(
+                        prof            = prof,
+                        mostrarBotaoUrg = mostrarBotaoUrg,
+                        onClickProf     = { onClickProf(prof) },
+                        onEstudio       = onEstudio,
+                        onAgendar       = onAgendar,
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ── CARD DE PROFISSIONAL ───────────────────────────────
+// Preserva CardProfissionalReal existente e adiciona lógica de aba
+@Composable
+private fun CardProfissionalBusca(
+    prof:            ProfissionalComPerfil,
+    mostrarBotaoUrg: Boolean,
+    onClickProf:     () -> Unit,
+    onEstudio:       ((String) -> Unit)?,
+    onAgendar:       ((String, String) -> Unit)?,
 ) {
     val nome     = prof.perfis?.nome ?: "Profissional"
     val cidade   = prof.perfis?.cidade ?: ""
-    val iniciais = nome.split(" ").map { it[0] }.joinToString("").take(2).uppercase()
+    val iniciais = nome.split(" ").mapNotNull { it.firstOrNull()?.toString() }
+        .joinToString("").take(2).uppercase()
 
     Card(
-        onClick   = onClick,
+        onClick   = onClickProf,
         modifier  = Modifier.fillMaxWidth(),
         shape     = RoundedCornerShape(12.dp),
         colors    = CardDefaults.cardColors(containerColor = Surface),
@@ -810,30 +1157,110 @@ private fun CardProfissionalReal(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(48.dp).background(AzulClaro, RoundedCornerShape(50)), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier         = Modifier.size(48.dp).background(AzulClaro, RoundedCornerShape(50)),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Text(iniciais, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Azul)
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(nome, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Ink)
+                    // Nome + badges PMP e urgente
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment     = Alignment.CenterVertically,
+                    ) {
+                        Text(nome, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Ink)
+                        if (prof.is_pmp) {
+                            Box(
+                                modifier = Modifier
+                                    .background(DouradoClaro, RoundedCornerShape(20.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("🏆 PMP", fontSize = 9.sp, color = Dourado, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                     Text(prof.area, fontSize = 12.sp, color = InkMuted)
                     if (cidade.isNotEmpty()) Text("📍 $cidade", fontSize = 11.sp, color = InkMuted)
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text("R$ ${prof.valor_normal}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Verde)
                     if (prof.disponivel_urgente) {
-                        Box(modifier = Modifier.background(UrgenteClaro, RoundedCornerShape(20.dp)).padding(horizontal = 8.dp, vertical = 3.dp)) {
-                            Text("⚡ Urgente", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Urgente)
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(UrgenteClaro, RoundedCornerShape(20.dp))
+                                .padding(horizontal = 7.dp, vertical = 3.dp)
+                        ) {
+                            Text("⚡ Urgente", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Urgente)
                         }
                     }
                 }
             }
-            if (onEstudio != null) {
+
+            // Ações
+            val temAcoes = onAgendar != null || onEstudio != null || mostrarBotaoUrg
+            if (temAcoes) {
                 Spacer(modifier = Modifier.height(10.dp))
-                TextButton(onClick = { onEstudio(prof.id) }, colors = ButtonDefaults.textButtonColors(contentColor = Azul)) {
-                    Text("Ver Estúdio →", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                HorizontalDivider(color = SurfaceOff)
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (mostrarBotaoUrg && prof.disponivel_urgente) {
+                        Button(
+                            onClick        = onClickProf,
+                            colors         = ButtonDefaults.buttonColors(containerColor = Urgente),
+                            shape          = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        ) {
+                            Text("⚡ Chamar agora", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                    if (onAgendar != null && !mostrarBotaoUrg) {
+                        TextButton(
+                            onClick = { onAgendar(prof.id, nome) },
+                            colors  = ButtonDefaults.textButtonColors(contentColor = Verde),
+                        ) {
+                            Text("📅 Agendar", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    if (onEstudio != null) {
+                        TextButton(
+                            onClick = { onEstudio(prof.id) },
+                            colors  = ButtonDefaults.textButtonColors(contentColor = Azul),
+                        ) {
+                            Text("Ver Estúdio →", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
             }
+        }
+    }
+}
+
+// ── CardProfissionalReal mantido por compatibilidade (usado no AbaBuscaCliente legado)
+@Composable
+private fun CardProfissionalReal(
+    prof:      ProfissionalComPerfil,
+    onClick:   () -> Unit,
+    onEstudio: ((String) -> Unit)? = null,
+    onAgendar: ((String, String) -> Unit)? = null,
+) = CardProfissionalBusca(
+    prof            = prof,
+    mostrarBotaoUrg = false,
+    onClickProf     = onClick,
+    onEstudio       = onEstudio,
+    onAgendar       = onAgendar,
+)
+
+// ── Estado vazio genérico para as abas de busca ────────
+@Composable
+private fun EmptyBusca(titulo: String, subtitulo: String) {
+    Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("😕", fontSize = 36.sp)
+            Text(titulo,    fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+            Text(subtitulo, fontSize = 13.sp, color = InkMuted)
         }
     }
 }

@@ -5,6 +5,7 @@ import io.ktor.client.call.*
 import io.ktor.client.engine.android.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
+import io.ktor.client.statement.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -1170,6 +1171,77 @@ suspend fun verificarConsentimentoExiste(userId: String): Boolean {
         false
     }
 }
+// ── TERMOS DE URGÊNCIA ────────────────────────────────
+// Fase 7: Persistência do aceite dos Termos de Prontidão Urgente.
+// Versão atual dos termos: "1.0". Ao atualizar o texto dos termos,
+// incrementar VERSAO_TERMOS_URGENCIA para forçar novo aceite.
+
+private const val VERSAO_TERMOS_URGENCIA = "1.0"
+
+@Serializable
+private data class GravarAceiteTermosRequest(
+    val profissional_id: String,
+    val versao_termo:    String,
+    val aceito:          Boolean = true,
+)
+
+@Serializable
+private data class VerificarAceiteTermosRequest(
+    val profissional_id: String,
+    val versao_termo:    String,
+)
+
+/**
+ * Grava o aceite dos Termos de Prontidão Urgente via RPC.
+ * Chamada pelo modal de termos em AbaUrgenteDash após o profissional
+ * marcar o checkbox e clicar "Ativar agora".
+ */
+suspend fun gravarAceiteTermosUrgencia(profissionalId: String): Boolean {
+    return try {
+        val token = currentToken ?: return false
+        val response = httpClient.post("$SUPABASE_URL/rest/v1/rpc/gravar_aceite_termos_urgencia") {
+            header("apikey",        SUPABASE_KEY)
+            header("Authorization", "Bearer $token")
+            header("Content-Type",  "application/json")
+            header("Prefer",        "return=minimal")
+            setBody(GravarAceiteTermosRequest(
+                profissional_id = profissionalId,
+                versao_termo    = VERSAO_TERMOS_URGENCIA,
+            ))
+        }
+        response.status.value in 200..299
+    } catch (e: Exception) {
+        AppLogger.erroRede("gravar_aceite_termos_urgencia", e, "prof=$profissionalId")
+        false
+    }
+}
+
+/**
+ * Verifica se o profissional já aceitou a versão atual dos termos.
+ * Chamada ao carregar AbaUrgenteDash para determinar se o modal
+ * de termos deve ser exibido ou se pode ativar direto.
+ */
+suspend fun verificarAceiteTermosUrgencia(profissionalId: String): Boolean {
+    return try {
+        val token = currentToken ?: return false
+        val response = httpClient.post("$SUPABASE_URL/rest/v1/rpc/verificar_aceite_termos_urgencia") {
+            header("apikey",        SUPABASE_KEY)
+            header("Authorization", "Bearer $token")
+            header("Content-Type",  "application/json")
+            header("Prefer",        "return=representation")
+            setBody(VerificarAceiteTermosRequest(
+                profissional_id = profissionalId,
+                versao_termo    = VERSAO_TERMOS_URGENCIA,
+            ))
+        }
+        if (response.status.value !in 200..299) return false
+        // A RPC retorna um boolean diretamente como "true" ou "false"
+        response.bodyAsText().trim() == "true"
+    } catch (e: Exception) {
+        AppLogger.aviso("TermosUrgencia", "verificar prof=$profissionalId: ${e.message}")
+        false
+    }
+}
 
 // ── KYC — DOCUMENTOS ──────────────────────────────────
 @Serializable
@@ -1259,6 +1331,7 @@ suspend fun uploadKycDocumento(
         null
     }
 }
+
 // ── EXCLUIR CONTA — PA-01 LGPD ───────────────────────────────────────────
 // Chama a Edge Function excluir-conta que:
 //   1. Anonimiza dados pessoais em `perfis` (nome, email, cpf, telefone)

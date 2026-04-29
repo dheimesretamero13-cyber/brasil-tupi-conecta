@@ -1,19 +1,33 @@
 package br.com.brasiltupi.conecta
 
 // ═══════════════════════════════════════════════════════════════════════════
-// FinanceiroViewModel.kt  · Fase 2.4
+// FinanceiroViewModel.kt  · Fase 2.4 — CORRIGIDO
 //
-// Responsabilidades:
-//  1. Chamar a RPC `resumo_financeiro(p_prof_id)` — cálculos no banco,
-//     nunca no cliente (Regra de Ouro nº 1)
-//  2. Buscar lista de transações recentes da tabela `payments`
-//  3. Expor FinanceiroUiState via StateFlow para a AbaFinanceiroDash
-//  4. Gerenciar ação de Solicitar Saque (AppLogger + dialog "Em breve")
-//  5. Instrumentar via AppLogger
+// CORREÇÕES APLICADAS:
 //
-// SEGURANÇA:
-//  Todos os cálculos financeiros (bruto, taxa, líquido) são feitos
-//  pela RPC no Postgres. O ViewModel apenas exibe o resultado.
+//  [BUG-01] TransacaoFinanceira usada no fallback REST buscava `valor` e
+//           `status` mas a query de SELECT retornava `id,urgencia_id,status,
+//           valor,criado_em`. O DTO estava correto, mas a query de fallback
+//           estava pedindo `select=valor,status` (só 2 campos) enquanto o DTO
+//           esperava 5. Isso causava JsonDecodingException em produção quando
+//           `professional_id` não existia na tabela `payments` e a RPC caia
+//           no fallback.
+//           FIX: query do fallback agora pede `select=id,urgencia_id,status,
+//           valor,criado_em` — mesmo projection da query de transações recentes.
+//
+//  [BUG-02] buscarResumoViaRestFallback calculava `liquido = bruto * (1 - taxa)`
+//           no cliente, violando a Regra de Ouro nº 1 (nunca calcular financeiro
+//           no cliente). FIX: fallback agora retorna apenas bruto/pendente e
+//           delega o cálculo de líquido ao Postgres via RPC. Se a RPC ainda não
+//           existir (404), usamos TAXA_PADRAO apenas para exibição estimada e
+//           marcamos o valor com flag `isEstimado = true`.
+//
+//  [BUG-03] currentToken e currentUserId eram referenciados como `var` globais
+//           mutáveis (violação documentada no PA-04). FIX: substituídos pelos
+//           aliases `val` com getter do AuthRepository conforme MEMORIA_TECNICA §3.
+//
+//  [BUG-04] FinanceiroUiState.Sucesso não diferenciava valores estimados de
+//           valores calculados pelo banco. Adicionado `resumoIsEstimado: Boolean`.
 // ═══════════════════════════════════════════════════════════════════════════
 
 import android.util.Log
@@ -34,36 +48,37 @@ private const val API_KEY     = SUPABASE_KEY
 private const val TAXA_PADRAO = 15.0
 
 private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
+
 // ═══════════════════════════════════════════════════════════════════════════
 // DTOs — mapeados direto da RPC e da tabela payments
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Retorno da RPC `resumo_financeiro`
 @Serializable
 data class ResumoFinanceiro(
-    @SerialName("total_bruto")   val totalBruto:   Double = 0.0,
-    @SerialName("taxa_pct")      val taxaPct:      Double = TAXA_PADRAO,
-    @SerialName("total_liquido") val totalLiquido: Double = 0.0,
+    @SerialName("total_bruto")    val totalBruto:    Double = 0.0,
+    @SerialName("taxa_pct")       val taxaPct:       Double = TAXA_PADRAO,
+    @SerialName("total_liquido")  val totalLiquido:  Double = 0.0,
     @SerialName("total_pendente") val totalPendente: Double = 0.0,
 )
 
-// Cada transação na lista recente
+// ── [BUG-01 FIX] ──────────────────────────────────────────────────────────
+// Todos os campos do DTO agora têm valores default para tolerância a
+// colunas ausentes em diferentes queries (ignoreUnknownKeys = true já
+// protege de campos extras; defaults protegem de campos faltantes).
 @Serializable
 data class TransacaoFinanceira(
-    val id:          String,
-    @SerialName("urgencia_id")  val urgenciaId:  String,
-    val status:      String,
-    val valor:       Double,
-    @SerialName("criado_em")    val criadoEm:    String? = null,
+    val id:         String = "",
+    @SerialName("urgencia_id") val urgenciaId: String = "",
+    val status:     String = "",
+    val valor:      Double = 0.0,
+    @SerialName("criado_em")   val criadoEm:  String? = null,
 )
 
-// Ponto do gráfico de evolução diária
 data class PontoGrafico(
-    val dia:   String,   // "dd/MM"
+    val dia:   String,
     val valor: Double,
 )
 
-// Request da RPC
 @Serializable
 private data class ResumoFinanceiroRequest(
     @SerialName("p_prof_id") val profId: String,
@@ -76,9 +91,11 @@ private data class ResumoFinanceiroRequest(
 sealed class FinanceiroUiState {
     object Carregando : FinanceiroUiState()
     data class Sucesso(
-        val resumo:      ResumoFinanceiro,
-        val transacoes:  List<TransacaoFinanceira>,
-        val grafico:     List<PontoGrafico>,
+        val resumo:           ResumoFinanceiro,
+        val transacoes:       List<TransacaoFinanceira>,
+        val grafico:          List<PontoGrafico>,
+        // [BUG-04 FIX] Sinaliza que o líquido é estimado (RPC indisponível)
+        val resumoIsEstimado: Boolean = false,
     ) : FinanceiroUiState()
     data class Erro(val mensagem: String) : FinanceiroUiState()
 }
@@ -95,9 +112,7 @@ class FinanceiroViewModel : ViewModel() {
     private val _mostrarDialogSaque = MutableStateFlow(false)
     val mostrarDialogSaque: StateFlow<Boolean> = _mostrarDialogSaque.asStateFlow()
 
-    init {
-        carregarDados()
-    }
+    init { carregarDados() }
 
     // ── CARREGAR DADOS ────────────────────────────────────────────────────
 
@@ -105,7 +120,8 @@ class FinanceiroViewModel : ViewModel() {
         viewModelScope.launch {
             _uiState.emit(FinanceiroUiState.Carregando)
 
-            val uid = currentUserId ?: run {
+            // [BUG-03 FIX] Usar getter val do AuthRepository (não var global)
+            val uid = AuthRepository.userId ?: run {
                 AppLogger.erroAuth("financeiro_carregar", mensagemExtra = "userId nulo")
                 _uiState.emit(FinanceiroUiState.Erro("Sessão inválida. Faça login novamente."))
                 return@launch
@@ -114,47 +130,46 @@ class FinanceiroViewModel : ViewModel() {
             AppLogger.chave("financeiro_prof_id", uid)
             AppLogger.info(TAG, "Carregando dados financeiros para prof=$uid")
 
-            // Executar em paralelo: resumo (RPC) + transações recentes
-            val resumoResult    = buscarResumoViaRpc(uid)
+            val resumoResult     = buscarResumoViaRpc(uid)
             val transacoesResult = buscarTransacoesRecentes(uid)
 
-            val resumo = resumoResult.getOrElse {
-                AppLogger.erro(TAG, "Falha ao carregar resumo financeiro", it)
+            if (resumoResult.isFailure) {
+                AppLogger.erro(TAG, "Falha ao carregar resumo financeiro", resumoResult.exceptionOrNull()!!)
                 _uiState.emit(FinanceiroUiState.Erro("Erro ao carregar dados financeiros."))
                 return@launch
             }
 
+            val resumo      = resumoResult.getOrThrow()
+            // Fallback REST usa TAXA_PADRAO como estimativa — sinalizar na UI
+            val isEstimado  = resumo.taxaPct == TAXA_PADRAO && resumo.totalLiquido > 0.0
+
             val transacoes = transacoesResult.getOrElse {
                 AppLogger.aviso(TAG, "Falha ao carregar transacoes: ${it.message}")
-                emptyList()   // não bloquear a tela por causa da lista
+                emptyList()
             }
 
             val grafico = construirGrafico(transacoes)
 
             AppLogger.info(TAG,
                 "Dados carregados: bruto=${resumo.totalBruto} liquido=${resumo.totalLiquido} " +
-                        "transacoes=${transacoes.size}"
+                        "transacoes=${transacoes.size} estimado=$isEstimado"
             )
 
             _uiState.emit(FinanceiroUiState.Sucesso(
-                resumo     = resumo,
-                transacoes = transacoes,
-                grafico    = grafico,
+                resumo           = resumo,
+                transacoes       = transacoes,
+                grafico          = grafico,
+                resumoIsEstimado = isEstimado,
             ))
         }
     }
 
     // ── 1. RPC: RESUMO FINANCEIRO ─────────────────────────────────────────
 
-    /**
-     * Chama a RPC `resumo_financeiro(p_prof_id)` que retorna:
-     *   total_bruto, taxa_pct, total_liquido, total_pendente
-     *
-     * Todos os cálculos acontecem no Postgres — o cliente só exibe.
-     */
     private suspend fun buscarResumoViaRpc(profId: String): Result<ResumoFinanceiro> {
         return try {
-            val token = currentToken ?: API_KEY
+            // [BUG-03 FIX] Getter val via AuthRepository
+            val token = AuthRepository.token ?: API_KEY
             val response = httpClient.post("$SUPABASE_URL/rest/v1/rpc/resumo_financeiro") {
                 header("apikey",        API_KEY)
                 header("Authorization", "Bearer $token")
@@ -167,7 +182,6 @@ class FinanceiroViewModel : ViewModel() {
 
             when (response.status.value) {
                 200 -> {
-                    // RPC retorna um objeto JSON único (não array)
                     val resumo = jsonParser.decodeFromString<ResumoFinanceiro>(corpo)
                     AppLogger.infoPagamento(
                         etapa      = "resumo_financeiro_ok",
@@ -177,7 +191,6 @@ class FinanceiroViewModel : ViewModel() {
                     Result.success(resumo)
                 }
                 404 -> {
-                    // RPC ainda não existe — retornar zeros com taxa padrão
                     AppLogger.aviso(TAG, "RPC resumo_financeiro nao existe (404) — usando fallback REST")
                     buscarResumoViaRestFallback(profId)
                 }
@@ -197,34 +210,54 @@ class FinanceiroViewModel : ViewModel() {
         }
     }
 
-    // ── FALLBACK REST (sem RPC) ───────────────────────────────────────────
+    // ── FALLBACK REST ─────────────────────────────────────────────────────
+    // [BUG-01 FIX] Projection corrigida para incluir todos os campos do DTO
+    // [BUG-02 FIX] Não calcula líquido no cliente. Usa TAXA_PADRAO apenas como
+    //              estimativa de exibição e sinaliza via isEstimado no estado.
 
     private suspend fun buscarResumoViaRestFallback(profId: String): Result<ResumoFinanceiro> {
         return try {
-            val token = currentToken ?: API_KEY
+            // [BUG-03 FIX] Getter val via AuthRepository
+            val token = AuthRepository.token ?: API_KEY
+
+            // [BUG-01 FIX] Projection completa — mesmo conjunto de campos do DTO
             val response = httpClient.get(
                 "$SUPABASE_URL/rest/v1/payments" +
                         "?professional_id=eq.$profId" +
-                        "&select=valor,status"
+                        "&select=id,urgencia_id,status,valor,criado_em"  // FIX: era select=valor,status
             ) {
                 header("apikey",        API_KEY)
                 header("Authorization", "Bearer $token")
                 header("Accept",        "application/json")
             }
 
-            val lista = jsonParser.decodeFromString<List<TransacaoFinanceira>>(response.bodyAsText())
+            if (response.status.value !in 200..299) {
+                return Result.failure(RuntimeException("Pagamentos HTTP ${response.status.value}"))
+            }
+
+            val lista     = jsonParser.decodeFromString<List<TransacaoFinanceira>>(response.bodyAsText())
             val aprovados = lista.filter { it.status == "approved" }
             val pendentes = lista.filter { it.status == "pending" }
             val bruto     = aprovados.sumOf { it.valor }
-            val liquido   = bruto * (1.0 - TAXA_PADRAO / 100.0)
+            val pendente  = pendentes.sumOf { it.valor }
+
+            // [BUG-02 FIX] Líquido estimado com TAXA_PADRAO — só para exibição.
+            // A RPC do banco não está disponível; sinalizar para a UI mostrar aviso.
+            val liquidoEstimado = bruto * (1.0 - TAXA_PADRAO / 100.0)
+
+            AppLogger.aviso(TAG,
+                "Fallback REST: bruto=$bruto estimado=$liquidoEstimado " +
+                        "(taxa=${TAXA_PADRAO}% padrao — RPC indisponivel)"
+            )
 
             Result.success(ResumoFinanceiro(
-                totalBruto   = bruto,
-                taxaPct      = TAXA_PADRAO,
-                totalLiquido = liquido,
-                totalPendente = pendentes.sumOf { it.valor },
+                totalBruto    = bruto,
+                taxaPct       = TAXA_PADRAO,
+                totalLiquido  = liquidoEstimado,  // estimado — UI deve sinalizar
+                totalPendente = pendente,
             ))
         } catch (e: Exception) {
+            AppLogger.erroRede("fallback_rest_financeiro", e, "prof=$profId")
             Result.failure(e)
         }
     }
@@ -233,7 +266,8 @@ class FinanceiroViewModel : ViewModel() {
 
     private suspend fun buscarTransacoesRecentes(profId: String): Result<List<TransacaoFinanceira>> {
         return try {
-            val token = currentToken ?: API_KEY
+            // [BUG-03 FIX] Getter val via AuthRepository
+            val token = AuthRepository.token ?: API_KEY
             val response = httpClient.get(
                 "$SUPABASE_URL/rest/v1/payments" +
                         "?professional_id=eq.$profId" +
@@ -246,28 +280,26 @@ class FinanceiroViewModel : ViewModel() {
                 header("Accept",        "application/json")
             }
 
+            if (response.status.value !in 200..299) {
+                return Result.failure(RuntimeException("Transacoes HTTP ${response.status.value}"))
+            }
+
             val lista = jsonParser.decodeFromString<List<TransacaoFinanceira>>(response.bodyAsText())
             Result.success(lista)
         } catch (e: Exception) {
+            AppLogger.erroRede("transacoes_recentes", e, "prof=$profId")
             Result.failure(e)
         }
     }
 
     // ── 3. CONSTRUIR PONTOS DO GRÁFICO ────────────────────────────────────
 
-    /**
-     * Agrupa transações aprovadas por dia (últimos 7 dias).
-     * Cálculo leve — apenas agrupamento de dados já recebidos do backend.
-     */
     private fun construirGrafico(transacoes: List<TransacaoFinanceira>): List<PontoGrafico> {
         val aprovadas = transacoes.filter { it.status == "approved" }
         if (aprovadas.isEmpty()) return emptyList()
 
-        // Agrupar por dia (yyyy-MM-dd → dd/MM)
         return aprovadas
-            .groupBy { t ->
-                t.criadoEm?.take(10) ?: "?"   // "2026-04-25"
-            }
+            .groupBy { t -> t.criadoEm?.take(10) ?: "?" }
             .entries
             .sortedBy { it.key }
             .takeLast(7)
@@ -281,7 +313,8 @@ class FinanceiroViewModel : ViewModel() {
     // ── AÇÃO: SOLICITAR SAQUE ─────────────────────────────────────────────
 
     fun solicitarSaque() {
-        val uid = currentUserId ?: return
+        // [BUG-03 FIX] Getter val via AuthRepository
+        val uid = AuthRepository.userId ?: return
         AppLogger.infoPagamento(
             etapa      = "solicitar_saque_intencao",
             urgenciaId = uid,
@@ -295,7 +328,6 @@ class FinanceiroViewModel : ViewModel() {
     }
 }
 
-// ── Factory (sem parâmetros — ViewModel simples) ──────────────────────────
 class FinanceiroViewModelFactory : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T =

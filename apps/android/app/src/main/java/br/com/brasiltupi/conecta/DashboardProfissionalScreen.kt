@@ -1,7 +1,6 @@
 package br.com.brasiltupi.conecta
 
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -16,143 +15,184 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import br.com.brasiltupi.conecta.ui.theme.*
-
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import androidx.compose.foundation.layout.PaddingValues
 // ── TELA PRINCIPAL ────────────────────────────────────
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardProfissionalScreen(
-    onSair: () -> Unit,
-    onEstudio: (() -> Unit)? = null,
-    onPerfil: (() -> Unit)? = null,
-    onRelatorios: (() -> Unit)? = null,
+    onSair:                  () -> Unit,
+    onEstudio:               (() -> Unit)?                                                          = null,
+    onPerfil:                (() -> Unit)?                                                          = null,
+    onRelatorios:            (() -> Unit)?                                                          = null,
+    onModalidades:           (() -> Unit)?                                                          = null,
+    onIniciarChamadaRegular: ((consultaId: String, profId: String, clienteId: String) -> Unit)? = null,
 ) {
     var abaSelecionada by remember { mutableStateOf("visao") }
+    var menuExpandido  by remember { mutableStateOf(false) }
 
     var nomeUsuario       by remember { mutableStateOf("") }
     var iniciais          by remember { mutableStateOf("") }
     var credibilidade     by remember { mutableStateOf(0) }
     var disponivelUrgente by remember { mutableStateOf(false) }
-
-    // Dados reais de consultas — compartilhados entre abas
     var consultas         by remember { mutableStateOf<List<ConsultaProfissional>>(emptyList()) }
     var carregando        by remember { mutableStateOf(true) }
 
     LaunchedEffect(currentUserId) {
         val uid = currentUserId ?: return@LaunchedEffect
-
         val perfil = getPerfilAndroid(uid)
         if (perfil != null) {
             nomeUsuario = perfil.nome
             iniciais = perfil.nome.split(" ").map { it[0] }.joinToString("").take(2).uppercase()
         }
-
         val meuPerfil = getMeuPerfilProfissional(uid)
         if (meuPerfil != null) {
             credibilidade     = meuPerfil.credibilidade
             disponivelUrgente = meuPerfil.disponivel_urgente
         }
-
         consultas  = buscarConsultasProfissional(uid)
         carregando = false
     }
 
-    val abas = listOf(
-        "visao"         to "Visão Geral",
-        "atendimentos"  to "Atendimentos",
-        "credibilidade" to "Credibilidade",
-        "urgente"       to "Urgente",
-        "financeiro"    to "Financeiro",
-        "relatorios"    to "Relatórios",
-        "perfil"        to "Meu Perfil",
+    // Abas primárias — NavigationBar
+    val abasPrimarias = listOf(
+        Triple("visao",        "Visão Geral", "🏠"),
+        Triple("atendimentos", "Consultas",   "📋"),
+        Triple("regular",      "Regular",     "📅"),
+        Triple("urgente",      "Urgente",     "⚡"),
+        Triple("estudio",      "Estúdio",     "🎓"),
     )
 
-    Column(modifier = Modifier.fillMaxSize().background(SurfaceWarm)) {
-        // Topbar
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Surface)
-                .padding(horizontal = 20.dp)
-                .padding(top = 48.dp, bottom = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text("Brasil Tupi", fontSize = 16.sp, fontWeight = FontWeight.Black, color = Azul)
-                Text("Conecta", fontSize = 16.sp, fontWeight = FontWeight.Black, color = Verde,
-                    modifier = Modifier.offset(y = (-4).dp))
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(
-                    modifier = Modifier.size(36.dp).background(Azul, RoundedCornerShape(50)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(iniciais.ifEmpty { "?" }, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                }
-                val scopeSair = rememberCoroutineScope()
-                TextButton(onClick = {
-                    scopeSair.launch {
-                        signOutAndroid()
-                        onSair()
-                    }
-                }) {
-                    Text("Sair", color = InkMuted, fontSize = 13.sp)
-                }
-            }
-        }
-        HorizontalDivider(color = SurfaceOff)
+    // Itens do menu ⋮
+    val menuItens = listOf(
+        Triple("financeiro",    "Financeiro",    "💰"),
+        Triple("credibilidade", "Credibilidade", "⭐"),
+        Triple("relatorios",    "Relatórios",    "📊"),
+        Triple("perfil",        "Meu Perfil",    "👤"),
+        Triple("sair",          "Sair",          "🚪"),
+    )
 
-        ScrollableTabRow(
-            selectedTabIndex = abas.indexOfFirst { it.first == abaSelecionada },
-            containerColor = Surface, contentColor = Verde, edgePadding = 16.dp,
-        ) {
-            abas.forEach { (id, label) ->
-                Tab(
-                    selected = abaSelecionada == id,
-                    onClick  = { abaSelecionada = id },
-                    text = {
-                        Text(
-                            label, fontSize = 13.sp,
-                            fontWeight = if (abaSelecionada == id) FontWeight.Bold else FontWeight.Normal,
-                            color = if (abaSelecionada == id) Verde else InkMuted
-                        )
+    val scope = rememberCoroutineScope()
+
+    Scaffold(
+        containerColor = SurfaceWarm,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier.size(34.dp)
+                                .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(50)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(iniciais.ifEmpty { "?" }, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(nomeUsuario.ifEmpty { "Brasil Tupi" }, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("Painel do Profissional", fontSize = 11.sp, color = Color.White.copy(alpha = 0.75f))
+                        }
                     }
+                },
+                actions = {
+                    Box {
+                        IconButton(onClick = { menuExpandido = true }) {
+                            Text("⋮", fontSize = 24.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                        DropdownMenu(
+                            expanded         = menuExpandido,
+                            onDismissRequest = { menuExpandido = false },
+                        ) {
+                            menuItens.forEach { (id, label, icon) ->
+                                if (id == "sair") HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = SurfaceOff)
+                                DropdownMenuItem(
+                                    leadingIcon = { Text(icon, fontSize = 16.sp) },
+                                    text = {
+                                        Text(
+                                            label,
+                                            fontSize   = 14.sp,
+                                            color      = if (id == "sair") Urgente else Ink,
+                                            fontWeight = if (id == "sair") FontWeight.Bold else FontWeight.Normal,
+                                        )
+                                    },
+                                    onClick = {
+                                        menuExpandido = false
+                                        when (id) {
+                                            "financeiro"    -> abaSelecionada = "financeiro"
+                                            "credibilidade" -> abaSelecionada = "credibilidade"
+                                            "relatorios"    -> if (onRelatorios != null) onRelatorios() else abaSelecionada = "relatorios"
+                                            "perfil"        -> if (onPerfil != null) onPerfil() else abaSelecionada = "perfil"
+                                            "sair"          -> scope.launch { signOutAndroid(); onSair() }
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Azul),
+            )
+        },
+        bottomBar = {
+            NavigationBar(containerColor = Surface, tonalElevation = 4.dp) {
+                abasPrimarias.forEach { (id, label, icon) ->
+                    val selecionado = abaSelecionada == id
+                    NavigationBarItem(
+                        selected = selecionado,
+                        onClick  = {
+                            when (id) {
+                                "estudio" -> if (onEstudio != null) onEstudio() else abaSelecionada = id
+                                "regular" -> if (onModalidades != null) onModalidades() else abaSelecionada = id
+                                else      -> abaSelecionada = id
+                            }
+                        },
+                        icon  = { Text(icon, fontSize = if (selecionado) 22.sp else 20.sp) },
+                        label = { Text(label, fontSize = 10.sp, fontWeight = if (selecionado) FontWeight.Bold else FontWeight.Normal, maxLines = 1) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor   = Verde,
+                            selectedTextColor   = Verde,
+                            unselectedIconColor = InkMuted,
+                            unselectedTextColor = InkMuted,
+                            indicatorColor      = Verde.copy(alpha = 0.10f),
+                        ),
+                    )
+                }
+            }
+        },
+    ) { innerPadding ->
+        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            when (abaSelecionada) {
+                "visao"         -> AbaVisaoGeralDash(
+                    nomeUsuario       = nomeUsuario,
+                    credibilidade     = credibilidade,
+                    consultas         = consultas,
+                    carregando        = carregando,
+                    disponivelUrgente = disponivelUrgente,
+                    onRelatorios      = onRelatorios,
                 )
-            }
-        }
-
-        when (abaSelecionada) {
-            "visao"         -> AbaVisaoGeralDash(
-                nomeUsuario       = nomeUsuario,
-                credibilidade     = credibilidade,
-                consultas         = consultas,
-                carregando        = carregando,
-                disponivelUrgente = disponivelUrgente,
-                onRelatorios      = onRelatorios,
-            )
-            "atendimentos"  -> AbaAtendimentosDash(consultas = consultas, carregando = carregando)
-            "credibilidade" -> AbaCredibilidadeDash(credibilidade = credibilidade)
-            "urgente"       -> AbaUrgenteDash(
-                onEstudio         = onEstudio,
-                disponivelUrgente = disponivelUrgente,
-                consultas         = consultas,
-            )
-            "financeiro"    -> AbaFinanceiroDash()
-            "relatorios"    -> {
-                if (onRelatorios != null) {
-                    LaunchedEffect(Unit) { onRelatorios() }
-                } else {
-                    Box(Modifier.fillMaxSize(), Alignment.Center) {
-                        Text("Relatórios indisponíveis", color = InkMuted)
-                    }
+                "atendimentos"  -> AbaAtendimentosDash(
+                    consultas               = consultas,
+                    carregando              = carregando,
+                    onIniciarChamadaRegular = onIniciarChamadaRegular,
+                )
+                "urgente"       -> AbaUrgenteDash(
+                    disponivelUrgente = disponivelUrgente,
+                    consultas         = consultas,
+                )
+                "financeiro"    -> AbaFinanceiroDash()
+                "credibilidade" -> AbaCredibilidadeDash(credibilidade = credibilidade)
+                "relatorios"    -> {
+                    if (onRelatorios != null) { LaunchedEffect(Unit) { onRelatorios() } }
+                    else Box(Modifier.fillMaxSize(), Alignment.Center) { Text("Relatórios indisponíveis", color = InkMuted) }
                 }
-            }
-            "perfil"        -> {
-                if (onPerfil != null) {
-                    LaunchedEffect(Unit) { onPerfil() }
-                } else {
-                    AbaPerfilProfissional()
+                "perfil"        -> {
+                    if (onPerfil != null) { LaunchedEffect(Unit) { onPerfil() } }
+                    else AbaPerfilProfissional()
                 }
+                // "regular" e "estudio" navegam via callbacks — nada renderiza inline
             }
         }
     }
@@ -390,14 +430,43 @@ fun MetricaCard(
     }
 }
 
-// ── ABA: ATENDIMENTOS ─────────────────────────────────
+// ── ABA: ATENDIMENTOS ────────────────────────────────
+// Usa AtendimentosRepository.buscarAgendamentosProfissional() — tabela agendamentos_regulares.
+// VERMELHO = hoje | VERDE = futuro. Botão "Ligar" ativo 5min antes do horário.
 @Composable
 fun AbaAtendimentosDash(
-    consultas: List<ConsultaProfissional> = emptyList(),
-    carregando: Boolean = false,
+    consultas:               List<ConsultaProfissional> = emptyList(),
+    carregando:              Boolean = false,
+    onIniciarChamadaRegular: ((consultaId: String, profId: String, clienteId: String) -> Unit)? = null,
 ) {
-    var filtro by remember { mutableStateOf("todos") }
+    var agendamentos by remember { mutableStateOf<List<AgendamentoRegular>>(emptyList()) }
+    var loadingAg    by remember { mutableStateOf(true) }
+    var tickMs       by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val scope        = rememberCoroutineScope()
 
+    LaunchedEffect(Unit) {
+        val uid = currentUserId
+        if (uid != null) {
+            agendamentos = AtendimentosRepository.buscarAgendamentosProfissional(uid)
+                .filter { it.status in listOf("pendente", "confirmado", "pago") }
+                .sortedWith(compareBy({ it.dataAgendada }, { it.horaInicio }))
+        }
+        loadingAg = false
+        // Tick a cada 30s para re-avaliar horaLiberada sem nova requisição
+        while (true) { delay(30_000L); tickMs = System.currentTimeMillis() }
+    }
+
+    // Hoje como "yyyy-MM-dd" — mesmo formato de AgendamentoRegular.dataAgendada
+    val hojeStr = remember {
+        val cal = java.util.Calendar.getInstance()
+        "%04d-%02d-%02d".format(
+            cal.get(java.util.Calendar.YEAR),
+            cal.get(java.util.Calendar.MONTH) + 1,
+            cal.get(java.util.Calendar.DAY_OF_MONTH),
+        )
+    }
+
+    var filtro by remember { mutableStateOf("todos") }
     val lista = when (filtro) {
         "concluido" -> consultas.filter { it.status in listOf("concluida", "concluido") }
         "agendado"  -> consultas.filter { it.status in listOf("agendada", "agendado") }
@@ -405,25 +474,141 @@ fun AbaAtendimentosDash(
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        // ─ Compromissos regulares agendados ──────────────────────────────
+        if (loadingAg) {
+            Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Verde, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+            }
+        } else if (agendamentos.isNotEmpty()) {
+            // Legenda de cores
+            Row(
+                modifier = Modifier.fillMaxWidth().background(SurfaceWarm, RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Box(Modifier.size(10.dp).background(Urgente, RoundedCornerShape(50)))
+                    Text("Hoje", fontSize = 11.sp, color = InkMuted)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Box(Modifier.size(10.dp).background(Verde, RoundedCornerShape(50)))
+                    Text("Futuro", fontSize = 11.sp, color = InkMuted)
+                }
+                Text("Botão ativo 5min antes", fontSize = 10.sp, color = InkMuted)
+            }
+
+            agendamentos.forEach { ag ->
+                val isHoje   = ag.dataAgendada == hojeStr
+                val corBorda = if (isHoje) Urgente else Verde
+                val corFundo = if (isHoje) UrgenteClaro else VerdeClaro
+                val corTexto = if (isHoje) Urgente else Verde
+
+                // Libera botão 5min antes: parse data_agendada + hora_inicio → epoch ms
+                val horaLiberada = remember(ag.id, tickMs) {
+                    try {
+                        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
+                        val ms  = sdf.parse("${ag.dataAgendada} ${ag.horaInicio}")?.time ?: 0L
+                        tickMs >= (ms - 5 * 60 * 1000L)
+                    } catch (e: Exception) { false }
+                }
+                var iniciando by remember(ag.id) { mutableStateOf(false) }
+
+                Card(
+                    modifier  = Modifier.fillMaxWidth(),
+                    shape     = RoundedCornerShape(12.dp),
+                    colors    = CardDefaults.cardColors(containerColor = Surface),
+                    border    = androidx.compose.foundation.BorderStroke(1.5.dp, corBorda.copy(alpha = 0.5f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = if (isHoje) 3.dp else 1.dp),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                val nomeExib = ag.nomeCliente ?: "Cliente"
+                                Box(
+                                    modifier = Modifier.size(42.dp).background(corFundo, RoundedCornerShape(50)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        nomeExib.split(" ").mapNotNull { it.firstOrNull()?.toString() }.joinToString("").take(2).uppercase(),
+                                        fontSize = 14.sp, fontWeight = FontWeight.Bold, color = corTexto,
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(nomeExib, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Ink)
+                                    Text(ag.tituloModalidade ?: "Consulta regular", fontSize = 11.sp, color = InkMuted)
+                                }
+                            }
+                            Text("R$ ${"%.0f".format(ag.valorCobrado)}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Ink)
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier.background(corFundo, RoundedCornerShape(20.dp)).padding(horizontal = 10.dp, vertical = 4.dp),
+                                ) {
+                                    Text(if (isHoje) "🚨 HOJE" else ag.dataAgendada.split("-").reversed().take(2).joinToString("/"), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = corTexto)
+                                }
+                                Text("${ag.horaInicio} – ${ag.horaFim}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = InkSoft)
+                            }
+                            // Botão Ligar — apenas hoje, ativo 5min antes
+                            if (!isHoje) {
+                                Text("📅 ${ag.dataAgendada.split("-").reversed().take(2).joinToString("/")}", fontSize = 11.sp, color = InkMuted)
+                            } else if (horaLiberada) {
+                                Button(
+                                    onClick = {
+                                        if (!iniciando) {
+                                            iniciando = true
+                                            scope.launch {
+                                                val profUid = currentUserId ?: run { iniciando = false; return@launch }
+                                                onIniciarChamadaRegular?.invoke(ag.id, profUid, ag.clienteId)
+                                                iniciando = false
+                                            }
+                                        }
+                                    },
+                                    enabled        = !iniciando,
+                                    colors         = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
+                                    shape          = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                ) {
+                                    if (iniciando) CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.White, strokeWidth = 2.dp)
+                                    else Text("📞 Ligar agora", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                Box(modifier = Modifier.background(SurfaceOff, RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 6.dp)) {
+                                    Text("⏰ Aguardar ${ag.horaInicio}", fontSize = 11.sp, color = InkMuted, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            HorizontalDivider(color = SurfaceOff, modifier = Modifier.padding(vertical = 4.dp))
+        }
+
+        // ─ Histórico de consultas urgentes ───────────────────────────────
+        Text("Histórico de consultas", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = InkMuted)
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("todos" to "Todos", "concluido" to "Concluídos", "agendado" to "Agendados").forEach { (id, label) ->
                 FilterChip(
                     selected = filtro == id,
                     onClick  = { filtro = id },
                     label    = { Text(label, fontSize = 12.sp) },
-                    colors   = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Verde, selectedLabelColor = Color.White
-                    )
+                    colors   = FilterChipDefaults.filterChipColors(selectedContainerColor = Verde, selectedLabelColor = Color.White)
                 )
             }
         }
-
         if (carregando) {
             Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Verde)
@@ -433,26 +618,16 @@ fun AbaAtendimentosDash(
                 val isConcluido = c.status in listOf("concluida", "concluido")
                 val isUrgente   = c.tipo.contains("rgente", ignoreCase = true)
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape  = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = Surface),
+                    modifier  = Modifier.fillMaxWidth(),
+                    shape     = RoundedCornerShape(12.dp),
+                    colors    = CardDefaults.cardColors(containerColor = Surface),
                     elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier.size(40.dp).background(AzulClaro, RoundedCornerShape(50)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        c.nomeCliente.split(" ").map { it[0] }.joinToString("").take(2),
-                                        fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Azul
-                                    )
+                                Box(modifier = Modifier.size(40.dp).background(AzulClaro, RoundedCornerShape(50)), contentAlignment = Alignment.Center) {
+                                    Text(c.nomeCliente.split(" ").map { it[0] }.joinToString("").take(2), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Azul)
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column {
@@ -463,40 +638,20 @@ fun AbaAtendimentosDash(
                             Text("R$ ${c.valor}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Ink)
                         }
                         Spacer(modifier = Modifier.height(10.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Box(
-                                    modifier = Modifier
-                                        .background(if (isUrgente) UrgenteClaro else VerdeClaro, RoundedCornerShape(20.dp))
-                                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                                ) {
-                                    Text(c.tipo, fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                                        color = if (isUrgente) Urgente else Verde)
+                                Box(modifier = Modifier.background(if (isUrgente) UrgenteClaro else VerdeClaro, RoundedCornerShape(20.dp)).padding(horizontal = 10.dp, vertical = 4.dp)) {
+                                    Text(c.tipo, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (isUrgente) Urgente else Verde)
                                 }
-                                Box(
-                                    modifier = Modifier
-                                        .background(if (isConcluido) VerdeClaro else AzulClaro, RoundedCornerShape(20.dp))
-                                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                                ) {
-                                    Text(
-                                        if (isConcluido) "Concluído" else "Agendado",
-                                        fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                                        color = if (isConcluido) Verde else Azul
-                                    )
+                                Box(modifier = Modifier.background(if (isConcluido) VerdeClaro else AzulClaro, RoundedCornerShape(20.dp)).padding(horizontal = 10.dp, vertical = 4.dp)) {
+                                    Text(if (isConcluido) "Concluído" else "Agendado", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (isConcluido) Verde else Azul)
                                 }
                             }
-                            if (c.avaliacao > 0) {
-                                Text("★".repeat(c.avaliacao), fontSize = 13.sp, color = DouradoMedio)
-                            }
+                            if (c.avaliacao > 0) Text("★".repeat(c.avaliacao), fontSize = 13.sp, color = DouradoMedio)
                         }
                     }
                 }
             }
-
             if (lista.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
                     Text("Nenhum atendimento encontrado", fontSize = 14.sp, color = InkMuted, textAlign = TextAlign.Center)
@@ -545,19 +700,63 @@ fun AbaCredibilidadeDash(credibilidade: Int = 0) {
         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Como é calculado", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
-                Spacer(modifier = Modifier.height(14.dp))
-                listOf(Triple("Atendimentos", 30, Verde), Triple("Avaliações", 28, Azul), Triple("Pontualidade", 20, Dourado)).forEach { (label, pts, cor) ->
-                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(label, fontSize = 13.sp, color = Ink)
-                            Text("$pts pts", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = cor)
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        LinearProgressIndicator(
-                            progress = { pts / 40f }, modifier = Modifier.fillMaxWidth().height(5.dp),
-                            color = cor, trackColor = SurfaceOff
-                        )
+                Spacer(modifier = Modifier.height(12.dp))
+                // Regra vigente: Pontos = média de estrelas × 20
+                // 1★ = 20pts · 2★ = 40pts · 3★ = 60pts · 4★ = 80pts · 5★ = 100pts
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .background(Color(0xFFF3F8FF), RoundedCornerShape(10.dp))
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("⭐", fontSize = 22.sp)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text("Média de estrelas × 20", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Azul)
+                        Text("Cada avaliação dos clientes define sua pontuação.", fontSize = 12.sp, color = InkMuted, modifier = Modifier.padding(top = 2.dp))
                     }
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                listOf(
+                    Triple("1 ★", "20 pontos", 20),
+                    Triple("2 ★★", "40 pontos", 40),
+                    Triple("3 ★★★", "60 pontos", 60),
+                    Triple("4 ★★★★", "80 pontos — elegível PMP", 80),
+                    Triple("5 ★★★★★", "100 pontos — máximo", 100),
+                ).forEach { (estrelas, descricao, pts) ->
+                    val cor = when {
+                        pts >= 80 -> Dourado
+                        pts >= 60 -> Verde
+                        else      -> InkMuted
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(estrelas, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = cor)
+                        Text(descricao, fontSize = 12.sp, color = InkMuted)
+                    }
+                    LinearProgressIndicator(
+                        progress = { pts / 100f },
+                        modifier = Modifier.fillMaxWidth().height(4.dp).padding(bottom = 2.dp),
+                        color    = cor,
+                        trackColor = SurfaceOff,
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .background(UrgenteClaro, RoundedCornerShape(8.dp))
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Text("⚠️", fontSize = 13.sp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "Se a média cair abaixo de 4★ (80 pontos), o Selo PMP é revogado e os atendimentos urgentes são pausados automaticamente.",
+                        fontSize = 12.sp, color = Urgente, lineHeight = 17.sp,
+                    )
                 }
             }
         }
@@ -604,14 +803,27 @@ fun AbaCredibilidadeDash(credibilidade: Int = 0) {
 // (MainActivity) e navega direto para VideoCallScreen — não passa por esta aba.
 @Composable
 fun AbaUrgenteDash(
-    onEstudio: (() -> Unit)? = null,
     disponivelUrgente: Boolean = false,
     consultas: List<ConsultaProfissional> = emptyList(),
 ) {
     val scope = rememberCoroutineScope()
-    var ativo       by remember(disponivelUrgente) { mutableStateOf(disponivelUrgente) }
-    var atualizando by remember { mutableStateOf(false) }
-    var erroToggle  by remember { mutableStateOf(false) }
+    var ativo             by remember(disponivelUrgente) { mutableStateOf(disponivelUrgente) }
+    var atualizando       by remember { mutableStateOf(false) }
+    var erroToggle        by remember { mutableStateOf(false) }
+    var mostrarTermos     by remember { mutableStateOf(false) }
+    var mostrarInstrucoes by remember { mutableStateOf(false) }
+    // Controla se o profissional já aceitou os termos nesta versão —
+    // consultado ao carregar. Se já aceitou, o switch ativa sem modal.
+    var jaAceitouTermos   by remember { mutableStateOf(false) }
+    var verificandoTermos by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        val uid = currentUserId
+        if (uid != null) {
+            jaAceitouTermos = verificarAceiteTermosUrgencia(uid)
+        }
+        verificandoTermos = false
+    }
 
     // Calcula urgentes reais a partir das consultas recebidas
     val urgentesRealizadas = consultas.count {
@@ -649,17 +861,34 @@ fun AbaUrgenteDash(
                         Switch(
                             checked = ativo,
                             onCheckedChange = { novoValor ->
-                                val anteriorValor = ativo
-                                ativo = novoValor
-                                atualizando = true
-                                erroToggle = false
-                                scope.launch {
-                                    val uid = currentUserId
-                                    val sucesso = if (uid != null) atualizarDisponibilidadeUrgente(uid, novoValor) else false
-                                    atualizando = false
-                                    if (!sucesso) {
-                                        ativo = anteriorValor
-                                        erroToggle = true
+                                if (novoValor && !ativo) {
+                                    // Ativar urgente → exige aceite de termos (se ainda não aceitou esta versão)
+                                    if (jaAceitouTermos) {
+                                        // Já aceitou — ativa direto
+                                        val anteriorValor = ativo
+                                        ativo       = true
+                                        atualizando = true
+                                        erroToggle  = false
+                                        scope.launch {
+                                            val uid     = currentUserId
+                                            val sucesso = if (uid != null) atualizarDisponibilidadeUrgente(uid, true) else false
+                                            atualizando = false
+                                            if (!sucesso) { ativo = anteriorValor; erroToggle = true }
+                                        }
+                                    } else {
+                                        mostrarTermos = true
+                                    }
+                                } else if (!novoValor) {
+                                    // Desativar → direto, sem modal
+                                    val anteriorValor = ativo
+                                    ativo       = false
+                                    atualizando = true
+                                    erroToggle  = false
+                                    scope.launch {
+                                        val uid     = currentUserId
+                                        val sucesso = if (uid != null) atualizarDisponibilidadeUrgente(uid, false) else false
+                                        atualizando = false
+                                        if (!sucesso) { ativo = anteriorValor; erroToggle = true }
                                     }
                                 }
                             },
@@ -743,14 +972,183 @@ fun AbaUrgenteDash(
                     }
                 }
 
-                if (onEstudio != null) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(
-                        onClick = onEstudio, modifier = Modifier.fillMaxWidth().height(52.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC49A2A), contentColor = Color.White),
-                        shape = RoundedCornerShape(10.dp)
+            }
+        }
+
+        // ── Card: Instruções para a chamada urgente ────────────────────
+        Card(
+            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+            colors   = CardDefaults.cardColors(containerColor = Surface),
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Guia da Chamada Urgente", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
+                    TextButton(onClick = { mostrarInstrucoes = true }) {
+                        Text("Ver completo", color = Azul, fontSize = 12.sp)
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                listOf(
+                    "🎯" to "Ouça ativamente. Não tente resolver a situação toda — seu papel é acolher e orientar.",
+                    "⏱" to "A sessão dura até 15 minutos. Seja direto e objetivo.",
+                    "🚫" to "Não faça diagnósticos definitivos. Ofereça perspectiva profissional, não certezas.",
+                    "📋" to "Ao final, indique um próximo passo claro ao cliente.",
+                ).forEach { (icon, texto) ->
+                    Row(
+                        modifier = Modifier.padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.Top,
                     ) {
-                        Text("🎨 Acessar meu Estúdio", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text(icon, fontSize = 16.sp)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(texto, fontSize = 12.sp, color = InkSoft, lineHeight = 17.sp, modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Modal: Termos de responsabilidade para ativar urgente ──────────
+    if (mostrarTermos) {
+        Dialog(onDismissRequest = { mostrarTermos = false }) {
+            Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Text("⚡ Termos de Prontidão Urgente", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Ink)
+                    Text(
+                        "Ao ativar a Área Urgente, você declara estar ciente de que:",
+                        fontSize = 13.sp, color = InkMuted,
+                    )
+                    var aceite by remember { mutableStateOf(false) }
+                    listOf(
+                        "Devo responder ao chamado em até 45 minutos após receber a notificação.",
+                        "A consulta urgente tem duração máxima de 15 minutos.",
+                        "Não escolho horários — fico disponível de forma contínua enquanto o switch estiver ativo.",
+                        "Atrasos ou descumprimentos reduzem minha credibilidade e podem suspender meu acesso à área urgente.",
+                        "Sou o único responsável pelo serviço prestado. A plataforma é apenas o canal de conexão.",
+                    ).forEach { texto ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .background(SurfaceWarm, RoundedCornerShape(8.dp))
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Text("•", fontSize = 14.sp, color = Azul, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(texto, fontSize = 12.sp, color = Ink, lineHeight = 17.sp)
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .background(if (aceite) Verde.copy(alpha = 0.08f) else SurfaceOff, RoundedCornerShape(10.dp))
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked         = aceite,
+                            onCheckedChange = { aceite = it },
+                            colors          = CheckboxDefaults.colors(checkedColor = Verde),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Li, compreendi e aceito todos os termos acima.",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (aceite) Verde else Ink,
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick  = { mostrarTermos = false },
+                            modifier = Modifier.weight(1f),
+                            shape    = RoundedCornerShape(10.dp),
+                        ) {
+                            Text("Cancelar", color = InkMuted)
+                        }
+                        Button(
+                            onClick = {
+                                if (!aceite) return@Button
+                                mostrarTermos = false
+                                ativo         = true
+                                atualizando   = true
+                                scope.launch {
+                                    val uid = currentUserId
+                                    if (uid != null) {
+                                        // Persistir aceite no banco antes de ativar a disponibilidade
+                                        gravarAceiteTermosUrgencia(uid)
+                                        jaAceitouTermos = true
+                                        val sucesso = atualizarDisponibilidadeUrgente(uid, true)
+                                        atualizando = false
+                                        if (!sucesso) { ativo = false; erroToggle = true }
+                                    } else {
+                                        atualizando = false
+                                        ativo = false
+                                    }
+                                }
+                            },
+                            enabled  = aceite,
+                            modifier = Modifier.weight(1f),
+                            shape    = RoundedCornerShape(10.dp),
+                            colors   = ButtonDefaults.buttonColors(containerColor = Verde),
+                        ) {
+                            Text("Ativar agora", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Modal: Instruções completas ────────────────────────────────────
+    if (mostrarInstrucoes) {
+        Dialog(onDismissRequest = { mostrarInstrucoes = false }) {
+            Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
+                Column(
+                    modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("📋 Guia completo — Chamada Urgente", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Ink)
+                    Text("Para o Profissional", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Azul)
+                    listOf(
+                        "Ao receber o chamado, você tem 45 minutos para iniciar. Após esse prazo, o chamado expira.",
+                        "Durante os 15 minutos, foque em escutar. A urgência do cliente é emocional — valide antes de orientar.",
+                        "Não faça diagnósticos definitivos. Ofereça perspectiva profissional e indique próximos passos concretos.",
+                        "Seja breve e claro. Ao final da chamada, resuma em uma frase o que foi tratado e o que o cliente deve fazer.",
+                        "Após a chamada, o cliente avaliará a sessão. Sua pontuação PMP depende dessa avaliação.",
+                    ).forEachIndexed { i, texto ->
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                            Box(modifier = Modifier.size(22.dp).background(Azul.copy(alpha = 0.12f), RoundedCornerShape(50)), contentAlignment = Alignment.Center) {
+                                Text("${i+1}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Azul)
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(texto, fontSize = 12.sp, color = Ink, lineHeight = 17.sp, modifier = Modifier.weight(1f))
+                        }
+                    }
+                    HorizontalDivider(color = SurfaceOff)
+                    Text("Lembrete legal", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Urgente)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().background(UrgenteClaro, RoundedCornerShape(8.dp)).padding(12.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Text("⚠️", fontSize = 14.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "A plataforma Brasil Tupi Conecta é o canal de conexão. O serviço prestado é de sua exclusiva responsabilidade profissional. O cliente está ciente de que busca uma orientação de urgência — não um diagnóstico definitivo.",
+                            fontSize = 12.sp, color = Urgente, lineHeight = 17.sp,
+                        )
+                    }
+                    Button(
+                        onClick  = { mostrarInstrucoes = false },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape    = RoundedCornerShape(10.dp),
+                        colors   = ButtonDefaults.buttonColors(containerColor = Verde),
+                    ) {
+                        Text("Entendido", color = Color.White, fontWeight = FontWeight.Bold)
                     }
                 }
             }

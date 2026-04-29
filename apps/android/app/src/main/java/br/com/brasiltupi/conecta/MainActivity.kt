@@ -86,6 +86,10 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
 
     // ── Estado de navegação ───────────────────────────────────────────────
     var tela                      by remember { mutableStateOf("") }
+    // Garante que a verificação LGPD só dispara UMA vez por sessão de composição.
+    // Sem este flag, process-death + recriação do Compose executa o LaunchedEffect
+    // novamente com tela="" e pode cair em legal-onboarding mesmo quem já aceitou.
+    var lgpdVerificada            by remember { mutableStateOf(false) }
     var estudioProfId             by remember { mutableStateOf("") }
     var chatOutroId               by remember { mutableStateOf("") }
     var chatOutroNome             by remember { mutableStateOf("") }
@@ -112,6 +116,10 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
     // Fase 4.2 — Referral
     var suporteAgendamentoId      by remember { mutableStateOf<String?>(null) }
     // Fase 4.3 — Suporte e disputas
+    // Atendimentos Regulares
+    var agendamentoProfId              by remember { mutableStateOf("") }
+    var agendamentoProfNome            by remember { mutableStateOf("") }
+    var agendamentoRegularIdPagamento  by remember { mutableStateOf("") }
     // Fase 1 — LGPD: dashboard destino após consentimento gravado
     var destinoAposLegal          by remember { mutableStateOf("") }
 
@@ -179,7 +187,14 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
                     return@LaunchedEffect
                 }
 
-                // Fase 1 — LGPD: só executado se já logado
+                // Fase 1 — LGPD: só executa UMA vez por sessão (lgpdVerificada).
+                // Sem esse guard, process-death recria tela="" e re-executa esse bloco,
+                // podendo exibir legal-onboarding para quem já aceitou.
+                if (lgpdVerificada) {
+                    if (tela.isEmpty()) tela = "dashboard-cliente"
+                    return@LaunchedEffect
+                }
+                lgpdVerificada = true
                 val uid = currentUserId
                 if (uid.isNullOrEmpty()) {
                     tela = "welcome"
@@ -215,7 +230,12 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
                     return@LaunchedEffect
                 }
 
-                // Fase 1 — LGPD: só executado se já logado
+                // Fase 1 — LGPD: só executa UMA vez por sessão (lgpdVerificada).
+                if (lgpdVerificada) {
+                    if (tela.isEmpty()) tela = "dashboard-profissional"
+                    return@LaunchedEffect
+                }
+                lgpdVerificada = true
                 val uidProf = currentUserId
                 if (uidProf.isNullOrEmpty()) {
                     tela = "welcome"
@@ -388,6 +408,7 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             onEstudio        = { tela = "estudio-dashboard" },
             onPerfil         = { tela = "perfil-profissional" },
             onRelatorios     = { tela = "relatorios" },
+            onModalidades    = { tela = "modalidades" },
             onIniciarChamada = { urgenciaId ->
                 urgenciaIdAtiva = urgenciaId
                 StreamVideoRepository.solicitarToken(urgenciaId)
@@ -396,32 +417,63 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
         )
 
         "dashboard-cliente" -> DashboardClienteScreen(
-            onSair    = { tela = "welcome" },
-            onEstudio = { profId -> estudioProfId = profId; tela = "estudio-vitrine" },
-            onPerfil  = { tela = "perfil-cliente" },
-            onChat    = { outroId, outroNome ->
+            onSair       = { tela = "welcome" },
+            onEstudio    = { profId -> estudioProfId = profId; tela = "estudio-vitrine" },
+            onPerfil     = { tela = "perfil-cliente" },
+            onAgendar    = { profId, profNome ->
+                agendamentoProfId   = profId
+                agendamentoProfNome = profNome
+                tela = "agendamento-regular"
+            },
+            onChat       = { outroId, outroNome ->
                 chatOutroId   = outroId
                 chatOutroNome = outroNome
                 chatDestino   = "dashboard-cliente"
                 tela          = "chat"
             },
-            onSuporte = { agendamentoId ->
+            onSuporte    = { agendamentoId ->
                 suporteAgendamentoId = agendamentoId
                 tela = "suporte"
             },
+            onBiblioteca = { tela = "biblioteca" },
         )
 
         // ── PERFIS ────────────────────────────────────────────────────────
         "perfil-profissional" -> PerfilProfissionalScreen(
-            onVoltar = { tela = "dashboard-profissional" },
-            userId   = currentUserId ?: "",
-            onKyc    = { tela = "kyc-status" },
+            onVoltar        = { tela = "dashboard-profissional" },
+            userId          = currentUserId ?: "",
+            onKyc           = { tela = "kyc-status" },
+            onContaExcluida = { tela = "welcome" },
         )
 
         "perfil-cliente" -> PerfilClienteScreen(
             onVoltar   = { tela = "dashboard-cliente" },
             userId     = currentUserId ?: "",
             onReferral = { tela = "referral" },
+        )
+
+        // ── ATENDIMENTOS REGULARES ────────────────────────────────────────
+        "modalidades" -> ModalidadesScreen(
+            userId   = currentUserId ?: "",
+            onVoltar = { tela = "dashboard-profissional" },
+        )
+
+        "agendamento-regular" -> AgendamentoRegularScreen(
+            profissionalId   = agendamentoProfId,
+            nomeProfissional = agendamentoProfNome,
+            onVoltar         = { tela = "dashboard-cliente" },
+            onAgendado       = { tela = "dashboard-cliente" },
+            onPagar          = { agendamentoId ->
+                agendamentoRegularIdPagamento = agendamentoId
+                PagamentoRepository.criarPreferenciaRegular(agendamentoId)
+                tela = "pagamento-regular"
+            },
+        )
+
+        "pagamento-regular" -> PagamentoScreen(
+            urgenciaId   = agendamentoRegularIdPagamento,
+            onConfirmado = { tela = "dashboard-cliente" },
+            onVoltar     = { tela = "dashboard-cliente" },
         )
 
         // ── BUSCA DE PROFISSIONAIS ─────────────────────────────────────────
@@ -536,6 +588,7 @@ fun DashboardProfissionalComRealtime(
     onEstudio:        () -> Unit,
     onPerfil:         () -> Unit,
     onRelatorios:     () -> Unit = {},
+    onModalidades:    () -> Unit = {},
     onIniciarChamada: (urgenciaId: String) -> Unit = {},
 ) {
     var urgenciaAtiva           by remember { mutableStateOf<Urgencia?>(null) }
@@ -599,10 +652,11 @@ fun DashboardProfissionalComRealtime(
 
     Box(modifier = Modifier.fillMaxSize()) {
         DashboardProfissionalScreen(
-            onSair       = onSair,
-            onEstudio    = onEstudio,
-            onPerfil     = onPerfil,
-            onRelatorios = onRelatorios,
+            onSair        = onSair,
+            onEstudio     = onEstudio,
+            onPerfil      = onPerfil,
+            onRelatorios  = onRelatorios,
+            onModalidades = onModalidades,
         )
         when (statusRealtime) {
             StatusRealtime.INSTAVEL -> BannerRealtimeInstavel(offline = false)
