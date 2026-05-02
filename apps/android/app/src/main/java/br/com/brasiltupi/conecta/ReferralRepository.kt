@@ -9,6 +9,10 @@ import io.ktor.client.request.*
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+// ── Configuração via BuildConfig ───────────────────────────────────────
+private val LOCAL_URL = BuildConfig.SUPABASE_URL
+private val LOCAL_KEY = BuildConfig.SUPABASE_KEY
+
 @Serializable
 data class CreditoUsuario(
     val id:         String,
@@ -44,10 +48,10 @@ class ReferralRepository {
     // ── 1. GERAR OU BUSCAR CÓDIGO DO USUÁRIO ──────────────────────────────
     suspend fun obterOuGerarCodigo(): String? {
         val userId = currentUserId ?: return null
-        val token  = currentToken  ?: SUPABASE_KEY
+        val token  = currentToken  ?: LOCAL_KEY
         return try {
-            httpClient.post("$SUPABASE_URL/rest/v1/rpc/gerar_referral_code") {
-                header("apikey",        SUPABASE_KEY)
+            httpClient.post("$LOCAL_URL/rest/v1/rpc/gerar_referral_code") {
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 header("Content-Type",  "application/json")
                 setBody(RpcGerarCodeRequest(userId = userId))
@@ -62,12 +66,12 @@ class ReferralRepository {
     // Retorna: "ok", "codigo_invalido", "codigo_proprio", "ja_indicado"
     suspend fun aplicarCodigo(codigo: String): String {
         val userId = currentUserId ?: return "sessao_invalida"
-        val token  = currentToken  ?: SUPABASE_KEY
+        val token  = currentToken  ?: LOCAL_KEY
         return try {
             val response = httpClient.post(
-                "$SUPABASE_URL/rest/v1/rpc/aplicar_referral_code"
+                "$LOCAL_URL/rest/v1/rpc/aplicar_referral_code"
             ) {
-                header("apikey",        SUPABASE_KEY)
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 header("Content-Type",  "application/json")
                 setBody(RpcAplicarCodeRequest(
@@ -87,10 +91,10 @@ class ReferralRepository {
     // ── 3. BUSCAR CRÉDITOS DO USUÁRIO ─────────────────────────────────────
     suspend fun buscarCreditos(): List<CreditoUsuario> {
         val userId = currentUserId ?: return emptyList()
-        val token  = currentToken  ?: SUPABASE_KEY
+        val token  = currentToken  ?: LOCAL_KEY
         return try {
-            httpClient.get("$SUPABASE_URL/rest/v1/credits") {
-                header("apikey",        SUPABASE_KEY)
+            httpClient.get("$LOCAL_URL/rest/v1/credits") {
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 header("Accept",        "application/json")
                 parameter("user_id", "eq.$userId")
@@ -107,10 +111,10 @@ class ReferralRepository {
     // ── 4. BUSCAR INDICAÇÕES FEITAS ───────────────────────────────────────
     suspend fun buscarIndicacoes(): List<ReferralInfo> {
         val userId = currentUserId ?: return emptyList()
-        val token  = currentToken  ?: SUPABASE_KEY
+        val token  = currentToken  ?: LOCAL_KEY
         return try {
-            httpClient.get("$SUPABASE_URL/rest/v1/referrals") {
-                header("apikey",        SUPABASE_KEY)
+            httpClient.get("$LOCAL_URL/rest/v1/referrals") {
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 header("Accept",        "application/json")
                 parameter("referrer_id", "eq.$userId")

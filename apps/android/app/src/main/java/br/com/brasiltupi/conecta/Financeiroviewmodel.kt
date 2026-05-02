@@ -43,8 +43,11 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
+// ── Configuração via BuildConfig ───────────────────────────────────────
+private val LOCAL_URL = BuildConfig.SUPABASE_URL
+private val LOCAL_KEY = BuildConfig.SUPABASE_KEY
+
 private const val TAG         = "FinanceiroViewModel"
-private const val API_KEY     = SUPABASE_KEY
 private const val TAXA_PADRAO = 15.0
 
 private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
@@ -169,9 +172,9 @@ class FinanceiroViewModel : ViewModel() {
     private suspend fun buscarResumoViaRpc(profId: String): Result<ResumoFinanceiro> {
         return try {
             // [BUG-03 FIX] Getter val via AuthRepository
-            val token = AuthRepository.token ?: API_KEY
-            val response = httpClient.post("$SUPABASE_URL/rest/v1/rpc/resumo_financeiro") {
-                header("apikey",        API_KEY)
+            val token = AuthRepository.token ?: LOCAL_KEY
+            val response = httpClient.post("$LOCAL_URL/rest/v1/rpc/resumo_financeiro") {
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 contentType(ContentType.Application.Json)
                 setBody(ResumoFinanceiroRequest(profId = profId))
@@ -218,15 +221,15 @@ class FinanceiroViewModel : ViewModel() {
     private suspend fun buscarResumoViaRestFallback(profId: String): Result<ResumoFinanceiro> {
         return try {
             // [BUG-03 FIX] Getter val via AuthRepository
-            val token = AuthRepository.token ?: API_KEY
+            val token = AuthRepository.token ?: LOCAL_KEY
 
             // [BUG-01 FIX] Projection completa — mesmo conjunto de campos do DTO
             val response = httpClient.get(
-                "$SUPABASE_URL/rest/v1/payments" +
+                "$LOCAL_URL/rest/v1/payments" +
                         "?professional_id=eq.$profId" +
                         "&select=id,urgencia_id,status,valor,criado_em"  // FIX: era select=valor,status
             ) {
-                header("apikey",        API_KEY)
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 header("Accept",        "application/json")
             }
@@ -267,15 +270,15 @@ class FinanceiroViewModel : ViewModel() {
     private suspend fun buscarTransacoesRecentes(profId: String): Result<List<TransacaoFinanceira>> {
         return try {
             // [BUG-03 FIX] Getter val via AuthRepository
-            val token = AuthRepository.token ?: API_KEY
+            val token = AuthRepository.token ?: LOCAL_KEY
             val response = httpClient.get(
-                "$SUPABASE_URL/rest/v1/payments" +
+                "$LOCAL_URL/rest/v1/payments" +
                         "?professional_id=eq.$profId" +
                         "&select=id,urgencia_id,status,valor,criado_em" +
                         "&order=criado_em.desc" +
                         "&limit=20"
             ) {
-                header("apikey",        API_KEY)
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 header("Accept",        "application/json")
             }

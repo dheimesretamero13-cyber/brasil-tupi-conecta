@@ -36,21 +36,26 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
 
-private const val TAG          = "PagamentoRepository"
-private const val API_KEY      = "sb_publishable_SM-UHBh_5lzTSBZ2YPUIYw_Sw1i8qeq"
-private const val WS_URL       = "wss://qfzdchrlbqcvewjivaqz.supabase.co/realtime/v1/websocket"
+// ── Configuração via BuildConfig ───────────────────────────────────────
+private val LOCAL_URL = BuildConfig.SUPABASE_URL
+private val LOCAL_KEY = BuildConfig.SUPABASE_KEY
 
-private const val EDGE_URL = "https://qfzdchrlbqcvewjivaqz.supabase.co/functions/v1/criar-preferencia-pagamento"
+// WebSocket dinâmico a partir da URL base de REST
+private val WS_URL = LOCAL_URL
+    .replace("https://", "wss://")
+    .replace("http://", "ws://") + "/realtime/v1/websocket"
+
+// Edge Functions — URLs construídas dinamicamente
+private val EDGE_URL = "$LOCAL_URL/functions/v1/criar-preferencia-pagamento"
+private val EDGE_URL_REGULAR = "$LOCAL_URL/functions/v1/criar-preferencia-regular"
+
+private const val TAG = "PagamentoRepository"
 
 // Timeout para aguardar confirmação via Realtime antes de ativar polling
 private const val REALTIME_CONFIRM_TIMEOUT_MS = 30_000L
 private const val POLLING_INTERVAL_MS         = 5_000L
 
 private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
-
-// ── ATENDIMENTOS REGULARES: EDGE FUNCTION ────────────────────────────────
-private const val EDGE_URL_REGULAR =
-    "https://qfzdchrlbqcvewjivaqz.supabase.co/functions/v1/criar-preferencia-regular"
 
 // ═══════════════════════════════════════════════════════════════════════════
 // OBJETO REPOSITÓRIO
@@ -106,12 +111,12 @@ object PagamentoRepository {
             try {
                 val response = httpClient.post(EDGE_URL) {
                     header("Authorization",   "Bearer $token")
-                    header("apikey",          API_KEY)
+                    header("apikey",          LOCAL_KEY)
                     // Idempotência: mesmo urgencia_id sempre retorna a mesma preferência
                     header("Idempotency-Key", urgenciaId)
                     contentType(ContentType.Application.Json)
                     setBody(CriarPreferenciaRequest(
-                        urgenciaId    = urgenciaId,
+                        urgenciaId     = urgenciaId,
                         idempotencyKey = urgenciaId,
                     ))
                 }
@@ -283,9 +288,9 @@ object PagamentoRepository {
             }
 
             try {
-                val token = currentToken ?: API_KEY
+                val token = currentToken ?: LOCAL_KEY
                 wsClient.webSocket(
-                    urlString = "$WS_URL?apikey=$API_KEY&vsn=1.0.0",
+                    urlString = "$WS_URL?apikey=$LOCAL_KEY&vsn=1.0.0",
                     request   = { header("Authorization", "Bearer $token") },
                 ) {
                     // JOIN no canal filtrado por urgencia_id
@@ -424,14 +429,14 @@ object PagamentoRepository {
 
                 // Consultar tabela payments via REST
                 try {
-                    val token    = currentToken ?: API_KEY
+                    val token    = currentToken ?: LOCAL_KEY
                     val response = httpClient.get(
-                        "$SUPABASE_URL/rest/v1/payments" +
+                        "$LOCAL_URL/rest/v1/payments" +
                                 "?urgencia_id=eq.$urgenciaId" +
                                 "&select=id,status,valor" +
                                 "&order=criado_em.desc&limit=1"
                     ) {
-                        header("apikey",        API_KEY)
+                        header("apikey",        LOCAL_KEY)
                         header("Authorization", "Bearer $token")
                         header("Accept",        "application/json")
                     }
@@ -506,16 +511,16 @@ object PagamentoRepository {
      */
     suspend fun verificarPendencia(): String? {
         val uid   = currentUserId ?: return null
-        val token = currentToken  ?: API_KEY
+        val token = currentToken  ?: LOCAL_KEY
         return try {
             val response = httpClient.get(
-                "$SUPABASE_URL/rest/v1/payments" +
+                "$LOCAL_URL/rest/v1/payments" +
                         "?client_id=eq.$uid" +
                         "&status=eq.pending" +
                         "&select=urgencia_id" +
                         "&order=criado_em.desc&limit=1"
             ) {
-                header("apikey",        API_KEY)
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 header("Accept",        "application/json")
             }
@@ -564,7 +569,7 @@ object PagamentoRepository {
             try {
                 val response = httpClient.post(EDGE_URL_REGULAR) {
                     header("Authorization",   "Bearer $token")
-                    header("apikey",          SUPABASE_KEY)
+                    header("apikey",          LOCAL_KEY)
                     header("Idempotency-Key", "regular_$agendamentoRegularId")
                     contentType(ContentType.Application.Json)
                     setBody(CriarPreferenciaRegularRequest(
@@ -620,9 +625,9 @@ object PagamentoRepository {
                 install(WebSockets) { pingInterval = 25_000L }
             }
             try {
-                val token = currentToken ?: SUPABASE_KEY
+                val token = currentToken ?: LOCAL_KEY
                 wsClient.webSocket(
-                    urlString = "$WS_URL?apikey=$API_KEY&vsn=1.0.0",
+                    urlString = "$WS_URL?apikey=$LOCAL_KEY&vsn=1.0.0",
                     request   = { header("Authorization", "Bearer $token") },
                 ) {
                     val joinMsg = buildJsonObject {

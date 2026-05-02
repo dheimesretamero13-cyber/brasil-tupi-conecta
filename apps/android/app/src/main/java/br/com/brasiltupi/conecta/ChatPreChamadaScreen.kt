@@ -76,7 +76,7 @@ fun ChatPreChamadaScreen(
         enviando = true
         erroEnvio = false
 
-        // Optimistic update
+        // Optimistic update – adiciona à lista imediatamente
         val tempId = "temp_${System.currentTimeMillis()}"
         val msgTemp = MensagemChat(
             id          = tempId,
@@ -84,15 +84,17 @@ fun ChatPreChamadaScreen(
             remetenteId = meuId,
             texto       = textoEnviado,
         )
-        // Adicionar localmente — o Realtime confirmará com id real
+        repo.adicionarTemp(msgTemp)
+
         scope.launch {
             val ok = repo.enviar(sessionId, textoEnviado)
             enviando  = false
-            erroEnvio = !ok
-            // Se falhou, remover o temp (o Realtime não chegará)
             if (!ok) {
-                repo.buscarHistorico(sessionId)
+                // Rollback da mensagem temporária
+                repo.removerTemp(tempId)
+                erroEnvio = true
             }
+            // Se o envio teve sucesso, o Realtime confirmará com o id real
         }
     }
 

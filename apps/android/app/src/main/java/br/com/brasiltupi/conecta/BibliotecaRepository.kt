@@ -21,6 +21,10 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
+// ── Configuração via BuildConfig ───────────────────────────────────────
+private val LOCAL_URL = BuildConfig.SUPABASE_URL
+private val LOCAL_KEY = BuildConfig.SUPABASE_KEY
+
 // ── Modelos de domínio ────────────────────────────────────────────────────
 
 data class CursoComprado(
@@ -82,11 +86,11 @@ class BibliotecaRepository(private val context: Context) {
     // ── 1. BUSCAR COMPRAS ─────────────────────────────────────────────────
     suspend fun buscarCompras(): Pair<List<CursoComprado>, List<ProdutoComprado>> {
         val userId = currentUserId ?: return Pair(emptyList(), emptyList())
-        val token  = currentToken  ?: SUPABASE_KEY
+        val token  = currentToken  ?: LOCAL_KEY
 
         return try {
-            val response = httpClient.get("$SUPABASE_URL/rest/v1/purchases") {
-                header("apikey",        SUPABASE_KEY)
+            val response = httpClient.get("$LOCAL_URL/rest/v1/purchases") {
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 header("Accept",        "application/json")
                 parameter("user_id", "eq.$userId")
@@ -148,8 +152,8 @@ class BibliotecaRepository(private val context: Context) {
         token:   String,
     ): Triple<Int, Int, Double> {
         return try {
-            val response = httpClient.get("$SUPABASE_URL/rest/v1/course_progress") {
-                header("apikey",        SUPABASE_KEY)
+            val response = httpClient.get("$LOCAL_URL/rest/v1/course_progress") {
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 header("Accept",        "application/json")
                 parameter("curso_id", "eq.$cursoId")

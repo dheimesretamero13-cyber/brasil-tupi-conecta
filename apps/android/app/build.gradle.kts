@@ -1,9 +1,24 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     kotlin("plugin.serialization") version "1.9.0"
     id("com.google.gms.google-services")
-    id("com.google.firebase.crashlytics")   // plugin Crashlytics — gera mapeamento R8 automaticamente
+    id("com.google.firebase.crashlytics")
+}
+
+// 1. Criamos a função que lê o arquivo com segurança
+fun getLocalProperty(key: String): String {
+    val props = Properties()
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use { stream ->
+            props.load(stream)
+        }
+    }
+    return props.getProperty(key) ?: ""
 }
 
 android {
@@ -17,8 +32,13 @@ android {
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    }
 
+        // 2. Usamos a função para preencher os campos
+        buildConfigField("String", "SUPABASE_URL", "\"${getLocalProperty("SUPABASE_URL")}\"")
+        buildConfigField("String", "SUPABASE_KEY", "\"${getLocalProperty("SUPABASE_KEY")}\"")
+        buildConfigField("String", "STREAM_API_KEY", "\"${getLocalProperty("STREAM_API_KEY")}\"")
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"${getLocalProperty("SUPABASE_PUBLISHABLE_KEY")}\"")
+    }
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -65,6 +85,7 @@ dependencies {
     implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+    implementation(libs.androidx.compose.foundation)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

@@ -17,6 +17,10 @@ import io.ktor.client.request.*
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+// ── Configuração via BuildConfig ───────────────────────────────────────
+private val LOCAL_URL = BuildConfig.SUPABASE_URL
+private val LOCAL_KEY = BuildConfig.SUPABASE_KEY
+
 // ── Modelo de progresso retornado pelo Supabase ───────────────────────────
 data class ProgressoAula(
     val posicaoMs: Long,
@@ -46,10 +50,10 @@ class ContentRepository {
     suspend fun gerarUrlTemporaria(aulaId: String): String {
         return try {
             val response = httpClient.post(
-                "$SUPABASE_URL/storage/v1/object/sign/aulas/$aulaId"
+                "$LOCAL_URL/storage/v1/object/sign/aulas/$aulaId"
             ) {
-                header("apikey", SUPABASE_KEY)
-                header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+                header("apikey", LOCAL_KEY)
+                header("Authorization", "Bearer ${currentToken ?: LOCAL_KEY}")
                 header("Content-Type", "application/json")
                 setBody("{\"expiresIn\": 3600}")
             }.body<Map<String, String?>>()
@@ -59,7 +63,7 @@ class ContentRepository {
                 AppLogger.aviso("ContentRepository", "signedURL vazio para aula=$aulaId")
                 throw IllegalStateException("URL temporaria nao gerada para aula=$aulaId")
             }
-            "$SUPABASE_URL/storage/v1$signedUrl"
+            "$LOCAL_URL/storage/v1$signedUrl"
         } catch (e: Exception) {
             AppLogger.erro("ContentRepository", "Falha ao gerar URL temporaria aula=$aulaId", e)
             throw e
@@ -71,10 +75,10 @@ class ContentRepository {
     suspend fun gerarUrlTemporariaPdf(produtoId: String): String {
         return try {
             val response = httpClient.post(
-                "$SUPABASE_URL/storage/v1/object/sign/produtos-pdf/$produtoId.pdf"
+                "$LOCAL_URL/storage/v1/object/sign/produtos-pdf/$produtoId.pdf"
             ) {
-                header("apikey", SUPABASE_KEY)
-                header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+                header("apikey", LOCAL_KEY)
+                header("Authorization", "Bearer ${currentToken ?: LOCAL_KEY}")
                 header("Content-Type", "application/json")
                 setBody("{\"expiresIn\": 3600}")
             }.body<Map<String, String?>>()
@@ -83,7 +87,7 @@ class ContentRepository {
             if (signedUrl.isNullOrBlank()) {
                 throw IllegalStateException("URL temporaria nao gerada para produto=$produtoId")
             }
-            "$SUPABASE_URL/storage/v1$signedUrl"
+            "$LOCAL_URL/storage/v1$signedUrl"
         } catch (e: Exception) {
             AppLogger.erro("ContentRepository", "Falha ao gerar URL PDF produto=$produtoId", e)
             throw e
@@ -94,9 +98,9 @@ class ContentRepository {
     suspend fun buscarProgresso(aulaId: String, cursoId: String): ProgressoAula? {
         val userId = currentUserId ?: return null
         return try {
-            httpClient.get("$SUPABASE_URL/rest/v1/course_progress") {
-                header("apikey", SUPABASE_KEY)
-                header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            httpClient.get("$LOCAL_URL/rest/v1/course_progress") {
+                header("apikey", LOCAL_KEY)
+                header("Authorization", "Bearer ${currentToken ?: LOCAL_KEY}")
                 header("Accept", "application/json")
                 parameter("user_id",  "eq.$userId")
                 parameter("aula_id",  "eq.$aulaId")
@@ -126,9 +130,9 @@ class ContentRepository {
     ) {
         val userId = currentUserId ?: return
         try {
-            httpClient.post("$SUPABASE_URL/rest/v1/course_progress") {
-                header("apikey", SUPABASE_KEY)
-                header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            httpClient.post("$LOCAL_URL/rest/v1/course_progress") {
+                header("apikey", LOCAL_KEY)
+                header("Authorization", "Bearer ${currentToken ?: LOCAL_KEY}")
                 header("Content-Type", "application/json")
                 header("Prefer", "resolution=merge-duplicates,return=minimal")
                 setBody(SalvarProgressoRequest(

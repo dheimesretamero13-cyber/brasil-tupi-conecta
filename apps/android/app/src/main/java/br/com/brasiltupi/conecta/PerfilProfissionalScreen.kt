@@ -848,14 +848,149 @@ fun AbaSegurancaProfissional(
 }
 
 // ── ABA: URGENTE ──────────────────────────────────────
+// Espelha a mesma lógica de AbaUrgenteDash:
+//   — verifica aceite de termos ao carregar (verificarAceiteTermosUrgencia)
+//   — se nunca aceitou: abre modal antes de ativar o switch
+//   — se já aceitou: ativa direto
+//   — dados de histórico: calculados a partir de consultas reais (sem mock)
 @Composable
 fun AbaUrgenteProfissional(
     disponivelInicial: Boolean = false,
     userId:            String  = "",
 ) {
-    var ativo       by remember { mutableStateOf(disponivelInicial) }
-    var atualizando by remember { mutableStateOf(false) }
-    val scope       = rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
+
+    var ativo             by remember { mutableStateOf(disponivelInicial) }
+    var atualizando       by remember { mutableStateOf(false) }
+    var erroToggle        by remember { mutableStateOf(false) }
+    var mostrarTermos     by remember { mutableStateOf(false) }
+    // jaAceitouTermos: false enquanto carrega, setado pelo LaunchedEffect
+    var jaAceitouTermos   by remember { mutableStateOf(false) }
+    var verificandoTermos by remember { mutableStateOf(true) }
+
+    // Consultas reais para o histórico urgente
+    var consultas         by remember { mutableStateOf<List<ConsultaProfissional>>(emptyList()) }
+
+    LaunchedEffect(userId) {
+        if (userId.isEmpty()) { verificandoTermos = false; return@LaunchedEffect }
+        jaAceitouTermos   = verificarAceiteTermosUrgencia(userId)
+        consultas         = buscarConsultasProfissional(userId)
+        verificandoTermos = false
+    }
+
+    // Métricas de histórico urgente calculadas a partir de dados reais
+    val urgentesTotais    = consultas.count { it.tipo.contains("rgente", ignoreCase = true) }
+    val urgentesRealizadas = consultas.count {
+        it.tipo.contains("rgente", ignoreCase = true) &&
+                (it.status == "concluida" || it.status == "concluido")
+    }
+    val pontualidade   = if (urgentesTotais > 0) "${urgentesRealizadas * 100 / urgentesTotais}%" else "—"
+    val descumprimentos = urgentesTotais - urgentesRealizadas
+
+    // ── Modal de Termos (mesmo conteúdo da AbaUrgenteDash) ────────────
+    // var aceite no escopo do Dialog (não dentro do Column filho) para
+    // evitar reset por recomposição.
+    var aceiteTermos by remember(mostrarTermos) { mutableStateOf(false) }
+
+    if (mostrarTermos) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { mostrarTermos = false }) {
+            Card(
+                shape    = RoundedCornerShape(16.dp),
+                colors   = CardDefaults.cardColors(containerColor = Surface),
+                modifier = Modifier.heightIn(max = 560.dp),
+            ) {
+                Column(
+                    modifier            = Modifier
+                        .verticalScroll(rememberScrollState())
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Text("⚡ Termos de Prontidão Urgente", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Ink)
+                    Text(
+                        "Ao ativar a Área Urgente, você declara estar ciente de que:",
+                        fontSize = 13.sp, color = InkMuted,
+                    )
+                    listOf(
+                        "Devo responder ao chamado em até 45 minutos após receber a notificação.",
+                        "A consulta urgente tem duração máxima de 15 minutos.",
+                        "Não escolho horários — fico disponível de forma contínua enquanto o switch estiver ativo.",
+                        "Atrasos ou descumprimentos reduzem minha credibilidade e podem suspender meu acesso à área urgente.",
+                        "Sou o único responsável pelo serviço prestado. A plataforma é apenas o canal de conexão.",
+                    ).forEach { texto ->
+                        Row(
+                            modifier          = Modifier
+                                .fillMaxWidth()
+                                .background(SurfaceWarm, RoundedCornerShape(8.dp))
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Text("•", fontSize = 14.sp, color = Azul, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(texto, fontSize = 12.sp, color = Ink, lineHeight = 17.sp)
+                        }
+                    }
+                    Row(
+                        modifier          = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (aceiteTermos) Verde.copy(alpha = 0.08f) else SurfaceOff,
+                                RoundedCornerShape(10.dp),
+                            )
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked         = aceiteTermos,
+                            onCheckedChange = { aceiteTermos = it },
+                            colors          = CheckboxDefaults.colors(checkedColor = Verde),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Li, compreendi e aceito todos os termos acima.",
+                            fontSize   = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color      = if (aceiteTermos) Verde else Ink,
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick  = { mostrarTermos = false },
+                            modifier = Modifier.weight(1f),
+                            shape    = RoundedCornerShape(10.dp),
+                        ) {
+                            Text("Cancelar", color = InkMuted)
+                        }
+                        Button(
+                            onClick = {
+                                if (!aceiteTermos) return@Button
+                                mostrarTermos = false
+                                ativo         = true
+                                atualizando   = true
+                                scope.launch {
+                                    if (userId.isNotEmpty()) {
+                                        gravarAceiteTermosUrgencia(userId)
+                                        jaAceitouTermos = true
+                                        val sucesso = atualizarDisponibilidadeUrgente(userId, true)
+                                        atualizando = false
+                                        if (!sucesso) { ativo = false; erroToggle = true }
+                                    } else {
+                                        atualizando = false
+                                        ativo = false
+                                    }
+                                }
+                            },
+                            enabled  = aceiteTermos,
+                            modifier = Modifier.weight(1f),
+                            shape    = RoundedCornerShape(10.dp),
+                            colors   = ButtonDefaults.buttonColors(containerColor = Verde),
+                        ) {
+                            Text("Ativar agora", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     Column(
         modifier            = Modifier
@@ -863,6 +998,7 @@ fun AbaUrgenteProfissional(
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        // ── Card: Toggle de disponibilidade ───────────────────────────
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape    = RoundedCornerShape(12.dp),
@@ -884,25 +1020,44 @@ fun AbaUrgenteProfissional(
                             modifier   = Modifier.padding(top = 4.dp),
                         )
                     }
-                    if (atualizando) {
-                        CircularProgressIndicator(
+                    when {
+                        verificandoTermos || atualizando -> CircularProgressIndicator(
                             modifier    = Modifier.size(24.dp),
                             color       = Verde,
                             strokeWidth = 2.dp,
                         )
-                    } else {
-                        Switch(
+                        else -> Switch(
                             checked         = ativo,
                             onCheckedChange = { novoValor ->
-                                val anterior = ativo
-                                ativo        = novoValor
-                                atualizando  = true
-                                scope.launch {
-                                    val ok = if (userId.isNotEmpty())
-                                        atualizarDisponibilidadeUrgente(userId, novoValor)
-                                    else false
-                                    atualizando = false
-                                    if (!ok) ativo = anterior
+                                erroToggle = false
+                                if (novoValor && !ativo) {
+                                    // Ativar: exige termos se ainda não aceitou
+                                    if (jaAceitouTermos) {
+                                        val anterior = ativo
+                                        ativo        = true
+                                        atualizando  = true
+                                        scope.launch {
+                                            val ok = if (userId.isNotEmpty())
+                                                atualizarDisponibilidadeUrgente(userId, true)
+                                            else false
+                                            atualizando = false
+                                            if (!ok) { ativo = anterior; erroToggle = true }
+                                        }
+                                    } else {
+                                        mostrarTermos = true
+                                    }
+                                } else if (!novoValor) {
+                                    // Desativar: direto, sem modal
+                                    val anterior = ativo
+                                    ativo        = false
+                                    atualizando  = true
+                                    scope.launch {
+                                        val ok = if (userId.isNotEmpty())
+                                            atualizarDisponibilidadeUrgente(userId, false)
+                                        else false
+                                        atualizando = false
+                                        if (!ok) { ativo = anterior; erroToggle = true }
+                                    }
                                 }
                             },
                             colors = SwitchDefaults.colors(
@@ -933,9 +1088,42 @@ fun AbaUrgenteProfissional(
                         color      = if (ativo) Verde else Urgente,
                     )
                 }
+                // Badge de conformidade: confirma que os termos foram aceitos
+                if (jaAceitouTermos) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier          = Modifier
+                            .fillMaxWidth()
+                            .background(Verde.copy(alpha = 0.07f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("✅", fontSize = 12.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Termos de prontidão aceitos neste dispositivo.",
+                            fontSize = 11.sp, color = Verde,
+                        )
+                    }
+                }
+                if (erroToggle) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier          = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFFFDE8E8), RoundedCornerShape(8.dp))
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("⚠️", fontSize = 13.sp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Falha na conexão. Estado revertido.", fontSize = 12.sp, color = Urgente)
+                    }
+                }
             }
         }
 
+        // ── Card: Regras do Acordo ─────────────────────────────────────
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape    = RoundedCornerShape(12.dp),
@@ -966,6 +1154,7 @@ fun AbaUrgenteProfissional(
             }
         }
 
+        // ── Card: Histórico urgente (dados reais) ─────────────────────
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape    = RoundedCornerShape(12.dp),
@@ -974,42 +1163,60 @@ fun AbaUrgenteProfissional(
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Seu histórico urgente", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(14.dp))
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    listOf(
-                        Triple("3",    "Urgentes\nrealizadas",  Verde),
-                        Triple("100%", "Taxa de\npontualidade", Azul),
-                        Triple("0",    "Descum-\nprimenetos",   Dourado),
-                    ).forEach { (num, label, cor) ->
-                        Column(
-                            modifier            = Modifier.weight(1f),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Text(num, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = cor)
-                            Text(
-                                label,
-                                fontSize   = 10.sp,
-                                color      = InkMuted,
-                                lineHeight = 14.sp,
-                                modifier   = Modifier.padding(top = 4.dp),
-                            )
+                if (urgentesTotais == 0) {
+                    Text(
+                        "Nenhuma urgência registrada ainda.",
+                        fontSize  = 13.sp, color = InkMuted,
+                        modifier  = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center,
+                    )
+                } else {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        listOf(
+                            Triple("$urgentesRealizadas", "Urgentes\nrealizadas",  Verde),
+                            Triple(pontualidade,           "Taxa de\npontualidade", Azul),
+                            Triple("$descumprimentos",    "Descum-\nprimentos",    if (descumprimentos == 0) Dourado else Urgente),
+                        ).forEach { (num, label, cor) ->
+                            Column(
+                                modifier            = Modifier.weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text(num, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = cor)
+                                Text(
+                                    label,
+                                    fontSize   = 10.sp,
+                                    color      = InkMuted,
+                                    lineHeight = 14.sp,
+                                    modifier   = Modifier.padding(top = 4.dp),
+                                )
+                            }
                         }
                     }
-                }
-                Spacer(modifier = Modifier.height(14.dp))
-                Row(
-                    modifier          = Modifier
-                        .fillMaxWidth()
-                        .background(VerdeClaro, RoundedCornerShape(8.dp))
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("✓", fontSize = 14.sp, color = Verde, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        "Histórico limpo — acesso integral à área urgente.",
-                        fontSize = 12.sp,
-                        color    = Verde,
-                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        modifier          = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (descumprimentos == 0) VerdeClaro else UrgenteClaro,
+                                RoundedCornerShape(8.dp),
+                            )
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            if (descumprimentos == 0) "✓" else "⚠️",
+                            fontSize   = 14.sp,
+                            color      = if (descumprimentos == 0) Verde else Urgente,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            if (descumprimentos == 0) "Histórico limpo — acesso integral à área urgente."
+                            else "$descumprimentos descumprimento(s) registrado(s).",
+                            fontSize = 12.sp,
+                            color    = if (descumprimentos == 0) Verde else Urgente,
+                        )
+                    }
                 }
             }
         }

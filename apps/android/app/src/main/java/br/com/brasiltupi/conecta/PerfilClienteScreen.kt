@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import br.com.brasiltupi.conecta.ui.theme.*
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.BorderStroke
 
 // ── TELA PRINCIPAL ────────────────────────────────────
 @Composable
@@ -520,38 +521,65 @@ fun AbaEnderecoCliente(
 // ── ABA: SEGURANÇA ────────────────────────────────────
 @Composable
 fun AbaSegurancaCliente(
-    email:    String = "",
-    telefone: String = "",
+    email:           String = "",
+    telefone:        String = "",
+    userId:          String = "",
+    onContaExcluida: () -> Unit = {},
 ) {
+    val isDonoDoPerfilAtual = remember(userId) {
+        userId.isNotEmpty() && userId == AuthRepository.userId
+    }
+
+    var mostrarDialog1 by remember { mutableStateOf(false) }
+    var mostrarDialog2 by remember { mutableStateOf(false) }
+    var excluindo by remember { mutableStateOf(false) }
+    var erroExclusao by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
     Column(
-        modifier            = Modifier.fillMaxWidth().padding(20.dp),
+        modifier = Modifier.fillMaxWidth().padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape    = RoundedCornerShape(12.dp),
-            colors   = CardDefaults.cardColors(containerColor = Surface),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Surface)
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
-                Text("Segurança da conta", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
-                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    "Segurança da conta",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Ink
+                )
+                Spacer(Modifier.height(12.dp))
                 listOf(
-                    Triple("E-mail",           email.ifEmpty { "--" },    "Alterar"),
-                    Triple("Senha",            "••••••••••",               "Alterar"),
-                    Triple("Telefone",         telefone.ifEmpty { "--" }, "Alterar"),
-                    Triple("Autenticação 2FA", "Desativado",               "Ativar"),
+                    Triple("E-mail", email.ifEmpty { "--" }, "Alterar"),
+                    Triple("Senha", "••••••••••", "Alterar"),
+                    Triple("Telefone", telefone.ifEmpty { "--" }, "Alterar"),
+                    Triple("Autenticação 2FA", "Desativado", "Ativar"),
                 ).forEach { (label, valor, acao) ->
                     Row(
-                        modifier              = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment     = Alignment.CenterVertically,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column {
                             Text(label, fontSize = 12.sp, color = InkMuted)
-                            Text(valor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+                            Text(
+                                valor,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Ink
+                            )
                         }
                         TextButton(onClick = {}) {
-                            Text(acao, color = Verde, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                acao,
+                                color = Verde,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                     HorizontalDivider(color = SurfaceOff)
@@ -559,36 +587,8 @@ fun AbaSegurancaCliente(
             }
         }
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape    = RoundedCornerShape(12.dp),
-            colors   = CardDefaults.cardColors(containerColor = UrgenteClaro),
-            border   = androidx.compose.foundation.BorderStroke(1.dp, Urgente.copy(alpha = 0.3f)),
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text("Zona de perigo", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Urgente)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "Ao excluir sua conta, todos os seus dados serão removidos permanentemente.",
-                    fontSize   = 13.sp,
-                    color      = InkSoft,
-                    lineHeight = 18.sp,
-                )
-                Spacer(modifier = Modifier.height(14.dp))
-                OutlinedButton(
-                    onClick  = {},
-                    modifier = Modifier.fillMaxWidth(),
-                    colors   = ButtonDefaults.outlinedButtonColors(contentColor = Urgente),
-                    border   = androidx.compose.foundation.BorderStroke(1.dp, Urgente),
-                    shape    = RoundedCornerShape(8.dp),
-                ) {
-                    Text("Excluir minha conta", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-
         Row(
-            modifier          = Modifier
+            modifier = Modifier
                 .fillMaxWidth()
                 .background(VerdeClaro, RoundedCornerShape(10.dp))
                 .padding(16.dp),
@@ -599,17 +599,169 @@ fun AbaSegurancaCliente(
             Column {
                 Text(
                     "Seus dados estão protegidos",
-                    fontSize   = 13.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    color      = Verde,
+                    color = Verde,
                 )
                 Text(
                     "Criptografados e nunca compartilhados com terceiros.",
                     fontSize = 12.sp,
-                    color    = Verde.copy(alpha = 0.8f),
+                    color = Verde.copy(alpha = 0.8f),
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
         }
+
+
+        // ── Zona de perigo (visível somente para o dono da conta) ──
+        if (isDonoDoPerfilAtual) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = UrgenteClaro),
+                border = BorderStroke(1.dp, Urgente.copy(alpha = 0.3f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("⚠️", fontSize = 18.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Zona de perigo", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Urgente)
+                    }
+                    Text(
+                        "A exclusão da conta remove permanentemente seus dados pessoais conforme a LGPD (Art. 18). Esta ação não pode ser desfeita.",
+                        fontSize = 13.sp,
+                        color = Urgente.copy(alpha = 0.85f),
+                        lineHeight = 19.sp
+                    )
+
+                    OutlinedButton(
+                        onClick = { mostrarDialog1 = true },
+                        enabled = !excluindo,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, Urgente),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = Urgente,
+                            disabledContentColor = Urgente.copy(alpha = 0.5f)
+                        )
+                    ) {
+                        Text("Excluir minha conta", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    }
+
+                    // Mensagem de erro inline
+                    if (erroExclusao != null) {
+                        LaunchedEffect(erroExclusao) {
+                            kotlinx.coroutines.delay(5_000)
+                            erroExclusao = null
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFFFEBEE), RoundedCornerShape(8.dp))
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("⚠️", fontSize = 14.sp)
+                            Spacer(Modifier.width(8.dp))
+                            Text(erroExclusao!!, fontSize = 12.sp, color = Urgente, lineHeight = 17.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Diálogo passo 1 – aviso ────────────────────────
+    if (mostrarDialog1) {
+        AlertDialog(
+            onDismissRequest = { mostrarDialog1 = false },
+            title = { Text("Excluir conta?", fontWeight = FontWeight.Bold, color = Ink) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Esta ação é permanente e não pode ser desfeita. Ao confirmar:")
+                    listOf(
+                        "• Seu perfil será desativado imediatamente",
+                        "• Todos os seus dados pessoais serão anonimizados em até 30 dias",
+                        "• Atendimentos pendentes serão cancelados",
+                        "• Saldos disponíveis serão processados conforme nossos Termos"
+                    ).forEach { Text(it, fontSize = 13.sp, color = InkMuted) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    mostrarDialog1 = false
+                    mostrarDialog2 = true
+                }) {
+                    Text("Entendi, continuar", color = Urgente, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { mostrarDialog1 = false }) {
+                    Text("Cancelar", color = InkMuted)
+                }
+            },
+            containerColor = Surface
+        )
+    }
+
+    // ── Diálogo passo 2 – confirmação final ────────────
+    if (mostrarDialog2) {
+        AlertDialog(
+            onDismissRequest = { if (!excluindo) mostrarDialog2 = false },
+            title = { Text("Tem certeza absoluta?", fontWeight = FontWeight.Bold, color = Urgente) },
+            text = {
+                Text(
+                    "Esta é a última etapa. Ao confirmar, sua conta será excluída de forma permanente " +
+                            "e seus dados serão removidos conforme a LGPD (Art. 18).",
+                    fontSize = 14.sp,
+                    color = Ink
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        excluindo = true
+                        erroExclusao = null
+                        scope.launch {
+                            val ok = excluirContaAndroid()
+                            if (ok) {
+                                signOutAndroid()
+                                mostrarDialog2 = false
+                                onContaExcluida()    // navega de volta (welcome)
+                            } else {
+                                excluindo = false
+                                erroExclusao = "Não foi possível excluir a conta. Tente novamente ou contate o suporte."
+                                mostrarDialog2 = false
+                            }
+                        }
+                    },
+                    enabled = !excluindo,
+                    colors = ButtonDefaults.buttonColors(containerColor = Urgente)
+                ) {
+                    if (excluindo) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(
+                        if (excluindo) "Excluindo..." else "Sim, excluir minha conta",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { if (!excluindo) mostrarDialog2 = false },
+                    enabled = !excluindo
+                ) {
+                    Text("Voltar", color = InkMuted)
+                }
+            },
+            containerColor = Surface
+        )
     }
 }

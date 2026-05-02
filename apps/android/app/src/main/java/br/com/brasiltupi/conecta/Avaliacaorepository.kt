@@ -41,9 +41,11 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 
-private const val TAG            = "AvaliacaoRepository"
-private const val API_KEY = SUPABASE_KEY
+// ── Configuração via BuildConfig (sem hardcode) ─────────────────────────
+private val LOCAL_URL = BuildConfig.SUPABASE_URL
+private val LOCAL_KEY = BuildConfig.SUPABASE_KEY
 
+private const val TAG = "AvaliacaoRepository"
 private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -159,9 +161,9 @@ object AvaliacaoRepository {
         comentario:  String?,
     ): ResultadoAvaliacao {
         return try {
-            val token = currentToken ?: API_KEY
-            val response = httpClient.post("$SUPABASE_URL/rest/v1/rpc/finalizar_urgencia") {
-                header("apikey",        API_KEY)
+            val token = currentToken ?: LOCAL_KEY
+            val response = httpClient.post("$LOCAL_URL/rest/v1/rpc/finalizar_urgencia") {
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 contentType(ContentType.Application.Json)
                 setBody(FinalizarUrgenciaRequest(
@@ -242,12 +244,12 @@ object AvaliacaoRepository {
         nota:        Int,
         comentario:  String?,
     ): ResultadoAvaliacao {
-        val token = currentToken ?: API_KEY
+        val token = currentToken ?: LOCAL_KEY
 
         // 1. Gravar avaliação
         return try {
-            val resAvaliacao = httpClient.post("$SUPABASE_URL/rest/v1/avaliacoes") {
-                header("apikey",        API_KEY)
+            val resAvaliacao = httpClient.post("$LOCAL_URL/rest/v1/avaliacoes") {
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 header("Content-Type",  "application/json")
                 header("Prefer",        "resolution=merge-duplicates,return=minimal")
@@ -267,11 +269,11 @@ object AvaliacaoRepository {
 
             // 2. Atualizar status da urgência para 'finished'
             val resStatus = httpClient.patch(
-                "$SUPABASE_URL/rest/v1/urgencias" +
+                "$LOCAL_URL/rest/v1/urgencias" +
                         "?id=eq.$urgenciaId" +
                         "&status=in.(in_progress,pending_review)"
             ) {
-                header("apikey",        API_KEY)
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 header("Content-Type",  "application/json")
                 header("Prefer",        "return=minimal")
@@ -306,11 +308,11 @@ object AvaliacaoRepository {
      */
     suspend fun verificarPendencia(): UrgenciaPendenteAvaliacao? {
         val uid   = currentUserId ?: return null
-        val token = currentToken  ?: API_KEY
+        val token = currentToken  ?: LOCAL_KEY
 
         return try {
             // Buscar urgências em que sou cliente ou profissional, com status pendente
-            val url = "$SUPABASE_URL/rest/v1/urgencias" +
+            val url = "$LOCAL_URL/rest/v1/urgencias" +
                     "?select=id,status" +
                     "&status=in.(in_progress,pending_review)" +
                     "&or=(client_id.eq.$uid,professional_id.eq.$uid)" +
@@ -318,7 +320,7 @@ object AvaliacaoRepository {
                     "&limit=1"
 
             val response = httpClient.get(url) {
-                header("apikey",        API_KEY)
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 header("Accept",        "application/json")
             }

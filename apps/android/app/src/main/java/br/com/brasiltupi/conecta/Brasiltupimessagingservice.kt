@@ -35,6 +35,10 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+// ── Configuração via BuildConfig ───────────────────────────────────────
+private val LOCAL_URL = BuildConfig.SUPABASE_URL
+private val LOCAL_KEY = BuildConfig.SUPABASE_KEY
+
 // ── DTO para upsert na tabela user_fcm_tokens ─────────────────────────────
 @Serializable
 private data class FcmTokenUpsertRequest(
@@ -44,16 +48,15 @@ private data class FcmTokenUpsertRequest(
     val platform:            String = "android",
 )
 
-private const val API_KEY = SUPABASE_KEY
-private const val TAG_FCM      = "FCMService"
+private const val TAG_FCM = "FCMService"
 
 // ── Canais de notificação ─────────────────────────────────────────────────
 // Definidos como constantes para reuso no AndroidManifest e no serviço
 object CanalFcm {
-    const val URGENCIAS  = "canal_urgencias"
-    const val PAGAMENTOS = "canal_pagamentos"
+    const val URGENCIAS    = "canal_urgencias"
+    const val PAGAMENTOS   = "canal_pagamentos"
     const val AGENDAMENTOS = "canal_agendamentos"
-    const val GERAL      = "canal_geral"
+    const val GERAL        = "canal_geral"
 }
 
 class BrasilTupiMessagingService : FirebaseMessagingService() {
@@ -230,10 +233,10 @@ class BrasilTupiMessagingService : FirebaseMessagingService() {
 
         try {
             val response = httpClient.post(
-                "$SUPABASE_URL/rest/v1/user_fcm_tokens"
+                "$LOCAL_URL/rest/v1/user_fcm_tokens"
             ) {
-                header("apikey",        API_KEY)
-                header("Authorization", "Bearer ${currentToken ?: API_KEY}")
+                header("apikey",        LOCAL_KEY)
+                header("Authorization", "Bearer ${currentToken ?: LOCAL_KEY}")
                 header("Content-Type",  "application/json")
                 // ON CONFLICT (user_id, device_id) → atualiza token e last_updated
                 header("Prefer", "resolution=merge-duplicates,return=minimal")
@@ -276,10 +279,10 @@ class BrasilTupiMessagingService : FirebaseMessagingService() {
 
                             try {
                                 httpClient.post(
-                                    "$SUPABASE_URL/rest/v1/user_fcm_tokens"
+                                    "$LOCAL_URL/rest/v1/user_fcm_tokens"
                                 ) {
-                                    header("apikey",        API_KEY)
-                                    header("Authorization", "Bearer ${currentToken ?: API_KEY}")
+                                    header("apikey",        LOCAL_KEY)
+                                    header("Authorization", "Bearer ${currentToken ?: LOCAL_KEY}")
                                     header("Content-Type",  "application/json")
                                     header("Prefer", "resolution=merge-duplicates,return=minimal")
                                     setBody(FcmTokenUpsertRequest(

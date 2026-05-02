@@ -9,6 +9,10 @@ import io.ktor.client.request.*
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+// ── Configuração via BuildConfig ───────────────────────────────────────
+private val LOCAL_URL = BuildConfig.SUPABASE_URL
+private val LOCAL_KEY = BuildConfig.SUPABASE_KEY
+
 @Serializable
 data class StatsSemanal(
     val id:                   String,
@@ -39,10 +43,10 @@ class RelatoriosRepository {
     // ── Buscar últimas N semanas de stats ─────────────────────────────────
     suspend fun buscarStats(limite: Int = 8): List<StatsSemanal> {
         val userId = currentUserId ?: return emptyList()
-        val token  = currentToken  ?: SUPABASE_KEY
+        val token  = currentToken  ?: LOCAL_KEY
         return try {
-            httpClient.get("$SUPABASE_URL/rest/v1/profissional_stats_semanal") {
-                header("apikey",        SUPABASE_KEY)
+            httpClient.get("$LOCAL_URL/rest/v1/profissional_stats_semanal") {
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 header("Accept",        "application/json")
                 parameter("profissional_id", "eq.$userId")
@@ -62,10 +66,10 @@ class RelatoriosRepository {
 
     // ── Buscar horários de pico da semana mais recente ────────────────────
     suspend fun buscarHorariosPico(statsId: String): List<HorarioPico> {
-        val token = currentToken ?: SUPABASE_KEY
+        val token = currentToken ?: LOCAL_KEY
         return try {
-            httpClient.get("$SUPABASE_URL/rest/v1/profissional_horarios_pico") {
-                header("apikey",        SUPABASE_KEY)
+            httpClient.get("$LOCAL_URL/rest/v1/profissional_horarios_pico") {
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 header("Accept",        "application/json")
                 parameter("stats_id", "eq.$statsId")

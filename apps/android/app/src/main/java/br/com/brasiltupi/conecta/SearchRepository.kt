@@ -30,6 +30,10 @@ import io.ktor.http.*
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+// ── Configuração via BuildConfig ───────────────────────────────────────
+private val LOCAL_URL = BuildConfig.SUPABASE_URL
+private val LOCAL_KEY = BuildConfig.SUPABASE_KEY
+
 // ── DTO PÚBLICO — inalterado desde a Fase 3.4 ────────────────────────────
 // SearchScreen, EstudioDetalheScreen e toItemEstudio() dependem deste DTO.
 // Não alterar campos ou SerialNames.
@@ -137,13 +141,13 @@ enum class OrdenacaoBusca(val label: String, val id: String) {
 class SearchRepository {
 
     suspend fun buscar(filtro: FiltroBusca): List<ResultadoBusca> {
-        val token = currentToken ?: SUPABASE_KEY
+        val token = currentToken ?: LOCAL_KEY
         return try {
             // ── Fase 4: POST para RPC em vez de GET em /rest/v1/estudio ──
             // A RPC faz o JOIN com perfis e ordena por ranking_score no Postgres,
             // resolvendo a limitação do PostgREST com colunas de tabelas relacionadas.
-            httpClient.post("$SUPABASE_URL/rest/v1/rpc/buscar_estudio") {
-                header("apikey",        SUPABASE_KEY)
+            httpClient.post("$LOCAL_URL/rest/v1/rpc/buscar_estudio") {
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 contentType(ContentType.Application.Json)
                 header("Accept",        "application/json")

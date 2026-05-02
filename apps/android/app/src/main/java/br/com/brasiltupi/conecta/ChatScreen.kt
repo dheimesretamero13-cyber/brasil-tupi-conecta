@@ -18,7 +18,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.brasiltupi.conecta.ui.theme.*
-// import kotlinx.coroutines.delay — REMOVIDO: era usado apenas no polling
 import kotlinx.coroutines.launch
 
 @Composable
@@ -27,65 +26,62 @@ fun ChatScreen(
     outroNome: String,
     onVoltar: () -> Unit,
 ) {
-    val meuId   = currentUserId ?: ""
-    val scope   = rememberCoroutineScope()
+    val meuId = currentUserId ?: ""
+    val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
-    var mensagens  by remember { mutableStateOf<List<Mensagem>>(emptyList()) }
-    var texto      by remember { mutableStateOf("") }
-    var enviando   by remember { mutableStateOf(false) }
-    var erroEnvio  by remember { mutableStateOf(false) }
+    val repo = remember(meuId, outroId) {
+        if (meuId.isNotEmpty()) ChatGeralRepository(meuId, outroId) else null
+    }
 
-    // ── Carga inicial das mensagens (fetch único) ─────
-    // O polling while(true) + delay(5_000) foi removido.
-    // Razão: gerava ~720 requisições/hora por conversa aberta sem benefício real,
-    // pois o chat já busca imediatamente após cada envio (ver enviar() abaixo).
-    // Fase 3.5 do CONEXOES.md prevê substituição por Supabase Realtime.
-    // Até lá: fetch inicial + fetch pós-envio cobre 100% dos casos de uso.
-    LaunchedEffect(outroId) {
-        if (meuId.isEmpty()) return@LaunchedEffect
-        try {
-            val iniciais = buscarMensagens(meuId, outroId)
-            mensagens = iniciais
-            if (iniciais.isNotEmpty()) {
-                listState.animateScrollToItem(iniciais.lastIndex)
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("Chat", "Carga inicial: ${e.message}")
+    val mensagensState by repo?.mensagens?.collectAsState()
+        ?: remember { mutableStateOf(emptyList<MensagemGeral>()) }
+    val statusConexao by repo?.statusConexao?.collectAsState()
+        ?: remember { mutableStateOf(false) }
+
+    var texto by remember { mutableStateOf("") }
+    var enviando by remember { mutableStateOf(false) }
+    var erroEnvio by remember { mutableStateOf(false) }
+
+    LaunchedEffect(repo) {
+        repo?.carregarHistorico()
+        repo?.iniciarRealtime()
+    }
+
+    LaunchedEffect(mensagensState.size) {
+        if (mensagensState.isNotEmpty()) {
+            listState.animateScrollToItem(mensagensState.lastIndex)
         }
     }
 
+    DisposableEffect(Unit) {
+        onDispose { repo?.parar() }
+    }
+
     fun enviar() {
-        val textoTrimmed = texto.trim()
-        if (textoTrimmed.isEmpty() || enviando || meuId.isEmpty()) return
-        val textoEnviando = textoTrimmed
-        texto    = ""
+        val trimmed = texto.trim()
+        if (trimmed.isEmpty() || enviando || meuId.isEmpty() || repo == null) return
+
+        texto = ""
         enviando = true
         erroEnvio = false
 
-        // Optimistic update
-        val msgTemp = Mensagem(
-            id              = "temp_${System.currentTimeMillis()}",
-            remetente_id    = meuId,
-            destinatario_id = outroId,
-            texto           = textoEnviando,
-            created_at      = "",
+        val tempId = "temp_${System.currentTimeMillis()}"
+        val msgTemp = MensagemGeral(
+            id             = tempId,
+            remetenteId    = meuId,
+            destinatarioId = outroId,
+            texto          = trimmed,
+            createdAt      = "",
         )
-        mensagens = mensagens + msgTemp
+
+        repo.adicionarTemp(msgTemp)
 
         scope.launch {
-            val ok = enviarMensagem(meuId, outroId, textoEnviando)
+            val ok = repo.enviarMensagem(trimmed)
             enviando = false
-            if (ok) {
-                // Busca imediata pós-envio para sincronizar id real
-                try {
-                    val atualizadas = buscarMensagens(meuId, outroId)
-                    mensagens = atualizadas
-                    if (atualizadas.isNotEmpty()) listState.animateScrollToItem(atualizadas.lastIndex)
-                } catch (_: Exception) {}
-            } else {
-                // Rollback da mensagem temporária
-                mensagens = mensagens.filter { it.id != msgTemp.id }
+            if (!ok) {
+                repo.removerTemp(tempId)
                 erroEnvio = true
             }
         }
@@ -93,7 +89,7 @@ fun ChatScreen(
 
     Column(modifier = Modifier.fillMaxSize().background(SurfaceWarm)) {
 
-        // ── Topbar ───────────────────────────────────
+        // ── Topbar ──────────────────────────────────────────────────────
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -120,18 +116,22 @@ fun ChatScreen(
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(outroNome, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                Text("Online", fontSize = 11.sp, color = Color.White.copy(alpha = 0.65f))
+                Text(
+                    if (statusConexao) "● Online" else "● Reconectando...",
+                    fontSize = 11.sp,
+                    color = if (statusConexao) Verde else Color(0xFFF57F17)
+                )
             }
         }
 
-        // ── Lista de mensagens ────────────────────────
+        // ── Lista de mensagens ───────────────────────────────────────────
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
             contentPadding = PaddingValues(vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            if (mensagens.isEmpty()) {
+            if (mensagensState.isEmpty()) {
                 item {
                     Box(
                         modifier = Modifier.fillParentMaxWidth().padding(top = 48.dp),
@@ -147,19 +147,19 @@ fun ChatScreen(
                 }
             }
 
-            items(mensagens, key = { it.id }) { msg ->
-                val isMinha = msg.remetente_id == meuId
-                val isTemp  = msg.id.startsWith("temp_")
+            items(mensagensState, key = { it.id }) { msg ->
+                val isMinha = msg.remetenteId == meuId
+                val isTemp = msg.id.startsWith("temp_")
                 BubbleMensagem(
                     texto   = msg.texto,
                     isMinha = isMinha,
-                    hora    = formatarHoraChat(msg.created_at),
+                    hora    = formatarHoraChat(msg.createdAt),
                     opaco   = isTemp,
                 )
             }
         }
 
-        // ── Banner erro envio ─────────────────────────
+        // ── Banner erro envio ────────────────────────────────────────────
         if (erroEnvio) {
             Row(
                 modifier = Modifier
@@ -176,7 +176,7 @@ fun ChatScreen(
             }
         }
 
-        // ── Campo de texto ────────────────────────────
+        // ── Campo de texto ───────────────────────────────────────────────
         HorizontalDivider(color = SurfaceOff)
         Row(
             modifier = Modifier
@@ -220,7 +220,6 @@ fun ChatScreen(
     }
 }
 
-// ── BUBBLE ────────────────────────────────────────────
 @Composable
 fun BubbleMensagem(texto: String, isMinha: Boolean, hora: String, opaco: Boolean = false) {
     Row(
@@ -263,7 +262,6 @@ fun BubbleMensagem(texto: String, isMinha: Boolean, hora: String, opaco: Boolean
     }
 }
 
-// ── UTILITÁRIO: formatar hora ─────────────────────────
 private fun formatarHoraChat(createdAt: String): String {
     if (createdAt.isEmpty()) return ""
     return try {

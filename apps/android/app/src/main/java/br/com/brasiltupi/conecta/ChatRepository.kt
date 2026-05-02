@@ -10,7 +10,6 @@ package br.com.brasiltupi.conecta
 //  • O chat é volátil — a trigger no banco limpa ao encerrar agendamento
 // ═══════════════════════════════════════════════════════════════════════════
 
-import android.util.Log
 import io.ktor.client.call.*
 import io.ktor.client.engine.android.*
 import io.ktor.client.plugins.websocket.*
@@ -22,9 +21,15 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 
-private const val TAG_CHAT = "ChatRepository"
-private const val WS_URL_CHAT = "wss://qfzdchrlbqcvewjivaqz.supabase.co/realtime/v1/websocket"
+// ── Configuração via BuildConfig ───────────────────────────────────────
+private val LOCAL_URL = BuildConfig.SUPABASE_URL
+private val LOCAL_KEY = BuildConfig.SUPABASE_KEY
 
+private val WS_URL_CHAT = LOCAL_URL
+    .replace("https://", "wss://")
+    .replace("http://", "ws://") + "/realtime/v1/websocket"
+
+private const val TAG_CHAT = "ChatRepository"
 private val jsonChat = Json { ignoreUnknownKeys = true; isLenient = true }
 
 // ── Modelos ───────────────────────────────────────────────────────────────
@@ -60,10 +65,10 @@ class ChatRepository {
 
     // ── 1. BUSCAR HISTÓRICO ───────────────────────────────────────────────
     suspend fun buscarHistorico(sessionId: String) {
-        val token = currentToken ?: SUPABASE_KEY
+        val token = currentToken ?: LOCAL_KEY
         try {
-            val lista = httpClient.get("$SUPABASE_URL/rest/v1/chats") {
-                header("apikey",        SUPABASE_KEY)
+            val lista = httpClient.get("$LOCAL_URL/rest/v1/chats") {
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 header("Accept",        "application/json")
                 parameter("session_id", "eq.$sessionId")
@@ -80,10 +85,10 @@ class ChatRepository {
     // ── 2. ENVIAR MENSAGEM ────────────────────────────────────────────────
     suspend fun enviar(sessionId: String, texto: String): Boolean {
         val remetenteId = currentUserId ?: return false
-        val token       = currentToken  ?: SUPABASE_KEY
+        val token       = currentToken  ?: LOCAL_KEY
         return try {
-            val response = httpClient.post("$SUPABASE_URL/rest/v1/chats") {
-                header("apikey",        SUPABASE_KEY)
+            val response = httpClient.post("$LOCAL_URL/rest/v1/chats") {
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 header("Content-Type",  "application/json")
                 header("Prefer",        "return=minimal")
@@ -112,9 +117,9 @@ class ChatRepository {
 
             while (currentCoroutineContext().isActive) {
                 try {
-                    val token = currentToken ?: SUPABASE_KEY
+                    val token = currentToken ?: LOCAL_KEY
                     wsClient.webSocket(
-                        urlString = "$WS_URL_CHAT?apikey=$SUPABASE_KEY&vsn=1.0.0",
+                        urlString = "$WS_URL_CHAT?apikey=$LOCAL_KEY&vsn=1.0.0",
                         request   = { header("Authorization", "Bearer $token") },
                     ) {
                         tentativa = 0
@@ -164,7 +169,7 @@ class ChatRepository {
                 _mensagens.value = _mensagens.value + msg
             }
         } catch (e: Exception) {
-            Log.w(TAG_CHAT, "Falha ao processar frame: ${e.message}")
+            AppLogger.aviso(TAG_CHAT, "Falha ao processar frame: ${e.message}")
         }
     }
 
@@ -187,6 +192,15 @@ class ChatRepository {
             }
             put("ref", "chat_1")
         }.toString()
+
+    // ── 4. MÉTODOS PARA OPTIMISTIC UPDATE ─────────────────────────────────
+    fun adicionarTemp(msg: MensagemChat) {
+        _mensagens.value = _mensagens.value + msg
+    }
+
+    fun removerTemp(tempId: String) {
+        _mensagens.value = _mensagens.value.filter { it.id != tempId }
+    }
 
     fun parar() {
         wsJob?.cancel()

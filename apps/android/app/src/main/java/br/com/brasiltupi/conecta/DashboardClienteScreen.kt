@@ -19,10 +19,8 @@ import br.com.brasiltupi.conecta.ui.theme.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import androidx.compose.material3.ExperimentalMaterial3Api
-import kotlinx.coroutines.coroutineScope
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.layout.PaddingValues
 
 // ── DADOS ─────────────────────────────────────────────
@@ -45,13 +43,19 @@ data class ConsultaCliente(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardClienteScreen(
-    onSair:       () -> Unit,
-    onEstudio:    ((String) -> Unit)?         = null,
-    onPerfil:     (() -> Unit)?               = null,
-    onAgendar:    ((String, String) -> Unit)? = null,
-    onChat:       ((String, String) -> Unit)? = null,
-    onSuporte:    ((String?) -> Unit)?        = null,
-    onBiblioteca: (() -> Unit)?               = null,
+    onSair:        () -> Unit,
+    onEstudio:     ((String) -> Unit)?         = null,
+    onPerfil:      (() -> Unit)?               = null,
+    onAgendar:     ((String, String) -> Unit)? = null,
+    onChat:        ((String, String) -> Unit)? = null,
+    onSuporte:     ((String?) -> Unit)?        = null,
+    onBiblioteca:  (() -> Unit)?               = null,
+    // ── Fase 4.2: Sistema de Indicações ──────────────
+    onReferral:    (() -> Unit)?               = null,
+    // ── Fase 4.3: Disputas formais ───────────────────
+    onDisputa:     ((String) -> Unit)?         = null,
+    // ── Fase 3.4: Busca Avançada do Estúdio ──────────
+    onBuscaEstudio: (() -> Unit)?              = null,
 ) {
     var abaSelecionada by remember { mutableStateOf("visao") }
     var menuExpandido  by remember { mutableStateOf(false) }
@@ -60,19 +64,27 @@ fun DashboardClienteScreen(
     var nomeUsuario    by remember { mutableStateOf("") }
     var iniciais       by remember { mutableStateOf("") }
 
+    // ── Fase 3.3: último curso em andamento (preview na visão geral) ──
+    var ultimoCursoNome     by remember { mutableStateOf("") }
+    var ultimoCursoProgresso by remember { mutableStateOf(0f) }
+
     val userId = remember { currentUserId }
 
     LaunchedEffect(userId) {
         if (userId == null) return@LaunchedEffect
-        kotlinx.coroutines.coroutineScope {
-            val consultasDeferred = async { buscarConsultasCliente(userId) }
-            val perfilDeferred    = async { getPerfilAndroid(userId) }
-            consultas = consultasDeferred.await()
-            val perfil = perfilDeferred.await()
-            if (perfil != null) {
-                nomeUsuario = perfil.nome
-                iniciais    = perfil.nome.split(" ").map { it[0] }.joinToString("").take(2).uppercase()
-            }
+        val consultasDeferred = async { buscarConsultasCliente(userId) }
+        val perfilDeferred    = async { getPerfilAndroid(userId) }
+        val bibliotecaDeferred = async { buscarUltimoCursoEmAndamento(userId) }
+        consultas = consultasDeferred.await()
+        val perfil = perfilDeferred.await()
+        if (perfil != null) {
+            nomeUsuario = perfil.nome
+            iniciais    = perfil.nome.split(" ").map { it[0] }.joinToString("").take(2).uppercase()
+        }
+        val ultimoCurso = bibliotecaDeferred.await()
+        if (ultimoCurso != null) {
+            ultimoCursoNome      = ultimoCurso.titulo
+            ultimoCursoProgresso = ultimoCurso.progresso
         }
         loading = false
     }
@@ -80,17 +92,20 @@ fun DashboardClienteScreen(
     val pendentes    = consultas.count { it.status == "concluida" && !it.avaliada }
     val primeiroNome = nomeUsuario.split(" ").firstOrNull() ?: "Cliente"
 
-    // ── Abas primárias e menu (espelho do DashboardProfissional) ─────────
+    // ── Abas primárias ───────────────────────────────
     val abasPrimarias = listOf(
         Triple("visao",      "Início",    "🏠"),
         Triple("consultas",  "Consultas",  "📋"),
         Triple("busca",      "Buscar",     "🔍"),
         Triple("biblioteca", "Biblioteca", "📚"),
     )
+
+    // ── Menu ⋮ ─ todas as funcionalidades expostas ───
     val menuItens = listOf(
-        Triple("perfil",  "Meu Perfil", "👤"),
-        Triple("suporte", "Suporte",    "🛡️"),
-        Triple("sair",    "Sair",       "🚪"),
+        Triple("perfil",     "Meu Perfil",  "👤"),
+        Triple("indicacoes", "Indicações",  "🎁"),
+        Triple("suporte",    "Suporte",     "🛡️"),
+        Triple("sair",       "Sair",        "🚪"),
     )
 
     val scope = rememberCoroutineScope()
@@ -158,9 +173,11 @@ fun DashboardClienteScreen(
                                     onClick = {
                                         menuExpandido = false
                                         when (id) {
-                                            "perfil"  -> if (onPerfil != null) onPerfil() else Unit
-                                            "suporte" -> onSuporte?.invoke(null)
-                                            "sair"    -> scope.launch { signOutAndroid(); onSair() }
+                                            "perfil"     -> onPerfil?.invoke()
+                                            // Fase 4.2: Indicações
+                                            "indicacoes" -> onReferral?.invoke()
+                                            "suporte"    -> onSuporte?.invoke(null)
+                                            "sair"       -> scope.launch { signOutAndroid(); onSair() }
                                         }
                                     },
                                 )
@@ -207,14 +224,20 @@ fun DashboardClienteScreen(
             } else {
                 when (abaSelecionada) {
                     "visao" -> AbaVisaoGeralCliente(
-                        consultas          = consultas,
-                        onNavegar          = { abaSelecionada = it },
-                        primeiroNome       = primeiroNome,
-                        onConsultaAvaliada = { id, n ->
+                        consultas            = consultas,
+                        onNavegar            = { abaSelecionada = it },
+                        primeiroNome         = primeiroNome,
+                        onConsultaAvaliada   = { id, n ->
                             consultas = consultas.map { c ->
                                 if (c.id == id) c.copy(avaliada = true, avaliacao = n) else c
                             }
                         },
+                        // Fase 3.3: preview do último curso
+                        ultimoCursoNome      = ultimoCursoNome,
+                        ultimoCursoProgresso = ultimoCursoProgresso,
+                        onBiblioteca         = onBiblioteca,
+                        // Fase 4.2: atalho para indicações
+                        onReferral           = onReferral,
                     )
                     "consultas" -> AbaConsultasCliente(
                         consultas          = consultas,
@@ -225,8 +248,15 @@ fun DashboardClienteScreen(
                         },
                         onChat    = onChat,
                         onSuporte = onSuporte,
+                        // Fase 4.3: disputa formal separada do suporte
+                        onDisputa = onDisputa,
                     )
-                    "busca"  -> AbaBuscaCliente(onEstudio = onEstudio, onAgendarRegular = onAgendar)
+                    "busca" -> AbaBuscaCliente(
+                        onEstudio        = onEstudio,
+                        onAgendarRegular = onAgendar,
+                        // Fase 3.4: busca avançada do Estúdio
+                        onBuscaEstudio   = onBuscaEstudio,
+                    )
                     "perfil" -> {
                         if (onPerfil != null) {
                             LaunchedEffect(Unit) { onPerfil() }
@@ -241,10 +271,16 @@ fun DashboardClienteScreen(
 // ── ABA: VISÃO GERAL ──────────────────────────────────
 @Composable
 fun AbaVisaoGeralCliente(
-    consultas:          List<ConsultaCliente>,
-    onNavegar:          (String) -> Unit,
-    primeiroNome:       String = "Cliente",
-    onConsultaAvaliada: (consultaId: String, nota: Int) -> Unit = { _, _ -> },
+    consultas:            List<ConsultaCliente>,
+    onNavegar:            (String) -> Unit,
+    primeiroNome:         String = "Cliente",
+    onConsultaAvaliada:   (consultaId: String, nota: Int) -> Unit = { _, _ -> },
+    // Fase 3.3
+    ultimoCursoNome:      String  = "",
+    ultimoCursoProgresso: Float   = 0f,
+    onBiblioteca:         (() -> Unit)? = null,
+    // Fase 4.2
+    onReferral:           (() -> Unit)? = null,
 ) {
     val pendentes = consultas.filter { it.status == "concluida" && !it.avaliada }
     val proximas  = consultas.filter { it.status == "agendada" }
@@ -254,6 +290,7 @@ fun AbaVisaoGeralCliente(
         modifier            = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        // Card de boas-vindas
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape    = RoundedCornerShape(12.dp),
@@ -269,6 +306,7 @@ fun AbaVisaoGeralCliente(
             }
         }
 
+        // Métricas
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             MetricaCard(
                 modifier = Modifier.weight(1f),
@@ -286,6 +324,7 @@ fun AbaVisaoGeralCliente(
             )
         }
 
+        // Card de urgência
         Card(
             onClick  = { onNavegar("busca") },
             modifier = Modifier.fillMaxWidth(),
@@ -312,6 +351,72 @@ fun AbaVisaoGeralCliente(
             }
         }
 
+        // ── Fase 3.3: Preview do último curso em andamento ───────────────
+        if (ultimoCursoNome.isNotEmpty()) {
+            Card(
+                onClick  = { onBiblioteca?.invoke() },
+                modifier = Modifier.fillMaxWidth(),
+                shape    = RoundedCornerShape(12.dp),
+                colors   = CardDefaults.cardColors(containerColor = Surface),
+                border   = androidx.compose.foundation.BorderStroke(1.dp, Azul.copy(alpha = 0.2f)),
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier              = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment     = Alignment.CenterVertically,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("📚", fontSize = 18.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text("Continuar aprendendo", fontSize = 11.sp, color = InkMuted)
+                                Text(ultimoCursoNome, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+                            }
+                        }
+                        Text(
+                            "${(ultimoCursoProgresso * 100).toInt()}%",
+                            fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Azul,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    LinearProgressIndicator(
+                        progress  = { ultimoCursoProgresso },
+                        modifier  = Modifier.fillMaxWidth().height(6.dp),
+                        color     = Azul,
+                        trackColor = SurfaceOff,
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("Toque para continuar →", fontSize = 11.sp, color = Azul)
+                }
+            }
+        }
+
+        // ── Fase 4.2: Card de Indicações ─────────────────────────────────
+        if (onReferral != null) {
+            Card(
+                onClick  = onReferral,
+                modifier = Modifier.fillMaxWidth(),
+                shape    = RoundedCornerShape(12.dp),
+                colors   = CardDefaults.cardColors(containerColor = Color(0xFFF0FBF4)),
+                border   = androidx.compose.foundation.BorderStroke(1.dp, Verde.copy(alpha = 0.3f)),
+            ) {
+                Row(
+                    modifier          = Modifier.padding(16.dp).fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("🎁", fontSize = 24.sp)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Indique e ganhe créditos", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Verde)
+                        Text("Compartilhe seu código e acumule benefícios.", fontSize = 12.sp, color = InkMuted)
+                    }
+                    Text("→", fontSize = 16.sp, color = Verde, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        // Avaliações pendentes
         if (pendentes.isNotEmpty()) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -367,6 +472,7 @@ fun AbaVisaoGeralCliente(
             }
         }
 
+        // Próximas consultas
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape    = RoundedCornerShape(12.dp),
@@ -405,7 +511,6 @@ fun AbaVisaoGeralCliente(
                             modifier          = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            // Alerta: vermelho = hoje, verde = futuro
                             val isHojeLocal = run {
                                 try {
                                     val p   = c.data.split("/")
@@ -573,6 +678,8 @@ fun AbaConsultasCliente(
     onConsultaAvaliada: (consultaId: String, nota: Int) -> Unit = { _, _ -> },
     onChat:             ((String, String) -> Unit)? = null,
     onSuporte:          ((String?) -> Unit)? = null,
+    // Fase 4.3: disputa formal, separada do suporte genérico
+    onDisputa:          ((String) -> Unit)? = null,
 ) {
     var filtro              by remember { mutableStateOf("todas") }
     var avaliarConsulta     by remember { mutableStateOf<ConsultaCliente?>(null) }
@@ -696,14 +803,28 @@ fun AbaConsultasCliente(
                             }
                         }
 
-                        // Botão Reportar problema — Fase 4.3
+                        // ── Fase 4.3: Botão de disputa formal (consultas concluídas) ──
+                        // Separado do suporte genérico — abre DisputaViewModel.abrirDisputa()
+                        if (c.status == "concluida" && onDisputa != null) {
+                            OutlinedButton(
+                                onClick  = { onDisputa(c.id) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape    = RoundedCornerShape(8.dp),
+                                colors   = ButtonDefaults.outlinedButtonColors(contentColor = Urgente),
+                                border   = androidx.compose.foundation.BorderStroke(1.dp, Urgente.copy(alpha = 0.4f)),
+                            ) {
+                                Text("⚖️ Abrir disputa formal", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        // Botão Suporte genérico (não-formal) — mantido separado
                         if (onSuporte != null) {
                             TextButton(
                                 onClick  = { onSuporte(c.id) },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors   = ButtonDefaults.textButtonColors(contentColor = InkMuted),
                             ) {
-                                Text("⚠️ Reportar problema", fontSize = 11.sp)
+                                Text("⚠️ Reportar problema ao suporte", fontSize = 11.sp)
                             }
                         }
                     }
@@ -772,7 +893,6 @@ fun AbaConsultasCliente(
         )
     }
 
-    // Modal avaliação
     if (avaliarConsulta != null) {
         ModalAvaliacao(
             consulta   = avaliarConsulta!!,
@@ -782,15 +902,14 @@ fun AbaConsultasCliente(
     }
 }
 
-// ── ABA: BUSCA ────────────────────────────────────────
-// Fase 7 — 3 abas internas: Urgente | PMP | Geral
-// Cada aba tem estado de carregamento e filtros independentes.
+// ── ABA: BUSCA ─────────────────────────────────────────
 @Composable
 fun AbaBuscaCliente(
     onEstudio:        ((String) -> Unit)?         = null,
     onAgendarRegular: ((String, String) -> Unit)? = null,
+    // Fase 3.4: SearchScreen com debounce, filtros e ranking_score
+    onBuscaEstudio:   (() -> Unit)?               = null,
 ) {
-    // ── Estado de navegação interna ───────────────────
     var profSelecionado by remember { mutableStateOf<ProfissionalPMP?>(null) }
     var agendando       by remember { mutableStateOf<Pair<ProfissionalPMP, String>?>(null) }
 
@@ -812,20 +931,16 @@ fun AbaBuscaCliente(
         return
     }
 
-    // ── Estado por aba ────────────────────────────────
     var abaAtiva by remember { mutableStateOf(0) }  // 0=Urgente 1=PMP 2=Geral
 
-    // Aba Urgente
     var listaUrgente  by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
     var loadUrgente   by remember { mutableStateOf(true) }
-    var filtroUrgente by remember { mutableStateOf("") }  // filtro por area
+    var filtroUrgente by remember { mutableStateOf("") }
 
-    // Aba PMP
-    var listaPMP      by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
-    var loadPMP       by remember { mutableStateOf(true) }
-    var filtroPMP     by remember { mutableStateOf("") }  // filtro por area
+    var listaPMP  by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
+    var loadPMP   by remember { mutableStateOf(true) }
+    var filtroPMP by remember { mutableStateOf("") }
 
-    // Aba Geral — filtros múltiplos
     var listaGeral        by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
     var listaGeralBase    by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
     var loadGeral         by remember { mutableStateOf(true) }
@@ -834,38 +949,24 @@ fun AbaBuscaCliente(
     var filtroSomenteUrg  by remember { mutableStateOf(false) }
     var filtroSomenteVer  by remember { mutableStateOf(false) }
 
-    // ── Carregamento lazy por aba ─────────────────────
     LaunchedEffect(abaAtiva) {
         when (abaAtiva) {
             0 -> if (loadUrgente) {
-                listaUrgente = getProfissionaisPMPAndroid(
-                    somenteUrgente   = true,
-                    busca            = "",
-                    aplicarFiltroPMP = false,
-                )
+                listaUrgente = getProfissionaisPMPAndroid(somenteUrgente = true, busca = "", aplicarFiltroPMP = false)
                 loadUrgente = false
             }
             1 -> if (loadPMP) {
-                listaPMP = getProfissionaisPMPAndroid(
-                    somenteUrgente   = false,
-                    busca            = "",
-                    aplicarFiltroPMP = true,
-                )
+                listaPMP = getProfissionaisPMPAndroid(somenteUrgente = false, busca = "", aplicarFiltroPMP = true)
                 loadPMP = false
             }
             2 -> if (loadGeral) {
-                listaGeralBase = getProfissionaisPMPAndroid(
-                    somenteUrgente   = false,
-                    busca            = "",
-                    aplicarFiltroPMP = false,
-                )
+                listaGeralBase = getProfissionaisPMPAndroid(somenteUrgente = false, busca = "", aplicarFiltroPMP = false)
                 listaGeral = listaGeralBase
                 loadGeral  = false
             }
         }
     }
 
-    // Aplicar filtros da aba Geral em tempo real
     LaunchedEffect(filtroGeralArea, filtroSomentePMP, filtroSomenteUrg, filtroSomenteVer) {
         listaGeral = listaGeralBase.filter { p ->
             val matchArea = filtroGeralArea.isBlank() ||
@@ -878,10 +979,31 @@ fun AbaBuscaCliente(
         }
     }
 
-    // ── Layout ────────────────────────────────────────
     Column(modifier = Modifier.fillMaxSize()) {
 
-        // TabRow das 3 abas
+        // ── Fase 3.4: Banner de acesso à Busca Avançada do Estúdio ───────
+        if (onBuscaEstudio != null) {
+            Card(
+                onClick  = onBuscaEstudio,
+                modifier = Modifier.fillMaxWidth(),
+                shape    = RoundedCornerShape(0.dp),
+                colors   = CardDefaults.cardColors(containerColor = AzulClaro),
+            ) {
+                Row(
+                    modifier          = Modifier.padding(horizontal = 16.dp, vertical = 10.dp).fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("🎓", fontSize = 16.sp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Buscar no Estúdio", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Azul)
+                        Text("Cursos, PDFs e produtos digitais dos profissionais", fontSize = 11.sp, color = InkMuted)
+                    }
+                    Text("→", fontSize = 14.sp, color = Azul, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
         TabRow(
             selectedTabIndex = abaAtiva,
             containerColor   = Surface,
@@ -907,10 +1029,7 @@ fun AbaBuscaCliente(
             }
         }
 
-        // Conteúdo por aba
         when (abaAtiva) {
-
-            // ── ABA URGENTE ───────────────────────────
             0 -> {
                 AbaInternaBusca(
                     descricao = "Profissionais disponíveis agora · respondem em até 45 min",
@@ -923,17 +1042,15 @@ fun AbaBuscaCliente(
                                 p.area.contains(filtroUrgente, ignoreCase = true) ||
                                 (p.perfis?.nome ?: "").contains(filtroUrgente, ignoreCase = true)
                     },
-                    filtroTexto     = filtroUrgente,
-                    onFiltroChange  = { filtroUrgente = it },
+                    filtroTexto       = filtroUrgente,
+                    onFiltroChange    = { filtroUrgente = it },
                     placeholderFiltro = "Tipo de profissional (ex: psicólogo)",
-                    onClickProf     = { profSelecionado = it.toProfissionalPMP() },
-                    onEstudio       = onEstudio,
-                    onAgendar       = onAgendarRegular,
-                    mostrarBotaoUrg = true,
+                    onClickProf       = { profSelecionado = it.toProfissionalPMP() },
+                    onEstudio         = onEstudio,
+                    onAgendar         = onAgendarRegular,
+                    mostrarBotaoUrg   = true,
                 )
             }
-
-            // ── ABA PMP ───────────────────────────────
             1 -> {
                 AbaInternaBusca(
                     descricao = "Profissionais com Selo de Maestria — avaliação 4★ ou superior",
@@ -955,11 +1072,8 @@ fun AbaBuscaCliente(
                     mostrarBotaoUrg   = false,
                 )
             }
-
-            // ── ABA GERAL ─────────────────────────────
             2 -> {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // Painel de filtros
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -984,28 +1098,19 @@ fun AbaBuscaCliente(
                                 selected = filtroSomentePMP,
                                 onClick  = { filtroSomentePMP = !filtroSomentePMP },
                                 label    = { Text("🏆 PMP", fontSize = 11.sp) },
-                                colors   = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = DouradoClaro,
-                                    selectedLabelColor     = Dourado,
-                                ),
+                                colors   = FilterChipDefaults.filterChipColors(selectedContainerColor = DouradoClaro, selectedLabelColor = Dourado),
                             )
                             FilterChip(
                                 selected = filtroSomenteVer,
                                 onClick  = { filtroSomenteVer = !filtroSomenteVer },
                                 label    = { Text("✅ Verificado", fontSize = 11.sp) },
-                                colors   = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Verde.copy(alpha = 0.15f),
-                                    selectedLabelColor     = Verde,
-                                ),
+                                colors   = FilterChipDefaults.filterChipColors(selectedContainerColor = Verde.copy(alpha = 0.15f), selectedLabelColor = Verde),
                             )
                             FilterChip(
                                 selected = filtroSomenteUrg,
                                 onClick  = { filtroSomenteUrg = !filtroSomenteUrg },
                                 label    = { Text("⚡ Urgente", fontSize = 11.sp) },
-                                colors   = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = UrgenteClaro,
-                                    selectedLabelColor     = Urgente,
-                                ),
+                                colors   = FilterChipDefaults.filterChipColors(selectedContainerColor = UrgenteClaro, selectedLabelColor = Urgente),
                             )
                         }
                     }
@@ -1019,8 +1124,8 @@ fun AbaBuscaCliente(
                         EmptyBusca("Nenhum profissional encontrado", "Tente remover alguns filtros.")
                     } else {
                         LazyColumn(
-                            modifier        = Modifier.fillMaxSize(),
-                            contentPadding  = PaddingValues(16.dp),
+                            modifier            = Modifier.fillMaxSize(),
+                            contentPadding      = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             item {
@@ -1031,11 +1136,11 @@ fun AbaBuscaCliente(
                             }
                             items(listaGeral) { prof ->
                                 CardProfissionalBusca(
-                                    prof           = prof,
+                                    prof            = prof,
                                     mostrarBotaoUrg = false,
-                                    onClickProf    = { profSelecionado = prof.toProfissionalPMP() },
-                                    onEstudio      = onEstudio,
-                                    onAgendar      = onAgendarRegular,
+                                    onClickProf     = { profSelecionado = prof.toProfissionalPMP() },
+                                    onEstudio       = onEstudio,
+                                    onAgendar       = onAgendarRegular,
                                 )
                             }
                         }
@@ -1046,7 +1151,7 @@ fun AbaBuscaCliente(
     }
 }
 
-// ── SUB-COMPOSABLE: conteúdo compartilhado das abas Urgente e PMP ──────────
+// ── SUB-COMPOSABLE: abas Urgente e PMP ─────────────────
 @Composable
 private fun AbaInternaBusca(
     descricao:         String,
@@ -1064,7 +1169,6 @@ private fun AbaInternaBusca(
     mostrarBotaoUrg:   Boolean,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        // Banner da aba
         Row(
             modifier          = Modifier
                 .fillMaxWidth()
@@ -1076,7 +1180,6 @@ private fun AbaInternaBusca(
             Spacer(modifier = Modifier.width(8.dp))
             Text(descricao, fontSize = 12.sp, color = corTexto, lineHeight = 16.sp)
         }
-        // Campo de filtro por tipo
         Box(modifier = Modifier.fillMaxWidth().background(Surface).padding(horizontal = 16.dp, vertical = 8.dp)) {
             OutlinedTextField(
                 value         = filtroTexto,
@@ -1103,8 +1206,7 @@ private fun AbaInternaBusca(
             }
         } else if (lista.isEmpty()) {
             EmptyBusca(
-                titulo    = if (mostrarBotaoUrg) "Nenhum profissional urgente agora"
-                else "Nenhum profissional PMP encontrado",
+                titulo    = if (mostrarBotaoUrg) "Nenhum profissional urgente agora" else "Nenhum profissional PMP encontrado",
                 subtitulo = "Tente outro termo de busca.",
             )
         } else {
@@ -1133,8 +1235,7 @@ private fun AbaInternaBusca(
     }
 }
 
-// ── CARD DE PROFISSIONAL ───────────────────────────────
-// Preserva CardProfissionalReal existente e adiciona lógica de aba
+// ── CARD DE PROFISSIONAL ──────────────────────────────
 @Composable
 private fun CardProfissionalBusca(
     prof:            ProfissionalComPerfil,
@@ -1165,11 +1266,7 @@ private fun CardProfissionalBusca(
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    // Nome + badges PMP e urgente
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment     = Alignment.CenterVertically,
-                    ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(nome, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Ink)
                         if (prof.is_pmp) {
                             Box(
@@ -1199,7 +1296,6 @@ private fun CardProfissionalBusca(
                 }
             }
 
-            // Ações
             val temAcoes = onAgendar != null || onEstudio != null || mostrarBotaoUrg
             if (temAcoes) {
                 Spacer(modifier = Modifier.height(10.dp))
@@ -1238,7 +1334,6 @@ private fun CardProfissionalBusca(
     }
 }
 
-// ── CardProfissionalReal mantido por compatibilidade (usado no AbaBuscaCliente legado)
 @Composable
 private fun CardProfissionalReal(
     prof:      ProfissionalComPerfil,
@@ -1253,7 +1348,6 @@ private fun CardProfissionalReal(
     onAgendar       = onAgendar,
 )
 
-// ── Estado vazio genérico para as abas de busca ────────
 @Composable
 private fun EmptyBusca(titulo: String, subtitulo: String) {
     Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {

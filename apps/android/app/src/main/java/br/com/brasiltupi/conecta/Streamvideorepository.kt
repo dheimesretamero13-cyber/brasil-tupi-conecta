@@ -19,12 +19,6 @@ package br.com.brasiltupi.conecta
 // PRINCÍPIO DE SEGURANÇA:
 //  Nenhuma chave secreta do Stream existe no app. O token vem exclusivamente
 //  do backend (Edge Function), que valida ownership e status antes de gerar.
-//
-// CHAVES:
-//  • SUPABASE_KEY  → anon key JWT (eyJ...) — usada no header apikey
-//  • SUPABASE_URL  → constante do SupabaseClient.kt
-//  Ambas já estão declaradas no SupabaseClient.kt e são acessíveis aqui
-//  por estarem no mesmo pacote (nível de arquivo, sem classe).
 // ═══════════════════════════════════════════════════════════════════════════
 
 import android.util.Log
@@ -40,11 +34,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
+// ── Configuração via BuildConfig ───────────────────────────────────────
+private val LOCAL_URL = BuildConfig.SUPABASE_URL
+private val LOCAL_KEY = BuildConfig.SUPABASE_KEY
+
 private const val TAG = "StreamVideoRepo"
 
-// URL da Edge Function — usa SUPABASE_URL do SupabaseClient.kt
-// Nome da função deve bater com o deploy: supabase functions deploy stream-token
-private val EDGE_FUNCTION_URL get() = "$SUPABASE_URL/functions/v1/stream-token"
+// URL da Edge Function — construída dinamicamente a partir da URL base
+private val EDGE_FUNCTION_URL get() = "$LOCAL_URL/functions/v1/stream-token"
 
 private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
 
@@ -99,7 +96,7 @@ object StreamVideoRepository {
             try {
                 val response = httpClient.post(EDGE_FUNCTION_URL) {
                     header("Authorization", "Bearer $token")
-                    header("apikey", SUPABASE_KEY)          // anon key JWT — funciona no /functions/v1/
+                    header("apikey", LOCAL_KEY)
                     contentType(ContentType.Application.Json)
                     setBody(CallTokenRequest(urgenciaId = urgenciaId))
                 }
@@ -205,11 +202,11 @@ object StreamVideoRepository {
      */
     private suspend fun atualizarStatusInProgress(urgenciaId: String) {
         try {
-            val token = AuthRepository.token ?: SUPABASE_KEY
+            val token = AuthRepository.token ?: LOCAL_KEY
             val response = httpClient.patch(
-                "$SUPABASE_URL/rest/v1/urgencias?id=eq.$urgenciaId&status=eq.accepted"
+                "$LOCAL_URL/rest/v1/urgencias?id=eq.$urgenciaId&status=eq.accepted"
             ) {
-                header("apikey",        SUPABASE_KEY)   // anon key JWT (eyJ...)
+                header("apikey",        LOCAL_KEY)
                 header("Authorization", "Bearer $token")
                 header("Content-Type",  "application/json")
                 header("Prefer",        "return=minimal")

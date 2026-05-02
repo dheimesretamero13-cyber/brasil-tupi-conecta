@@ -9,7 +9,8 @@ fun ProfissionalComPerfil.toProfissionalPMP(): ProfissionalPMP {
         nome              = nomeProf,
         area              = this.area,
         cidade            = buildCidade(this.perfis?.cidade, this.perfis?.estado),
-        avaliacao         = 5.0,
+        // Avaliação real vinda do banco (média das notas). Se ainda não houver avaliações, exibe 0.0.
+        avaliacao         = this.avaliacao_media ?: 0.0,
         atendimentos      = this.credibilidade / 2,
         disponivelUrgente = this.disponivel_urgente,
         valorNormal       = this.valor_normal,

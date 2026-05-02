@@ -122,6 +122,8 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
     var agendamentoRegularIdPagamento  by remember { mutableStateOf("") }
     // Fase 1 — LGPD: dashboard destino após consentimento gravado
     var destinoAposLegal          by remember { mutableStateOf("") }
+    // Módulo 5 — KYC: cache do status do profissional para guards de navegação
+    var kycAprovadoProf           by remember { mutableStateOf(false) }
 
     // ── Deep link FCM ─────────────────────────────────────────────────────
     val activity = context as? android.app.Activity
@@ -242,6 +244,8 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
                     return@LaunchedEffect
                 }
                 val jaAceitouProf = verificarConsentimentoExiste(uidProf)
+                // Módulo 5 — pré-carregar KYC para guards de navegação
+                kycAprovadoProf = verificarKycAprovado(uidProf)
                 if (!jaAceitouProf) {
                     destinoAposLegal = "dashboard-profissional"
                     tela = "legal-onboarding"
@@ -409,6 +413,7 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             onPerfil         = { tela = "perfil-profissional" },
             onRelatorios     = { tela = "relatorios" },
             onModalidades    = { tela = "modalidades" },
+            onKyc            = { tela = "kyc-status" },
             onIniciarChamada = { urgenciaId ->
                 urgenciaIdAtiva = urgenciaId
                 StreamVideoRepository.solicitarToken(urgenciaId)
@@ -485,8 +490,10 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
 
         // ── ESTÚDIO ───────────────────────────────────────────────────────
         "estudio-dashboard" -> EstudioDashboardScreen(
-            userId   = currentUserId ?: "",
-            onVoltar = { tela = "dashboard-profissional" },
+            userId      = currentUserId ?: "",
+            onVoltar    = { tela = "dashboard-profissional" },
+            kycAprovado = kycAprovadoProf,
+            onKyc       = { tela = "kyc-status" },
         )
 
         "estudio-busca" -> EstudioBuscaScreen(
@@ -589,6 +596,7 @@ fun DashboardProfissionalComRealtime(
     onPerfil:         () -> Unit,
     onRelatorios:     () -> Unit = {},
     onModalidades:    () -> Unit = {},
+    onKyc:            () -> Unit = {},
     onIniciarChamada: (urgenciaId: String) -> Unit = {},
 ) {
     var urgenciaAtiva           by remember { mutableStateOf<Urgencia?>(null) }
@@ -657,6 +665,7 @@ fun DashboardProfissionalComRealtime(
             onPerfil      = onPerfil,
             onRelatorios  = onRelatorios,
             onModalidades = onModalidades,
+            onKyc         = onKyc,
         )
         when (statusRealtime) {
             StatusRealtime.INSTAVEL -> BannerRealtimeInstavel(offline = false)

@@ -36,7 +36,91 @@ private data class FormState(
 )
 
 @Composable
-fun EstudioDashboardScreen(userId: String, onVoltar: () -> Unit) {
+fun EstudioDashboardScreen(
+    userId: String,
+    onVoltar: () -> Unit,
+    kycAprovado: Boolean = false,
+    onKyc: (() -> Unit)? = null,
+) {
+    // ── GUARD KYC — bloqueia todo o Estúdio se não verificado ────────────
+    if (!kycAprovado) {
+        Box(modifier = Modifier.fillMaxSize().background(Color(0xFFF8F7F4))) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Header mínimo com botão voltar
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Brush.linearGradient(listOf(Color(0xFF0C2D6B), Color(0xFF1A5C3A))))
+                        .padding(horizontal = 20.dp)
+                        .padding(top = 52.dp, bottom = 24.dp)
+                ) {
+                    Column {
+                        TextButton(onClick = onVoltar) {
+                            Text("← Voltar", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
+                        }
+                        Text("Meu Estúdio", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("Verificação necessária", fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f))
+                    }
+                }
+                // Card de bloqueio
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("🔒", fontSize = 56.sp)
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Text(
+                        "Perfil não verificado",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF111827),
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        "Para publicar e vender no Estúdio você precisa ter seus documentos aprovados na verificação de identidade (KYC).",
+                        fontSize = 14.sp,
+                        color = Color(0xFF6B7280),
+                        textAlign = TextAlign.Center,
+                        lineHeight = 20.sp,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Após a aprovação, o acesso ao Estúdio é liberado automaticamente.",
+                        fontSize = 13.sp,
+                        color = Color(0xFF9CA3AF),
+                        textAlign = TextAlign.Center,
+                        lineHeight = 18.sp,
+                    )
+                    Spacer(modifier = Modifier.height(28.dp))
+                    Button(
+                        onClick  = { onKyc?.invoke() },
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        shape    = RoundedCornerShape(10.dp),
+                        colors   = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFF57F17),
+                            contentColor   = Color.White,
+                        ),
+                    ) {
+                        Text("Verificar meu perfil", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick  = onVoltar,
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        shape    = RoundedCornerShape(10.dp),
+                    ) {
+                        Text("Voltar ao painel", fontSize = 14.sp, color = Color(0xFF6B7280))
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    // ── Conteúdo normal do Estúdio (apenas se KYC aprovado) ──────────────
     val scope = rememberCoroutineScope()
     var itens by remember { mutableStateOf<List<ItemEstudio>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }

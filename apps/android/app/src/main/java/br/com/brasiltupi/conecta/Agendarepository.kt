@@ -29,9 +29,16 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
 
-private const val TAG          = "AgendaRepository"
-private const val API_KEY  = SUPABASE_KEY
-private const val WS_URL   = "wss://qfzdchrlbqcvewjivaqz.supabase.co/realtime/v1/websocket"
+// ── Configuração extraída do BuildConfig (sem hardcode) ──────────────────
+private val REPO_URL = BuildConfig.SUPABASE_URL
+private val REPO_KEY = BuildConfig.SUPABASE_KEY
+
+// WebSocket dinâmico a partir da URL base de REST
+private val WS_URL = REPO_URL
+    .replace("https://", "wss://")
+    .replace("http://", "ws://") + "/realtime/v1/websocket"
+
+private const val TAG = "AgendaRepository"
 
 private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
 
@@ -69,17 +76,17 @@ object AgendaRepository {
             AppLogger.info(TAG, "Carregando agenda do profissional=$uid")
 
             try {
-                val token = currentToken ?: API_KEY
+                val token = currentToken ?: REPO_KEY
 
                 // Buscar slots do profissional (todos, incluindo reservados)
                 val slotsResp = httpClient.get(
-                    "$SUPABASE_URL/rest/v1/availability" +
+                    "$REPO_URL/rest/v1/availability" +
                             "?professional_id=eq.$uid" +
                             "&select=*" +
                             "&order=start_time.asc" +
                             "&start_time=gte.${agoraIsoUtc()}"   // apenas futuros
                 ) {
-                    header("apikey",        API_KEY)
+                    header("apikey",        REPO_KEY)
                     header("Authorization", "Bearer $token")
                     header("Accept",        "application/json")
                 }
@@ -90,13 +97,13 @@ object AgendaRepository {
 
                 // Buscar agendamentos confirmados
                 val agendResp = httpClient.get(
-                    "$SUPABASE_URL/rest/v1/agendamentos" +
+                    "$REPO_URL/rest/v1/agendamentos" +
                             "?professional_id=eq.$uid" +
                             "&status=eq.confirmed" +
                             "&select=*,availability(*)" +
                             "&order=criado_em.desc&limit=30"
                 ) {
-                    header("apikey",        API_KEY)
+                    header("apikey",        REPO_KEY)
                     header("Authorization", "Bearer $token")
                     header("Accept",        "application/json")
                 }
@@ -147,9 +154,9 @@ object AgendaRepository {
             AppLogger.info(TAG, "Criando slot: $startIso → $endIso para prof=$uid")
 
             try {
-                val token    = currentToken ?: API_KEY
-                val response = httpClient.post("$SUPABASE_URL/rest/v1/rpc/validar_e_criar_slot") {
-                    header("apikey",        API_KEY)
+                val token    = currentToken ?: REPO_KEY
+                val response = httpClient.post("$REPO_URL/rest/v1/rpc/validar_e_criar_slot") {
+                    header("apikey",        REPO_KEY)
                     header("Authorization", "Bearer $token")
                     contentType(ContentType.Application.Json)
                     setBody(ValidarCriarSlotRequest(
@@ -202,15 +209,15 @@ object AgendaRepository {
     fun deletarSlot(slotId: String) {
         scope.launch {
             val uid   = currentUserId ?: return@launch
-            val token = currentToken  ?: API_KEY
+            val token = currentToken  ?: REPO_KEY
             try {
                 // RLS garante que só o dono pode deletar
                 // Filtro is_booked=eq.false evita deletar slots com agendamento
                 httpClient.delete(
-                    "$SUPABASE_URL/rest/v1/availability" +
+                    "$REPO_URL/rest/v1/availability" +
                             "?id=eq.$slotId&is_booked=eq.false"
                 ) {
-                    header("apikey",        API_KEY)
+                    header("apikey",        REPO_KEY)
                     header("Authorization", "Bearer $token")
                 }
                 AppLogger.info(TAG, "Slot $slotId deletado por prof=$uid")
@@ -226,12 +233,12 @@ object AgendaRepository {
     fun cancelarAgendamento(agendamentoId: String) {
         scope.launch {
             val uid   = currentUserId ?: return@launch
-            val token = currentToken  ?: API_KEY
+            val token = currentToken  ?: REPO_KEY
             try {
                 val response = httpClient.post(
-                    "$SUPABASE_URL/rest/v1/rpc/cancelar_agendamento"
+                    "$REPO_URL/rest/v1/rpc/cancelar_agendamento"
                 ) {
-                    header("apikey",        API_KEY)
+                    header("apikey",        REPO_KEY)
                     header("Authorization", "Bearer $token")
                     contentType(ContentType.Application.Json)
                     // RPC usa auth.uid() internamente — sem cancelador_id
@@ -257,12 +264,12 @@ object AgendaRepository {
     fun carregarSlotsDisponiveis(professionalId: String) {
         scope.launch {
             _clienteState.emit(AgendaClienteState.Carregando)
-            val token = currentToken ?: API_KEY
+            val token = currentToken ?: REPO_KEY
 
             try {
                 // RLS filtra is_booked = false automaticamente para o cliente
                 val response = httpClient.get(
-                    "$SUPABASE_URL/rest/v1/availability" +
+                    "$REPO_URL/rest/v1/availability" +
                             "?professional_id=eq.$professionalId" +
                             "&is_booked=eq.false" +
                             "&select=*" +
@@ -270,7 +277,7 @@ object AgendaRepository {
                             "&start_time=gte.${agoraIsoUtc()}" +
                             "&limit=60"
                 ) {
-                    header("apikey",        API_KEY)
+                    header("apikey",        REPO_KEY)
                     header("Authorization", "Bearer $token")
                     header("Accept",        "application/json")
                 }
@@ -314,9 +321,9 @@ object AgendaRepository {
             AppLogger.info(TAG, "Reservando slot=$slotId para client=$uid")
 
             try {
-                val token    = currentToken ?: API_KEY
-                val response = httpClient.post("$SUPABASE_URL/rest/v1/rpc/reservar_slot") {
-                    header("apikey",        API_KEY)
+                val token    = currentToken ?: REPO_KEY
+                val response = httpClient.post("$REPO_URL/rest/v1/rpc/reservar_slot") {
+                    header("apikey",        REPO_KEY)
                     header("Authorization", "Bearer $token")
                     contentType(ContentType.Application.Json)
                     // RPC usa auth.uid() internamente — nunca passamos clientId
@@ -407,9 +414,9 @@ object AgendaRepository {
 
         while (currentCoroutineContext().isActive) {
             try {
-                val token = currentToken ?: API_KEY
+                val token = currentToken ?: REPO_KEY
                 wsClient.webSocket(
-                    urlString = "$WS_URL?apikey=$API_KEY&vsn=1.0.0",
+                    urlString = "$WS_URL?apikey=$REPO_KEY&vsn=1.0.0",
                     request   = { header("Authorization", "Bearer $token") },
                 ) {
                     tentativa = 0
