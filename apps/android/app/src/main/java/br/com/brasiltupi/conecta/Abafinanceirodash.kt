@@ -4,18 +4,8 @@ package br.com.brasiltupi.conecta
 // AbaFinanceiroDash.kt  · Fase 2.4
 //
 // UI da aba "Financeiro" no DashboardProfissionalScreen.
-// Observa FinanceiroViewModel e exibe:
-//  • 3 cards de métricas: Bruto / Taxa / Líquido
-//  • 1 card de pendente
-//  • Gráfico de barras de evolução diária (Canvas nativo — sem lib externa)
-//  • Lista de transações recentes com status colorido
-//  • Botão "Solicitar Saque" → dialog "Em breve"
-//
-// DECISÃO DE GRÁFICO:
-//   Vico e bibliotecas similares adicionam ~2MB ao APK e exigem configuração
-//   de ProGuard extra. Para o MVP, usamos Canvas nativo do Compose — zero
-//   dependência, zero risco de breaking change, visual limpo o suficiente.
-//   Migrar para Vico é trivial quando o produto validar que o gráfico importa.
+// Agora recebe `isPmp` para que a taxa de retenção (30% / 10%) seja
+// aplicada corretamente no ViewModel.
 // ═══════════════════════════════════════════════════════════════════════════
 
 import androidx.compose.animation.core.*
@@ -44,13 +34,15 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.brasiltupi.conecta.ui.theme.*
 
 @Composable
-fun AbaFinanceiroDash(
-    vm: FinanceiroViewModel = viewModel(factory = FinanceiroViewModelFactory()),
-) {
+fun AbaFinanceiroDash(isPmp: Boolean = false) {
+    val vm: FinanceiroViewModel = viewModel(
+        factory = FinanceiroViewModelFactory(isPmp = isPmp)
+    )
+
     val uiState            by vm.uiState.collectAsState()
     val mostrarDialogSaque by vm.mostrarDialogSaque.collectAsState()
+    val saldoDisponivel    by vm.saldoDisponivelSaque.collectAsState()
 
-    // Animação de entrada nos valores — dispara quando Sucesso chega
     val animacaoValores = remember { Animatable(0f) }
     LaunchedEffect(uiState) {
         if (uiState is FinanceiroUiState.Sucesso) {
@@ -70,7 +62,6 @@ fun AbaFinanceiroDash(
     ) {
         when (val estado = uiState) {
 
-            // ── LOADING ───────────────────────────────────────────────────
             is FinanceiroUiState.Carregando -> {
                 Box(
                     modifier         = Modifier.fillMaxWidth().height(300.dp),
@@ -86,7 +77,6 @@ fun AbaFinanceiroDash(
                 }
             }
 
-            // ── ERRO ──────────────────────────────────────────────────────
             is FinanceiroUiState.Erro -> {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -110,7 +100,6 @@ fun AbaFinanceiroDash(
                 }
             }
 
-            // ── SUCESSO ───────────────────────────────────────────────────
             is FinanceiroUiState.Sucesso -> {
                 val resumo     = estado.resumo
                 val transacoes = estado.transacoes
@@ -271,15 +260,20 @@ fun AbaFinanceiroDash(
         }
     }
 
-    // ── DIALOG "EM BREVE" ─────────────────────────────────────────────────
+    // ── DIALOG DE SAQUE ───────────────────────────────────────────────────
     if (mostrarDialogSaque) {
         AlertDialog(
             onDismissRequest = { vm.dispensarDialogSaque() },
-            title = { Text("Saque em breve", fontWeight = FontWeight.Bold) },
+            title = { Text("Saldo disponível para saque", fontWeight = FontWeight.Bold) },
             text  = {
                 Text(
-                    "A funcionalidade de saque está em desenvolvimento.\n\n" +
-                            "Em breve você poderá transferir seu saldo diretamente para sua conta bancária.",
+                    if (saldoDisponivel > 0.0)
+                        "Você tem ${formatarMoeda(saldoDisponivel)} disponível para saque.\n\n" +
+                                "O valor corresponde a transações aprovadas há mais de 15 dias.\n\n" +
+                                "A transferência será processada em até 2 dias úteis."
+                    else
+                        "Nenhum saldo disponível para saque no momento.\n\n" +
+                                "Os valores só ficam disponíveis 15 dias após a aprovação da venda.",
                     textAlign  = TextAlign.Center,
                     lineHeight = 20.sp,
                 )
@@ -438,10 +432,11 @@ private fun MiniMetrica(label: String, valor: String) {
 }
 
 // ── Formatação de moeda — sem BigDecimal (evitar crash em API < 26) ───────
-private fun formatarMoeda(valor: Double): String {
-    val inteiro   = valor.toLong()
-    val centavos  = ((valor - inteiro) * 100).toLong()
-    val inteiroFmt = inteiro.toString().reversed()
-        .chunked(3).joinToString(".").reversed()
-    return "R$ $inteiroFmt,${centavos.toString().padStart(2, '0')}"
+internal fun formatarMoeda(valor: Double): String {
+    val centavosInt = Math.round(valor * 100)
+    val inteiro = centavosInt / 100
+    val centavos = (centavosInt % 100).toInt()
+    // Formata o inteiro com separador de milhar (.) – padrão pt-BR
+    val inteiroFmt = String.format("%,d", inteiro).replace(",", ".")
+    return "R$ $inteiroFmt,${"%02d".format(centavos)}"
 }

@@ -25,11 +25,12 @@ package br.com.brasiltupi.conecta
 //  URL de retorno apenas traz o usuário de volta ao app.
 // ═══════════════════════════════════════════════════════════════════════════
 
-import android.util.Log
+
 import io.ktor.client.request.*
+import io.ktor.client.HttpClient
 import io.ktor.client.statement.*
 import io.ktor.http.*
-import io.ktor.client.engine.android.*
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.websocket.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
@@ -122,7 +123,7 @@ object PagamentoRepository {
                 }
 
                 val corpo = response.bodyAsText()
-                Log.d(TAG, "Edge Function HTTP ${response.status.value}")
+                AppLogger.info(TAG, "Edge Function HTTP ${response.status.value}")
 
                 when (response.status.value) {
                     200 -> {
@@ -283,17 +284,14 @@ object PagamentoRepository {
     private fun iniciarEscutaRealtime(urgenciaId: String) {
         realtimeJob?.cancel()
         realtimeJob = scope.launch {
-            val wsClient = io.ktor.client.HttpClient(Android) {
-                install(WebSockets) { pingInterval = 25_000L }
-            }
-
+            var client: HttpClient? = null
             try {
+                client = createWebSocketClient()
                 val token = currentToken ?: LOCAL_KEY
-                wsClient.webSocket(
+                client.webSocket(
                     urlString = "$WS_URL?apikey=$LOCAL_KEY&vsn=1.0.0",
-                    request   = { header("Authorization", "Bearer $token") },
+                    request = { header("Authorization", "Bearer $token") },
                 ) {
-                    // JOIN no canal filtrado por urgencia_id
                     send(Frame.Text(buildJoinPayments(urgenciaId)))
                     AppLogger.infoPagamento(
                         etapa      = "realtime_payments_conectado",
@@ -305,7 +303,7 @@ object PagamentoRepository {
                         if (frame !is Frame.Text) continue
                         val texto = frame.readText()
                         val confirmado = processarFramePayment(texto, urgenciaId)
-                        if (confirmado) break   // pagamento confirmado — sair do loop
+                        if (confirmado) break
                     }
                 }
             } catch (e: CancellationException) {
@@ -313,7 +311,7 @@ object PagamentoRepository {
             } catch (e: Exception) {
                 AppLogger.aviso(TAG, "Realtime payments falhou: ${e.message}. Polling assumira.")
             } finally {
-                wsClient.close()
+                client?.close()
             }
         }
     }
@@ -578,7 +576,7 @@ object PagamentoRepository {
                 }
 
                 val corpo = response.bodyAsText()
-                Log.d(TAG, "Edge Function regular HTTP ${response.status.value}")
+                AppLogger.info(TAG, "Edge Function regular HTTP ${response.status.value}")
 
                 when (response.status.value) {
                     200, 409 -> {
@@ -621,14 +619,13 @@ object PagamentoRepository {
     private fun iniciarEscutaRealtimeRegular(agendamentoRegularId: String) {
         realtimeJob?.cancel()
         realtimeJob = scope.launch {
-            val wsClient = io.ktor.client.HttpClient(Android) {
-                install(WebSockets) { pingInterval = 25_000L }
-            }
+            var client: HttpClient? = null
             try {
+                client = createWebSocketClient()
                 val token = currentToken ?: LOCAL_KEY
-                wsClient.webSocket(
+                client.webSocket(
                     urlString = "$WS_URL?apikey=$LOCAL_KEY&vsn=1.0.0",
-                    request   = { header("Authorization", "Bearer $token") },
+                    request = { header("Authorization", "Bearer $token") },
                 ) {
                     val joinMsg = buildJsonObject {
                         put("event", "phx_join")
@@ -667,7 +664,7 @@ object PagamentoRepository {
             } catch (e: Exception) {
                 AppLogger.aviso(TAG, "Realtime regular falhou: ${e.message}")
             } finally {
-                wsClient.close()
+                client?.close()
             }
         }
     }

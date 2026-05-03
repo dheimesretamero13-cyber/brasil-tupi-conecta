@@ -3,7 +3,13 @@ package br.com.brasiltupi.conecta
 // ═══════════════════════════════════════════════════════════════════════════
 // LegalOnboardingScreen.kt
 // Tela de consentimento LGPD — exibida UMA VEZ antes do primeiro dashboard.
-// Usa gravarConsentimento() do SupabaseClient.kt — mesmo padrão do projeto.
+//
+// NOVA ESTRATÉGIA DE PERSISTÊNCIA (evitar re‑exibição ao reabrir o app):
+//  • Após gravar com sucesso no Supabase, a tela chama o callback
+//    `onConsentimentoSalvo`, onde o chamador (MainActivity) deve gravar
+//    o consentimento no DataStore local (ex: onboardingVm.salvarConsentimentoLocal(true)).
+//  • Na próxima inicialização, a verificação local precede a chamada de rede,
+//    evitando que a tela seja exibida novamente.
 // ═══════════════════════════════════════════════════════════════════════════
 
 import androidx.compose.foundation.background
@@ -34,37 +40,37 @@ fun LegalOnboardingScreen(
     onConsentimentoConcluido: () -> Unit,
     onVerTermos:   () -> Unit = {},
     onVerPolitica: () -> Unit = {},
+    onConsentimentoSalvo: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
 
     var aceitoTermos      by remember { mutableStateOf(false) }
     var aceitoPrivacidade by remember { mutableStateOf(false) }
-    var verificando       by remember { mutableStateOf(true) }  // true = checando consentimento
+    var verificando       by remember { mutableStateOf(true) }
     var carregando        by remember { mutableStateOf(false) }
     var erro              by remember { mutableStateOf("") }
-    android.util.Log.d("LGPD_FLUXO", "=== LegalOnboardingScreen ABRIU === userId='$userId' token='${currentToken?.take(30)}'")
+
+    // Garante que a verificação inicial dispare APENAS UMA VEZ por sessão
+    var verificacaoJaOcorreu by remember(userId) { mutableStateOf(false) }
+
+    AppLogger.info("LGPD_FLUXO", "=== LegalOnboardingScreen ABRIU === userId='$userId' token='${currentToken?.take(30)}'")
 
     LaunchedEffect(userId) {
-        android.util.Log.d("LGPD_FLUXO", "LaunchedEffect iniciou — verificando Supabase...")
+        if (verificacaoJaOcorreu) return@LaunchedEffect
+        verificacaoJaOcorreu = true
+
+        AppLogger.info("LGPD_FLUXO", "LaunchedEffect iniciou — verificando Supabase...")
         if (userId.isNotEmpty() && verificarConsentimentoExiste(userId)) {
-            android.util.Log.d("LGPD_FLUXO", "Consentimento JA EXISTE — redirecionando")
+            AppLogger.info("LGPD_FLUXO", "Consentimento JA EXISTE — redirecionando")
             onConsentimentoConcluido()
             return@LaunchedEffect
         }
-        android.util.Log.d("LGPD_FLUXO", "Consentimento NAO EXISTE — mostrando tela")
+        AppLogger.info("LGPD_FLUXO", "Consentimento NAO EXISTE — mostrando tela")
         verificando = false
     }
+
     val podeProsseguir = aceitoTermos && aceitoPrivacidade && !carregando
 
-    LaunchedEffect(userId) {
-        if (userId.isNotEmpty() && verificarConsentimentoExiste(userId)) {
-            onConsentimentoConcluido()
-            return@LaunchedEffect
-        }
-        verificando = false   // so concluiu check — mostrar tela
-    }
-
-    // Enquanto verifica consentimento existente, mostrar loading em vez da tela
     if (verificando) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = Verde)
@@ -76,7 +82,7 @@ fun LegalOnboardingScreen(
         containerColor = SurfaceWarm,
         topBar = {
             Column(
-                modifier            = Modifier
+                modifier = Modifier
                     .fillMaxWidth()
                     .background(Surface)
                     .padding(horizontal = 20.dp, vertical = 20.dp),
@@ -123,7 +129,6 @@ fun LegalOnboardingScreen(
                         scope.launch {
                             carregando = true
                             erro       = ""
-                            // Chama a função do SupabaseClient — usa currentToken automaticamente
                             val ok = gravarConsentimento(
                                 userId       = userId,
                                 aceitoTermos = aceitoTermos,
@@ -132,6 +137,7 @@ fun LegalOnboardingScreen(
                             )
                             carregando = false
                             if (ok) {
+                                onConsentimentoSalvo()
                                 onConsentimentoConcluido()
                             } else {
                                 erro = "Falha ao salvar. Verifique sua conexão e tente novamente."

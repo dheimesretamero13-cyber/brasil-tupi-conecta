@@ -52,23 +52,25 @@ class DisputaRepository {
     // ── 1. ABRIR DISPUTA ──────────────────────────────────────────────────
     suspend fun abrirDisputa(
         agendamentoId: String?,
-        categoria:     CategoriaDisputa,
-        descricao:     String,
+        categoria: CategoriaDisputa,
+        descricao: String,
     ): Result<Disputa> {
         val userId = currentUserId ?: return Result.failure(Exception("Sessão inválida"))
-        val token  = currentToken  ?: LOCAL_KEY
+        val token = currentToken ?: LOCAL_KEY
         return try {
             val response = httpClient.post("$LOCAL_URL/rest/v1/disputes") {
-                header("apikey",        LOCAL_KEY)
+                header("apikey", LOCAL_KEY)
                 header("Authorization", "Bearer $token")
-                header("Content-Type",  "application/json")
-                header("Prefer",        "return=representation")
-                setBody(CriarDisputaRequest(
-                    agendamentoId = agendamentoId,
-                    usuarioId     = userId,
-                    categoria     = categoria.id,
-                    descricao     = descricao,
-                ))
+                header("Content-Type", "application/json")
+                header("Prefer", "return=representation")
+                setBody(
+                    CriarDisputaRequest(
+                        agendamentoId = agendamentoId,
+                        usuarioId = userId,
+                        categoria = categoria.id,
+                        descricao = descricao,
+                    )
+                )
             }.body<List<Disputa>>().first()
             Result.success(response)
         } catch (e: Exception) {
@@ -80,26 +82,33 @@ class DisputaRepository {
     // ── 2. BUSCAR DISPUTAS DO USUÁRIO ─────────────────────────────────────
     suspend fun buscarDisputas(): List<Disputa> {
         val userId = currentUserId ?: return emptyList()
-        val token  = currentToken  ?: LOCAL_KEY
+        val token = currentToken ?: LOCAL_KEY
         return try {
-            httpClient.get("$LOCAL_URL/rest/v1/disputes") {
-                header("apikey",        LOCAL_KEY)
+            // Descobre se é profissional
+            val perfil = getPerfilAndroid(userId)
+            val isProfissional = perfil?.tipo == "profissional_certificado" ||
+                    perfil?.tipo == "profissional_liberal"
+
+            val url = if (isProfissional) {
+                "$LOCAL_URL/rest/v1/disputes" +
+                        "?select=id,agendamento_id,usuario_id,categoria,descricao,status,resolucao,criado_em,atualizado_em" +
+                        "&or=(usuario_id.eq.$userId,agendamento_id.in.(select id from agendamentos where professional_id = $userId))" +
+                        "&order=criado_em.desc"
+            } else {
+                "$LOCAL_URL/rest/v1/disputes" +
+                        "?select=id,agendamento_id,usuario_id,categoria,descricao,status,resolucao,criado_em,atualizado_em" +
+                        "&usuario_id=eq.$userId" +
+                        "&order=criado_em.desc"
+            }
+
+            httpClient.get(url) {
+                header("apikey", LOCAL_KEY)
                 header("Authorization", "Bearer $token")
-                header("Accept",        "application/json")
-                parameter("usuario_id", "eq.$userId")
-                parameter("select",
-                    "id,agendamento_id,usuario_id,categoria," +
-                            "descricao,status,resolucao,criado_em,atualizado_em"
-                )
-                parameter("order", "criado_em.desc")
+                header("Accept", "application/json")
             }.body<List<Disputa>>()
         } catch (e: Exception) {
             AppLogger.erroRede("/rest/v1/disputes", e)
             emptyList()
         }
     }
-}
-
-object DisputaRepositoryFactory {
-    fun create(): DisputaRepository = DisputaRepository()
 }

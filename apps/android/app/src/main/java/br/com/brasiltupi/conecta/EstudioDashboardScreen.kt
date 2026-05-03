@@ -490,21 +490,21 @@ fun EstudioDashboardScreen(
                         toast = "Preencha título e preço."
                         return@EstudioNovoItemScreen
                     }
-                    val dados = buildMap<String, Any> {
-                        put("titulo",      form.titulo)
-                        put("descricao",   form.descricao)
-                        put("tipo",        form.tipo)
-                        put("preco",       form.preco.toDoubleOrNull() ?: 0.0)
-                        put("tem_entrega", form.temEntrega)
-                        put("destaque",    form.destaque)
-                        form.precoOriginal.toDoubleOrNull()?.let { put("preco_original", it) }
-                        form.videoUrl.ifEmpty { null }?.let   { put("video_url",      it) }
-                        form.arquivoUrl.ifEmpty { null }?.let  { put("arquivo_url",    it) }
-                        form.linkExterno.ifEmpty { null }?.let { put("link_externo",   it) }
-                    }
+                    val request = EditarItemEstudioRequest(
+                        titulo        = form.titulo,
+                        descricao     = form.descricao.ifBlank { null },
+                        tipo          = form.tipo,
+                        preco         = form.preco.toDoubleOrNull() ?: 0.0,
+                        precoOriginal = form.precoOriginal.toDoubleOrNull(),
+                        videoUrl      = form.videoUrl.ifBlank { null },
+                        arquivoUrl    = form.arquivoUrl.ifBlank { null },
+                        linkExterno   = form.linkExterno.ifBlank { null },
+                        temEntrega    = form.temEntrega,
+                        destaque      = form.destaque,
+                    )
                     scope.launch {
                         try {
-                            val ok = editarItemEstudio(editando.id, dados)
+                            val ok = editarItemEstudio(editando.id, request)
                             if (ok) {
                                 itens = itens.map { i ->
                                     if (i.id == editando.id) i.copy(

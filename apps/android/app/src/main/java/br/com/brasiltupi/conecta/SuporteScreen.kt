@@ -1,5 +1,6 @@
 package br.com.brasiltupi.conecta
 
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -37,7 +38,7 @@ fun SuporteScreen(
     onVoltar:      () -> Unit,
 ) {
     val vm: DisputaViewModel = viewModel(
-        factory = DisputaViewModelFactory(DisputaRepositoryFactory.create())
+        factory = DisputaViewModelFactory(DisputaRepository())
     )
 
     val listaState by vm.listaState.collectAsState()

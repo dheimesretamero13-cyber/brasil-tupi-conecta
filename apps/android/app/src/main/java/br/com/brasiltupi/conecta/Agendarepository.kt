@@ -18,8 +18,8 @@ package br.com.brasiltupi.conecta
 //  • RLS do Supabase garante que cliente só vê slots is_booked = false
 // ═══════════════════════════════════════════════════════════════════════════
 
-import android.util.Log
-import io.ktor.client.engine.android.*
+
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
@@ -28,6 +28,7 @@ import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 
 // ── Configuração extraída do BuildConfig (sem hardcode) ──────────────────
 private val REPO_URL = BuildConfig.SUPABASE_URL
@@ -41,6 +42,10 @@ private val WS_URL = REPO_URL
 private const val TAG = "AgendaRepository"
 
 private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
+// Instrumentação Crashlytics
+private var contagemReconexoes = 0
+private var ultimoTimestampConexaoEstavel: Long? = null
+private var ultimaQuedaTimestamp: Long? = null
 
 // ═══════════════════════════════════════════════════════════════════════════
 // REPOSITÓRIO
@@ -167,7 +172,7 @@ object AgendaRepository {
                 }
 
                 val corpo = response.bodyAsText().trim().removeSurrounding("\"")
-                Log.d(TAG, "RPC validar_e_criar_slot → $corpo")
+                AppLogger.info(TAG, "RPC validar_e_criar_slot → $corpo")
 
                 val resultado = when (corpo) {
                     "ok" -> {
@@ -334,7 +339,7 @@ object AgendaRepository {
                 }
 
                 val corpo = response.bodyAsText().trim().removeSurrounding("\"")
-                Log.d(TAG, "RPC reservar_slot → $corpo")
+                AppLogger.info(TAG, "RPC reservar_slot → $corpo")
 
                 val resultado = when (corpo) {
                     "ok" -> {
@@ -405,7 +410,7 @@ object AgendaRepository {
         topico:      String,
         aoAtualizar: suspend () -> Unit,
     ) {
-        val wsClient = io.ktor.client.HttpClient(Android) {
+        val wsClient = io.ktor.client.HttpClient(OkHttp) {
             install(WebSockets) { pingInterval = 25_000L }
         }
 
@@ -422,6 +427,17 @@ object AgendaRepository {
                     tentativa = 0
                     send(Frame.Text(buildJoinAvailability(topico, filtro)))
                     AppLogger.info(TAG, "Realtime availability conectado: $topico")
+                    // Registra recuperação da última queda
+                    ultimaQuedaTimestamp?.let { quedaMs ->
+                        val tempoAteRestabelecer = System.currentTimeMillis() - quedaMs
+                        AppLogger.chave("agenda_tempo_recuperacao_ms", tempoAteRestabelecer.toString())
+                        FirebaseCrashlytics.getInstance().log("Agenda Realtime restabelecida após ${tempoAteRestabelecer}ms")
+                        ultimaQuedaTimestamp = null
+                    }
+                    if (contagemReconexoes > 0) {
+                        AppLogger.chave("agenda_total_reconexoes", contagemReconexoes)
+                        contagemReconexoes = 0
+                    }
 
                     for (frame in incoming) {
                         if (frame !is Frame.Text) continue
@@ -439,6 +455,12 @@ object AgendaRepository {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                contagemReconexoes++
+                AppLogger.chave("agenda_reconexoes", contagemReconexoes)
+                if (ultimaQuedaTimestamp == null) {
+                    ultimaQuedaTimestamp = System.currentTimeMillis()
+                    AppLogger.chave("agenda_queda_ms", ultimaQuedaTimestamp!!.toString())
+                }
                 if (tentativa >= 2) {
                     AppLogger.erroRealtime(
                         fase           = "availability_ws_tentativa_${tentativa + 1}",

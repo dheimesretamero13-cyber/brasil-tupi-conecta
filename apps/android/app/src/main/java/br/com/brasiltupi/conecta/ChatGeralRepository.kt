@@ -1,8 +1,8 @@
 package br.com.brasiltupi.conecta
 
-import io.ktor.client.HttpClient          // ← ESSENCIAL para usar HttpClient(Android)
+import io.ktor.client.HttpClient          // ← ESSENCIAL para usar HttpClient(OkHttp)
 import io.ktor.client.call.*
-import io.ktor.client.engine.android.*
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
 import io.ktor.websocket.*
@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
+import br.com.brasiltupi.conecta.createWebSocketClient
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ChatGeralRepository.kt  · (Fase 3.5 - Realtime no chat geral)
@@ -28,6 +29,8 @@ private val WS_URL = LOCAL_URL
     .replace("http://", "ws://") + "/realtime/v1/websocket"
 
 private val jsonChat = Json { ignoreUnknownKeys = true; isLenient = true }
+
+private var wsClient: HttpClient? = null
 
 // ── Modelos ───────────────────────────────────────────────────────────────
 
@@ -111,16 +114,13 @@ class ChatGeralRepository(
     fun iniciarRealtime() {
         wsJob?.cancel()
         wsJob = scope.launch {
-            val wsClient = HttpClient(Android) {
-                install(WebSockets) { pingInterval = 25_000L }
-            }
             val delays = listOf(2_000L, 5_000L, 15_000L, 30_000L)
             var tentativa = 0
-
             while (isActive) {
                 try {
+                    wsClient = createWebSocketClient()
                     val token = currentToken ?: LOCAL_KEY
-                    wsClient.webSocket(
+                    wsClient!!.webSocket(
                         urlString = "$WS_URL?apikey=$LOCAL_KEY&vsn=1.0.0",
                         request = { header("Authorization", "Bearer $token") },
                     ) {
@@ -138,15 +138,15 @@ class ChatGeralRepository(
                     throw e
                 } catch (e: Exception) {
                     _statusConexao.value = false
-                    if (tentativa >= 2)
-                        AppLogger.erroRealtime("chat_geral_ws", "$meuId-$outroId", e)
-                    else
-                        AppLogger.aviso("ChatGeral", "Realtime reconectando: ${e.message}")
-                    delay(delays.getOrElse(tentativa) { 30_000L })
+                    AppLogger.erroRealtime("chat_geral_ws", "$meuId-$outroId", e)
+                    val delayMs = delays.getOrElse(tentativa) { 30_000L }
+                    delay(delayMs)
                     tentativa = (tentativa + 1).coerceAtMost(delays.lastIndex)
+                } finally {
+                    wsClient?.close()
+                    wsClient = null
                 }
             }
-            wsClient.close()
         }
     }
 
@@ -211,6 +211,8 @@ class ChatGeralRepository(
 
     fun parar() {
         wsJob?.cancel()
+        wsClient?.close()
+        wsClient = null
         _statusConexao.value = false
         _mensagens.value = emptyList()
     }

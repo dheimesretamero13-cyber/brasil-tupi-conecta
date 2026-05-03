@@ -52,10 +52,7 @@ import kotlinx.coroutines.launch
 
 private const val TAG_SCREEN = "VideoCallScreen"
 
-// ── Publishable API Key do Stream (não é segredo) ────────────────────────
-// Substitua pelo valor real do seu projeto no console do Stream.
-// A chave secreta NUNCA entra no app — fica apenas no backend.
-private const val STREAM_API_KEY = "38awru586kub"
+private val STREAM_API_KEY get() = BuildConfig.STREAM_API_KEY
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TELA PRINCIPAL

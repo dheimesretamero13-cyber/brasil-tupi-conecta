@@ -1,5 +1,6 @@
 package br.com.brasiltupi.conecta
 
+
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import br.com.brasiltupi.conecta.ui.theme.*
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
+import br.com.brasiltupi.conecta.AbaUrgenteCompartilhada
 
 // ── TELA PRINCIPAL ────────────────────────────────────
 @Composable
@@ -51,6 +53,7 @@ fun PerfilProfissionalScreen(
     var isPMPReal       by remember { mutableStateOf(false) }
     var dispUrgenteReal by remember { mutableStateOf(false) }
     var kycStatus       by remember { mutableStateOf("") }
+    var consultasUrgente by remember { mutableStateOf<List<ConsultaProfissional>>(emptyList()) }
     val scope   = rememberCoroutineScope()
     val context = LocalContext.current
 
@@ -81,6 +84,7 @@ fun PerfilProfissionalScreen(
             try {
                 val docs = buscarKycDocumentos(userId)
                 kycStatus = docs.firstOrNull()?.status ?: "not_submitted"
+                consultasUrgente = buscarConsultasProfissional(userId)
             } catch (_: Exception) { }
         } finally {
             carregando = false
@@ -360,9 +364,14 @@ fun PerfilProfissionalScreen(
                 userId          = userId,
                 onContaExcluida = onContaExcluida,
             )
-            "urgente" -> AbaUrgenteProfissional(
+            "urgente" -> AbaUrgenteCompartilhada(
                 disponivelInicial = dispUrgenteReal,
                 userId            = userId,
+                consultas         = consultasUrgente,
+                kycAprovado       = null,
+                onKyc             = null,
+                mostrarGuiaChamada = false,
+                modifier          = Modifier.fillMaxSize()
             )
         }
     }

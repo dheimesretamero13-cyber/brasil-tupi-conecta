@@ -24,7 +24,6 @@ import br.com.brasiltupi.conecta.ui.theme.*
 
 // ProfissionalPMP é declarado em SupabaseClient.kt — não redeclarar aqui.
 
-val profissionaisMock = emptyList<ProfissionalPMP>()
 
 // ── TELA PRINCIPAL ────────────────────────────────────
 @Composable

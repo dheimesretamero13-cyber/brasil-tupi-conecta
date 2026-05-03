@@ -26,7 +26,7 @@ package br.com.brasiltupi.conecta
 //  sequencialmente com tratamento individual de erro (modo degradado).
 // ═══════════════════════════════════════════════════════════════════════════
 
-import android.util.Log
+
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -175,7 +175,7 @@ object AvaliacaoRepository {
             }
 
             val corpo = response.bodyAsText().trim()
-            Log.d(TAG, "RPC finalizar_urgencia HTTP ${response.status.value}: $corpo")
+            AppLogger.info(TAG, "RPC finalizar_urgencia HTTP ${response.status.value}: $corpo")
 
             when (response.status.value) {
                 200 -> {

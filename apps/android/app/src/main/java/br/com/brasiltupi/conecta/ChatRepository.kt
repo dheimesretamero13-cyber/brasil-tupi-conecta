@@ -11,15 +11,17 @@ package br.com.brasiltupi.conecta
 // ═══════════════════════════════════════════════════════════════════════════
 
 import io.ktor.client.call.*
-import io.ktor.client.engine.android.*
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
+import io.ktor.client.HttpClient
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
+import br.com.brasiltupi.conecta.createWebSocketClient
 
 // ── Configuração via BuildConfig ───────────────────────────────────────
 private val LOCAL_URL = BuildConfig.SUPABASE_URL
@@ -60,21 +62,23 @@ class ChatRepository {
     private val _statusConexao = MutableStateFlow(false)
     val statusConexao: StateFlow<Boolean> = _statusConexao.asStateFlow()
 
-    private val scope  = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var wsJob: Job? = null
+
+    private var wsClient: HttpClient? = null
 
     // ── 1. BUSCAR HISTÓRICO ───────────────────────────────────────────────
     suspend fun buscarHistorico(sessionId: String) {
         val token = currentToken ?: LOCAL_KEY
         try {
             val lista = httpClient.get("$LOCAL_URL/rest/v1/chats") {
-                header("apikey",        LOCAL_KEY)
+                header("apikey", LOCAL_KEY)
                 header("Authorization", "Bearer $token")
-                header("Accept",        "application/json")
+                header("Accept", "application/json")
                 parameter("session_id", "eq.$sessionId")
-                parameter("select",     "id,session_id,remetente_id,texto,criado_em")
-                parameter("order",      "criado_em.asc")
-                parameter("limit",      "100")
+                parameter("select", "id,session_id,remetente_id,texto,criado_em")
+                parameter("order", "criado_em.asc")
+                parameter("limit", "100")
             }.body<List<MensagemChat>>()
             _mensagens.value = lista
         } catch (e: Exception) {
@@ -85,18 +89,20 @@ class ChatRepository {
     // ── 2. ENVIAR MENSAGEM ────────────────────────────────────────────────
     suspend fun enviar(sessionId: String, texto: String): Boolean {
         val remetenteId = currentUserId ?: return false
-        val token       = currentToken  ?: LOCAL_KEY
+        val token = currentToken ?: LOCAL_KEY
         return try {
             val response = httpClient.post("$LOCAL_URL/rest/v1/chats") {
-                header("apikey",        LOCAL_KEY)
+                header("apikey", LOCAL_KEY)
                 header("Authorization", "Bearer $token")
-                header("Content-Type",  "application/json")
-                header("Prefer",        "return=minimal")
-                setBody(EnviarMensagemChatRequest(
-                    sessionId   = sessionId,
-                    remetenteId = remetenteId,
-                    texto       = texto,
-                ))
+                header("Content-Type", "application/json")
+                header("Prefer", "return=minimal")
+                setBody(
+                    EnviarMensagemChatRequest(
+                        sessionId = sessionId,
+                        remetenteId = remetenteId,
+                        texto = texto,
+                    )
+                )
             }
             response.status.value in 200..299
         } catch (e: Exception) {
@@ -109,18 +115,16 @@ class ChatRepository {
     fun iniciarRealtime(sessionId: String) {
         wsJob?.cancel()
         wsJob = scope.launch {
-            val wsClient = io.ktor.client.HttpClient(Android) {
-                install(WebSockets) { pingInterval = 25_000L }
-            }
-            val delays    = listOf(2_000L, 5_000L, 15_000L, 30_000L)
+            val delays = listOf(2_000L, 5_000L, 15_000L, 30_000L)
             var tentativa = 0
-
-            while (currentCoroutineContext().isActive) {
+            while (isActive) {
                 try {
+                    // Cria o cliente WebSocket via factory centralizada
+                    wsClient = createWebSocketClient()
                     val token = currentToken ?: LOCAL_KEY
-                    wsClient.webSocket(
+                    wsClient!!.webSocket(
                         urlString = "$WS_URL_CHAT?apikey=$LOCAL_KEY&vsn=1.0.0",
-                        request   = { header("Authorization", "Bearer $token") },
+                        request = { header("Authorization", "Bearer $token") },
                     ) {
                         tentativa = 0
                         _statusConexao.value = true
@@ -140,15 +144,18 @@ class ChatRepository {
                     val delayMs = delays.getOrElse(tentativa) { 30_000L }
                     delay(delayMs)
                     tentativa = (tentativa + 1).coerceAtMost(delays.lastIndex)
+                } finally {
+                    // Garante o fechamento do cliente a cada tentativa (sucesso ou falha)
+                    wsClient?.close()
+                    wsClient = null
                 }
             }
-            wsClient.close()
         }
     }
 
     private fun processarFrame(texto: String, sessionId: String) {
         try {
-            val obj   = jsonChat.parseToJsonElement(texto).jsonObject
+            val obj = jsonChat.parseToJsonElement(texto).jsonObject
             val event = obj["event"]?.jsonPrimitive?.content ?: return
             if (event != "postgres_changes") return
 
@@ -157,11 +164,11 @@ class ChatRepository {
                 ?.get("record")?.jsonObject ?: return
 
             val msg = MensagemChat(
-                id          = record["id"]?.jsonPrimitive?.content ?: return,
-                sessionId   = record["session_id"]?.jsonPrimitive?.content ?: return,
+                id = record["id"]?.jsonPrimitive?.content ?: return,
+                sessionId = record["session_id"]?.jsonPrimitive?.content ?: return,
                 remetenteId = record["remetente_id"]?.jsonPrimitive?.content ?: return,
-                texto       = record["texto"]?.jsonPrimitive?.content ?: return,
-                criadoEm    = record["criado_em"]?.jsonPrimitive?.content ?: "",
+                texto = record["texto"]?.jsonPrimitive?.content ?: return,
+                criadoEm = record["criado_em"]?.jsonPrimitive?.content ?: "",
             )
 
             // Evitar duplicatas (pode chegar do Realtime após optimistic update)
@@ -182,9 +189,9 @@ class ChatRepository {
                     putJsonObject("broadcast") { put("self", false) }
                     putJsonArray("postgres_changes") {
                         addJsonObject {
-                            put("event",  "INSERT")
+                            put("event", "INSERT")
                             put("schema", "public")
-                            put("table",  "chats")
+                            put("table", "chats")
                             put("filter", "session_id=eq.$sessionId")
                         }
                     }
@@ -204,11 +211,13 @@ class ChatRepository {
 
     fun parar() {
         wsJob?.cancel()
+        wsClient?.close()
+        wsClient = null
         _statusConexao.value = false
         _mensagens.value = emptyList()
     }
-}
 
-object ChatRepositoryFactory {
-    fun create(): ChatRepository = ChatRepository()
+    object ChatRepositoryFactory {
+        fun create(): ChatRepository = ChatRepository()
+    }
 }

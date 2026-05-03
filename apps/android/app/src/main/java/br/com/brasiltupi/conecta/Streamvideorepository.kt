@@ -21,7 +21,7 @@ package br.com.brasiltupi.conecta
 //  do backend (Edge Function), que valida ownership e status antes de gerar.
 // ═══════════════════════════════════════════════════════════════════════════
 
-import android.util.Log
+
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -102,7 +102,7 @@ object StreamVideoRepository {
                 }
 
                 val corpo = response.bodyAsText()
-                Log.d(TAG, "Edge Function HTTP ${response.status.value}")
+                AppLogger.info(TAG, "Edge Function HTTP ${response.status.value}")
 
                 when (response.status.value) {
                     200 -> {

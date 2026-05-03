@@ -32,10 +32,8 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
-    // Referência ao ViewModel de onboarding — necessária para onResume
-    // poder gravar o timestamp sem depender do escopo Compose.
-    // Lazy: inicializado apenas quando o Compose sobe e passa a referência.
     private var onboardingVmRef: OnboardingViewModel? = null
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,11 +45,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ── Fase 5: gravação do timestamp aqui garante persistência mesmo em ──
-    // process kill. O LaunchedEffect do Compose pode não terminar se o SO
-    // matar o processo antes do DataStore.edit() completar.
-    // onResume é chamado sempre que o app volta ao foreground — seguro e
-    // confiável independente do estado do Compose.
     override fun onResume() {
         super.onResume()
         onboardingVmRef?.let { vm ->
@@ -68,10 +61,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// APP NAVIGATION
-// ═════════════════════════════════════════════════════════════════════════════
-
 @Composable
 fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
     val context = LocalContext.current
@@ -79,16 +68,11 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
         factory = OnboardingViewModelFactory(context.onboardingDataStore)
     )
     val navState by onboardingVm.navState.collectAsState()
+    val scope = rememberCoroutineScope()
 
-    // Expõe o ViewModel para a Activity logo que o Composable sobe.
-    // A Activity usa a referência em onResume() para salvar o timestamp.
     LaunchedEffect(onboardingVm) { onVmReady(onboardingVm) }
 
-    // ── Estado de navegação ───────────────────────────────────────────────
     var tela                      by remember { mutableStateOf("") }
-    // Garante que a verificação LGPD só dispara UMA vez por sessão de composição.
-    // Sem este flag, process-death + recriação do Compose executa o LaunchedEffect
-    // novamente com tela="" e pode cair em legal-onboarding mesmo quem já aceitou.
     var lgpdVerificada            by remember { mutableStateOf(false) }
     var estudioProfId             by remember { mutableStateOf("") }
     var chatOutroId               by remember { mutableStateOf("") }
@@ -96,36 +80,27 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
     var chatDestino               by remember { mutableStateOf("dashboard-cliente") }
     var urgenciaIdAtiva           by remember { mutableStateOf("") }
     var urgenciaIdPagamento       by remember { mutableStateOf("") }
-    // Fase 3.1 — Player
     var aulaIdAtiva               by remember { mutableStateOf("") }
     var cursoIdAtivo              by remember { mutableStateOf("") }
     var tituloAulaAtiva           by remember { mutableStateOf("") }
-    // Fase 3.2 — PDF
     var produtoIdAtivo            by remember { mutableStateOf("") }
     var tituloProdutoAtivo        by remember { mutableStateOf("") }
     var allowScreenshotAtivo      by remember { mutableStateOf(true) }
-    // Fase 3.3 — Biblioteca
     var bibliotecaProdutoId       by remember { mutableStateOf("") }
     var bibliotecaTitulo          by remember { mutableStateOf("") }
     var bibliotecaAllowScreenshot by remember { mutableStateOf(true) }
-    // Fase 3.4 — Busca
     var searchItemSelecionado     by remember { mutableStateOf<ResultadoBusca?>(null) }
-    // Fase 3.5 — Chat pré-chamada
     var chatSessionId             by remember { mutableStateOf("") }
     var chatOutroNomePre          by remember { mutableStateOf("") }
-    // Fase 4.2 — Referral
     var suporteAgendamentoId      by remember { mutableStateOf<String?>(null) }
-    // Fase 4.3 — Suporte e disputas
-    // Atendimentos Regulares
     var agendamentoProfId              by remember { mutableStateOf("") }
     var agendamentoProfNome            by remember { mutableStateOf("") }
     var agendamentoRegularIdPagamento  by remember { mutableStateOf("") }
-    // Fase 1 — LGPD: dashboard destino após consentimento gravado
     var destinoAposLegal          by remember { mutableStateOf("") }
-    // Módulo 5 — KYC: cache do status do profissional para guards de navegação
     var kycAprovadoProf           by remember { mutableStateOf(false) }
 
-    // ── Deep link FCM ─────────────────────────────────────────────────────
+
+
     val activity = context as? android.app.Activity
     LaunchedEffect(Unit) {
         val intent        = activity?.intent ?: return@LaunchedEffect
@@ -153,19 +128,17 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
         intent.removeExtra("fcm_tela")
     }
 
-    // ── Resolver startDestination via DataStore ───────────────────────────
     LaunchedEffect(navState) {
         if (tela.isNotEmpty()) return@LaunchedEffect
         when (navState) {
-            is OnboardingNavState.Carregando        -> Unit
+            is OnboardingNavState.Carregando -> Unit
 
             is OnboardingNavState.MostrarOnboarding -> {
                 AnalyticsTracker.appInstall()
                 tela = "onboarding"
             }
 
-            is OnboardingNavState.IrParaCliente     -> {
-                // Fase 4.5 — Retenção
+            is OnboardingNavState.IrParaCliente -> {
                 val agora       = System.currentTimeMillis()
                 val ultimoAces  = onboardingVm.ultimoAcesso()
                 val diasAusente = if (ultimoAces > 0L) (agora - ultimoAces) / 86_400_000L else 0L
@@ -174,7 +147,6 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
                     diasAusente >= 30 -> AnalyticsTracker.retention30d("cliente")
                     diasAusente >= 7  -> AnalyticsTracker.retention7d("cliente")
                 }
-                // Fase 5: gravação do timestamp movida para MainActivity.onResume()
 
                 val pendenteAvaliacao = AvaliacaoRepository.verificarPendencia()
                 if (pendenteAvaliacao != null) {
@@ -189,30 +161,39 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
                     return@LaunchedEffect
                 }
 
-                // Fase 1 — LGPD: só executa UMA vez por sessão (lgpdVerificada).
-                // Sem esse guard, process-death recria tela="" e re-executa esse bloco,
-                // podendo exibir legal-onboarding para quem já aceitou.
-                if (lgpdVerificada) {
-                    if (tela.isEmpty()) tela = "dashboard-cliente"
-                    return@LaunchedEffect
-                }
-                lgpdVerificada = true
-                val uid = currentUserId
-                if (uid.isNullOrEmpty()) {
-                    tela = "welcome"
-                    return@LaunchedEffect
-                }
-                val jaAceitou = verificarConsentimentoExiste(uid)
-                if (!jaAceitou) {
-                    destinoAposLegal = "dashboard-cliente"
-                    tela = "legal-onboarding"
+                if (!lgpdVerificada) {
+                    lgpdVerificada = true
+                    val uid = currentUserId
+                    if (uid.isNullOrEmpty()) {
+                        tela = "welcome"
+                        return@LaunchedEffect
+                    }
+
+                    // Cache local: se já aceitou, pula a tela
+                    if (onboardingVm.consentimentoExisteLocal()) {
+                        tela = "dashboard-cliente"
+                        return@LaunchedEffect
+                    }
+
+                    // Caso contrário, verifica no Supabase e, enquanto
+                    // aguarda, já mostra a tela de consentimento. O retorno
+                    // da verificação será usado na tela.
+                    val jaAceitou = verificarConsentimentoExiste(uid)
+                    if (!jaAceitou) {
+                        destinoAposLegal = "dashboard-cliente"
+                        tela = "legal-onboarding"
+                    } else {
+                        // Se o Supabase confirmar que já existe, salva
+                        // localmente e vai direto para o dashboard.
+                        onboardingVm.salvarConsentimentoLocal(true)
+                        tela = "dashboard-cliente"
+                    }
                 } else {
-                    tela = "dashboard-cliente"
+                    if (tela.isEmpty()) tela = "dashboard-cliente"
                 }
             }
 
             is OnboardingNavState.IrParaProfissional -> {
-                // Fase 4.5 — Retenção
                 val agora       = System.currentTimeMillis()
                 val ultimoAces  = onboardingVm.ultimoAcesso()
                 val diasAusente = if (ultimoAces > 0L) (agora - ultimoAces) / 86_400_000L else 0L
@@ -221,7 +202,6 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
                     diasAusente >= 30 -> AnalyticsTracker.retention30d("profissional")
                     diasAusente >= 7  -> AnalyticsTracker.retention7d("profissional")
                 }
-                // Fase 5: gravação do timestamp movida para MainActivity.onResume()
 
                 BrasilTupiMessagingService.registrarTokenSeLogado(this, context)
 
@@ -232,32 +212,36 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
                     return@LaunchedEffect
                 }
 
-                // Fase 1 — LGPD: só executa UMA vez por sessão (lgpdVerificada).
-                if (lgpdVerificada) {
-                    if (tela.isEmpty()) tela = "dashboard-profissional"
-                    return@LaunchedEffect
-                }
-                lgpdVerificada = true
-                val uidProf = currentUserId
-                if (uidProf.isNullOrEmpty()) {
-                    tela = "welcome"
-                    return@LaunchedEffect
-                }
-                val jaAceitouProf = verificarConsentimentoExiste(uidProf)
-                // Módulo 5 — pré-carregar KYC para guards de navegação
-                kycAprovadoProf = verificarKycAprovado(uidProf)
-                if (!jaAceitouProf) {
-                    destinoAposLegal = "dashboard-profissional"
-                    tela = "legal-onboarding"
+                if (!lgpdVerificada) {
+                    lgpdVerificada = true
+                    val uidProf = currentUserId
+                    if (uidProf.isNullOrEmpty()) {
+                        tela = "welcome"
+                        return@LaunchedEffect
+                    }
+
+                    if (onboardingVm.consentimentoExisteLocal()) {
+                        tela = "dashboard-profissional"
+                        return@LaunchedEffect
+                    }
+
+                    val jaAceitouProf = verificarConsentimentoExiste(uidProf)
+                    kycAprovadoProf = verificarKycAprovado(uidProf)
+                    if (!jaAceitouProf) {
+                        destinoAposLegal = "dashboard-profissional"
+                        tela = "legal-onboarding"
+                    } else {
+                        onboardingVm.salvarConsentimentoLocal(true)
+                        UrgenciasRealtimeManager.iniciar(profissionalId = uidProf, especialidade = null)
+                        tela = "dashboard-profissional"
+                    }
                 } else {
-                    UrgenciasRealtimeManager.iniciar(profissionalId = uidProf, especialidade = null)
-                    tela = "dashboard-profissional"
+                    if (tela.isEmpty()) tela = "dashboard-profissional"
                 }
             }
         }
     }
 
-    // ── Loading ───────────────────────────────────────────────────────────
     if (tela.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = Verde)
@@ -265,25 +249,26 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
         return
     }
 
-    // ── Roteador principal ────────────────────────────────────────────────
     when (tela) {
-
-        // ── FASE 1 — LGPD ─────────────────────────────────────────────────
-        // Exibida APÓS login — userId e currentToken sempre preenchidos aqui.
-        "legal-onboarding" -> LegalOnboardingScreen(
-            userId                   = currentUserId ?: "",
-            onConsentimentoConcluido = {
-                val destino = destinoAposLegal.ifEmpty { "welcome" }
-                if (destino == "dashboard-profissional") {
-                    currentUserId?.let { uid ->
-                        UrgenciasRealtimeManager.iniciar(profissionalId = uid, especialidade = null)
+        "legal-onboarding" -> {
+            LegalOnboardingScreen(
+                userId                   = currentUserId ?: "",
+                onConsentimentoConcluido = {
+                    val destino = destinoAposLegal.ifEmpty { "welcome" }
+                    if (destino == "dashboard-profissional") {
+                        currentUserId?.let { uid ->
+                            UrgenciasRealtimeManager.iniciar(profissionalId = uid, especialidade = null)
+                        }
                     }
-                }
-                tela = destino
-            },
-            onVerTermos   = { tela = "termos-uso" },
-            onVerPolitica = { tela = "politica-privacidade" },
-        )
+                    tela = destino
+                },
+                onVerTermos   = { tela = "termos-uso" },
+                onVerPolitica = { tela = "politica-privacidade" },
+                onConsentimentoSalvo = {
+                    onboardingVm.gravarConsentimentoLocal()
+                },
+            )
+        }
 
         "termos-uso" -> TermosUsoScreen(
             onVoltar = { tela = "legal-onboarding" },
@@ -293,7 +278,6 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             onVoltar = { tela = "legal-onboarding" },
         )
 
-        // ── FASE 1 — KYC ──────────────────────────────────────────────────
         "kyc-upload" -> KycUploadScreen(
             userId            = currentUserId ?: "",
             onUploadConcluido = { tela = "kyc-status" },
@@ -306,8 +290,6 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             onVoltar          = { tela = "perfil-profissional" },
         )
 
-        // ── ONBOARDING ────────────────────────────────────────────────────
-        // Vai direto para welcome — LGPD só é exibida após login no LaunchedEffect acima.
         "onboarding" -> OnboardingScreen(
             onIrParaCliente      = {
                 onboardingVm.selecionarCliente()
@@ -319,21 +301,18 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             },
         )
 
-        // ── CHAT GERAL (tabela mensagens) ─────────────────────────────────
         "chat" -> ChatScreen(
             outroId   = chatOutroId,
             outroNome = chatOutroNome,
             onVoltar  = { tela = chatDestino },
         )
 
-        // ── VIDEOCHAMADA ──────────────────────────────────────────────────
         "sala-chamada" -> VideoCallScreen(
             urgenciaId  = urgenciaIdAtiva,
             onEncerrada = { tela = "avaliacao" },
             onVoltar    = { tela = "dashboard-profissional" },
         )
 
-        // ── AVALIAÇÃO ─────────────────────────────────────────────────────
         "avaliacao" -> AvaliacaoScreen(
             urgenciaId    = urgenciaIdAtiva,
             onConcluida   = {
@@ -343,14 +322,12 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             onPularForced = { tela = "dashboard-cliente" },
         )
 
-        // ── PAGAMENTO ─────────────────────────────────────────────────────
         "pagamento" -> PagamentoScreen(
             urgenciaId   = urgenciaIdPagamento,
             onConfirmado = { tela = "dashboard-cliente" },
             onVoltar     = { tela = "dashboard-cliente" },
         )
 
-        // ── AUTH ──────────────────────────────────────────────────────────
         "welcome" -> WelcomeScreen(
             onEntrar   = { tela = "login" },
             onCadastro = { tela = "cadastro" },
@@ -406,7 +383,6 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             onPular     = { tela = "dashboard-profissional" },
         )
 
-        // ── DASHBOARDS ────────────────────────────────────────────────────
         "dashboard-profissional" -> DashboardProfissionalComRealtime(
             onSair           = { UrgenciasRealtimeManager.parar(); tela = "welcome" },
             onEstudio        = { tela = "estudio-dashboard" },
@@ -419,6 +395,10 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
                 StreamVideoRepository.solicitarToken(urgenciaId)
                 tela = "sala-chamada"
             },
+            onDisputa  = { tela = "disputas" },
+            onReferral = { tela = "referral-profissional" },
+            onKycStatusChanged = { novoStatus -> kycAprovadoProf = novoStatus }
+
         )
 
         "dashboard-cliente" -> DashboardClienteScreen(
@@ -443,7 +423,6 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             onBiblioteca = { tela = "biblioteca" },
         )
 
-        // ── PERFIS ────────────────────────────────────────────────────────
         "perfil-profissional" -> PerfilProfissionalScreen(
             onVoltar        = { tela = "dashboard-profissional" },
             userId          = currentUserId ?: "",
@@ -457,7 +436,6 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             onReferral = { tela = "referral" },
         )
 
-        // ── ATENDIMENTOS REGULARES ────────────────────────────────────────
         "modalidades" -> ModalidadesScreen(
             userId   = currentUserId ?: "",
             onVoltar = { tela = "dashboard-profissional" },
@@ -481,14 +459,12 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             onVoltar     = { tela = "dashboard-cliente" },
         )
 
-        // ── BUSCA DE PROFISSIONAIS ─────────────────────────────────────────
         "busca" -> BuscaScreen(
             onVoltar  = { tela = "welcome" },
             onEstudio = { profId -> estudioProfId = profId; tela = "estudio-vitrine" },
             onPagar   = { tela = "pagamento" },
         )
 
-        // ── ESTÚDIO ───────────────────────────────────────────────────────
         "estudio-dashboard" -> EstudioDashboardScreen(
             userId      = currentUserId ?: "",
             onVoltar    = { tela = "dashboard-profissional" },
@@ -505,7 +481,6 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             onVoltar       = { tela = "busca" },
         )
 
-        // ── FASE 3.1 — PLAYER DE VÍDEO ────────────────────────────────────
         "player-video" -> VideoPlayerScreen(
             aulaId     = aulaIdAtiva,
             cursoId    = cursoIdAtivo,
@@ -514,7 +489,6 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             onVoltar   = { tela = "estudio-vitrine" },
         )
 
-        // ── FASE 3.2 — VISUALIZADOR DE PDF ───────────────────────────────
         "pdf-viewer" -> PdfViewerScreen(
             produtoId       = produtoIdAtivo,
             tituloProduto   = tituloProdutoAtivo,
@@ -523,7 +497,6 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             onVoltar        = { tela = "biblioteca" },
         )
 
-        // ── FASE 3.3 — BIBLIOTECA DO CLIENTE ─────────────────────────────
         "biblioteca" -> BibliotecaScreen(
             onVoltar     = { tela = "dashboard-cliente" },
             onAbrirCurso = { produtoId, titulo ->
@@ -539,7 +512,6 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             },
         )
 
-        // ── FASE 3.4 — BUSCA DE CONTEÚDO ─────────────────────────────────
         "busca-conteudo" -> SearchScreen(
             onVoltar    = { tela = "dashboard-cliente" },
             onAbrirItem = { item ->
@@ -556,38 +528,37 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             )
         }
 
-        // ── FASE 3.5 — CHAT PRÉ-CHAMADA ──────────────────────────────────
         "chat-pre-chamada" -> ChatPreChamadaScreen(
             sessionId = chatSessionId,
             outroNome = chatOutroNomePre,
             onVoltar  = { tela = "dashboard-cliente" },
         )
 
-        // ── FASE 4.2 — PROGRAMA DE INDICAÇÃO ─────────────────────────────
         "referral" -> ReferralScreen(
             onVoltar = { tela = "perfil-cliente" },
         )
 
-        // ── FASE 4.3 — SUPORTE E DISPUTAS ────────────────────────────────
         "suporte" -> SuporteScreen(
             agendamentoId = suporteAgendamentoId,
             onVoltar      = { tela = "dashboard-cliente" },
         )
 
-        // ── FASE 4.4 — RELATÓRIOS AVANÇADOS ──────────────────────────────
         "relatorios" -> RelatoriosProfissionalScreen(
+            onVoltar = { tela = "dashboard-profissional" },
+        )
+        "disputas" -> SuporteScreen(
+            agendamentoId = null,
+            onVoltar      = { tela = "dashboard-profissional" },
+        )
+
+        "referral-profissional" -> ReferralScreen(
             onVoltar = { tela = "dashboard-profissional" },
         )
     }
 }
 
-// ── Wrapper suspend para verificar pagamento pendente ────────────────────
 private suspend fun verificarPagamentoPendente(): String? =
     PagamentoRepository.verificarPendencia()
-
-// ═════════════════════════════════════════════════════════════════════════════
-// DASHBOARD PROFISSIONAL COM REALTIME  · v2
-// ═════════════════════════════════════════════════════════════════════════════
 
 @Composable
 fun DashboardProfissionalComRealtime(
@@ -598,6 +569,9 @@ fun DashboardProfissionalComRealtime(
     onModalidades:    () -> Unit = {},
     onKyc:            () -> Unit = {},
     onIniciarChamada: (urgenciaId: String) -> Unit = {},
+    onReferral: () -> Unit = {},
+    onDisputa: () -> Unit = {},
+    onKycStatusChanged: ((Boolean) -> Unit)? = null,
 ) {
     var urgenciaAtiva           by remember { mutableStateOf<Urgencia?>(null) }
     var feedbackMsg             by remember { mutableStateOf("") }
@@ -666,6 +640,9 @@ fun DashboardProfissionalComRealtime(
             onRelatorios  = onRelatorios,
             onModalidades = onModalidades,
             onKyc         = onKyc,
+            onReferral = onReferral,
+            onDisputa  = onDisputa,
+            onKycStatusChanged = onKycStatusChanged,
         )
         when (statusRealtime) {
             StatusRealtime.INSTAVEL -> BannerRealtimeInstavel(offline = false)
@@ -727,10 +704,6 @@ fun DashboardProfissionalComRealtime(
         )
     }
 }
-
-// ═════════════════════════════════════════════════════════════════════════════
-// MODAL DE URGÊNCIA
-// ═════════════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun AlertDialogUrgencia(
@@ -794,10 +767,6 @@ private fun AlertDialogUrgencia(
         },
     )
 }
-
-// ═════════════════════════════════════════════════════════════════════════════
-// BANNER DE STATUS DO REALTIME
-// ═════════════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun BannerRealtimeInstavel(offline: Boolean) {

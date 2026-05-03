@@ -8,16 +8,16 @@ package br.com.brasiltupi.conecta
 // Em debug:    imprime no Logcat (Crashlytics desabilitado por padrão em debug).
 //
 // USO:
-//   AppLogger.erro("TAG", "mensagem", exception)          // erro com exceção
-//   AppLogger.erro("TAG", "mensagem")                     // erro sem exceção
+//   Log.erro("TAG", "mensagem", exception)          // erro com exceção
+//   Log.erro("TAG", "mensagem")                     // erro sem exceção
 //   AppLogger.aviso("TAG", "mensagem")                    // breadcrumb de aviso
 //   AppLogger.chave("user_id", currentUserId ?: "anon")   // contexto do usuário
 //
 // PONTOS INSTRUMENTADOS:
-//   • Falhas de rede Ktor            → AppLogger.erroRede()
-//   • Falhas na RPC accept_urgencia  → AppLogger.erroRpc()
-//   • Falhas no UrgenciasRealtime    → AppLogger.erroRealtime()
-//   • Falhas de auth / token         → AppLogger.erroAuth()
+//   • Falhas de rede Ktor            → Log.eRede()
+//   • Falhas na RPC accept_urgencia  → Log.eRpc()
+//   • Falhas no UrgenciasRealtime    → Log.eRealtime()
+//   • Falhas de auth / token         → Log.eAuth()
 // ═══════════════════════════════════════════════════════════════════════════
 
 import android.util.Log

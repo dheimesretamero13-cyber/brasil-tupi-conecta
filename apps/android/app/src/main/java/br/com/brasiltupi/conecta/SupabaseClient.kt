@@ -1,18 +1,24 @@
 package br.com.brasiltupi.conecta
 
+import android.content.Context
+import android.net.Uri
 import br.com.brasiltupi.conecta.BuildConfig
 import io.ktor.client.*
 import io.ktor.client.call.*
-import io.ktor.client.engine.android.*
+import io.ktor.client.engine.okhttp.*
 import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.plugins.logging.*
+import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
+import io.ktor.http.ContentType
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
+import kotlinx.serialization.json.*          // ← ESSENCIAL: JsonElement, JsonArray, etc.
+import kotlinx.serialization.encodeToString
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 // ── CONSTANTES (via BuildConfig — nunca hardcoded) ────────────────────
 private val SUPABASE_URL get() = BuildConfig.SUPABASE_URL
@@ -20,8 +26,31 @@ private val SUPABASE_KEY get() = BuildConfig.SUPABASE_KEY
 
 private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-val httpClient = HttpClient(Android) {
-    install(ContentNegotiation) { json(json) }
+// ── HttpClient configurado com OkHttp + WebSockets + Logging ─────────
+val httpClient = HttpClient(OkHttp) {
+    // Configuração do motor OkHttp (timeouts longos para WebSocket e chamadas pesadas)
+    engine {
+        config {
+            connectTimeout(30, TimeUnit.SECONDS)
+            readTimeout(30, TimeUnit.SECONDS)
+            writeTimeout(30, TimeUnit.SECONDS)
+            pingInterval(10, TimeUnit.SECONDS)  // mantém WebSocket ativo
+            retryOnConnectionFailure(true)
+        }
+    }
+    // Plugins essenciais
+    install(ContentNegotiation) {
+        json(json)
+    }
+    install(WebSockets)   // Habilita suporte a WebSocket (Realtime)
+    install(Logging) {
+        level = LogLevel.INFO                     // Altere para BODY se precisar de detalhes
+        logger = object : Logger {
+            override fun log(message: String) {
+                AppLogger.info("KtorClient", message)
+            }
+        }
+    }
 }
 
 // ── Aliases de autenticação (via AuthRepository) ──────────────────────
@@ -36,6 +65,7 @@ sealed class AuthResult {
     object SemInternet       : AuthResult()
     object Desconhecido      : AuthResult()
 }
+
 
 // ── MODELOS ───────────────────────────────────────────────────────────
 @Serializable
@@ -196,7 +226,7 @@ private data class ConsultaSupabase(
     @SerialName("data_agendada") val dataAgendada: String? = null,
     val valor: Int,
     val profissionais: ProfissionalNested? = null,
-    val avaliacoes: List<AvaliacaoNested>? = null,
+    val avaliacoes: JsonElement? = null,
 )
 
 // ── DTO: buscarUltimoCursoEmAndamento ─────────────────────────────────
@@ -293,6 +323,23 @@ private fun ItemEstudioSupabase.toItemEstudio(): ItemEstudio = ItemEstudio(
     linkAcessoDigital = link_acesso_digital,
 )
 
+// ----------------------------------------------------------------------
+// FUNÇÃO CORRETIVA: extrai a nota de um JsonElement (array, objeto, primitivo)
+// ----------------------------------------------------------------------
+private fun JsonElement?.extrairNota(): Int {
+    if (this == null) return 0
+    return when {
+        this is JsonArray && this.isNotEmpty() -> {
+            val primeiro = this[0]
+            if (primeiro is JsonObject) primeiro["nota"]?.jsonPrimitive?.int ?: 0 else 0
+        }
+        this is JsonObject -> this["nota"]?.jsonPrimitive?.int ?: 0
+        this is JsonPrimitive && this.intOrNull != null -> this.int
+        else -> 0
+    }
+}
+// ----------------------------------------------------------------------
+
 // ── REQUEST DTOs ──────────────────────────────────────────────────────
 @Serializable
 private data class CriarItemEstudioRequest(
@@ -308,6 +355,19 @@ private data class CriarItemEstudioRequest(
     val tem_entrega: Boolean = false,
     val destaque: Boolean = false,
     val ativo: Boolean = true,
+)
+@Serializable
+data class EditarItemEstudioRequest(
+    val titulo:         String,
+    val descricao:      String?    = null,
+    val tipo:           String,
+    val preco:          Double,
+    @SerialName("preco_original") val precoOriginal: Double? = null,
+    @SerialName("video_url")      val videoUrl:      String? = null,
+    @SerialName("arquivo_url")    val arquivoUrl:    String? = null,
+    @SerialName("link_externo")   val linkExterno:   String? = null,
+    @SerialName("tem_entrega")    val temEntrega:    Boolean = false,
+    val destaque:       Boolean    = false,
 )
 
 @Serializable
@@ -471,7 +531,13 @@ fun formatarMembroDesde(criadoEm: String?): String {
 
 private fun ConsultaSupabase.toConsultaCliente(): ConsultaCliente {
     val (data, hora) = parseTimestamptz(dataAgendada)
-    val avaliacao    = avaliacoes?.firstOrNull()
+    val avaliacao = avaliacoes?.let { element ->
+        try {
+            json.decodeFromJsonElement<List<AvaliacaoNested>>(element).firstOrNull()
+        } catch (e: Exception) {
+            null
+        }
+    }
     val avaliada     = avaliacao != null
     val nota         = avaliacao?.nota ?: 0
     return ConsultaCliente(
@@ -631,7 +697,7 @@ private data class ConsultaProfissionalSupabase(
     @SerialName("data_agendada") val dataAgendada: String? = null,
     val valor: Int,
     val perfis: PerfilNestedSimples? = null,
-    val avaliacoes: List<AvaliacaoNested>? = null,
+    val avaliacoes: JsonElement? = null,
 )
 
 suspend fun buscarConsultasProfissional(profissionalId: String): List<ConsultaProfissional> {
@@ -641,7 +707,7 @@ suspend fun buscarConsultasProfissional(profissionalId: String): List<ConsultaPr
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Accept", "application/json")
             parameter("profissional_id", "eq.$profissionalId")
-            parameter("select", "id,cliente_id,tipo,status,data_agendada,valor,perfis:cliente_id(nome),avaliacoes(nota)")
+            parameter("select", "id,cliente_id,tipo,status,data_agendada,valor,perfis:cliente_id(nome),avaliacoes:avaliacoes(nota)")
             parameter("order", "data_agendada.desc")
         }.body<List<ConsultaProfissionalSupabase>>().map { c ->
             val (data, hora) = parseTimestamptz(c.dataAgendada)
@@ -655,7 +721,7 @@ suspend fun buscarConsultasProfissional(profissionalId: String): List<ConsultaPr
                 nomeCliente  = c.perfis?.nome ?: "Cliente",
                 data         = data,
                 hora         = hora,
-                avaliacao    = c.avaliacoes?.firstOrNull()?.nota ?: 0,
+                avaliacao    = c.avaliacoes.extrairNota(),   // ← CORREÇÃO APLICADA
             )
         }
     } catch (e: Exception) {
@@ -1086,18 +1152,8 @@ suspend fun verificarAcessoChat(clienteId: String, profissionalId: String): Bool
 
 // ── EDITAR / EXCLUIR ITEM DO ESTÚDIO ─────────────────────────────────
 // ✅ buildJsonObject em vez de buildString com escape manual
-suspend fun editarItemEstudio(itemId: String, novosDados: Map<String, Any>): Boolean {
+suspend fun editarItemEstudio(itemId: String, dados: EditarItemEstudioRequest): Boolean {
     return try {
-        val body = buildJsonObject {
-            novosDados.forEach { (key, value) ->
-                when (value) {
-                    is String  -> put(key, value)
-                    is Boolean -> put(key, value)
-                    is Number  -> put(key, value)
-                    else       -> put(key, value.toString())
-                }
-            }
-        }
         val response = httpClient.patch(
             "$SUPABASE_URL/rest/v1/estudio?id=eq.$itemId&profissional_id=eq.${currentUserId ?: ""}"
         ) {
@@ -1105,7 +1161,7 @@ suspend fun editarItemEstudio(itemId: String, novosDados: Map<String, Any>): Boo
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Content-Type",  "application/json")
             header("Prefer",        "return=minimal")
-            setBody(body.toString())
+            setBody(dados)
         }
         response.status.value in 200..299
     } catch (e: Exception) {
@@ -1307,10 +1363,17 @@ suspend fun criarAssinaturaAndroid(plano: PlanoInfo): Boolean {
 suspend fun gravarConsentimento(
     userId: String, aceitoTermos: Boolean, aceitoPriv: Boolean, versaoTermos: String,
 ): Boolean {
+    if (userId.isEmpty()) return false
+
+    val token = currentToken ?: run {
+        AppLogger.aviso("LGPD", "gravarConsentimento sem token – impossível gravar")
+        return false
+    }
+
     return try {
         val response = httpClient.post("$SUPABASE_URL/rest/v1/user_consents") {
             header("apikey",        SUPABASE_KEY)
-            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Authorization", "Bearer $token")           // ← sempre token real
             header("Content-Type",  "application/json")
             header("Prefer",        "return=minimal")
             setBody(GravarConsentimentoRequest(
@@ -1321,7 +1384,11 @@ suspend fun gravarConsentimento(
                 timestamp_ms       = System.currentTimeMillis(),
             ))
         }
-        response.status.value in 200..299
+        val sucesso = response.status.value in 200..299
+        if (!sucesso) {
+            AppLogger.aviso("LGPD", "gravarConsentimento HTTP ${response.status.value} – body: ${response.bodyAsText()}")
+        }
+        sucesso
     } catch (e: Exception) {
         AppLogger.erroRede("gravarConsentimento", e, "userId=$userId")
         false
@@ -1333,23 +1400,35 @@ private data class ConsentimentoId(val id: String)
 
 suspend fun verificarConsentimentoExiste(userId: String): Boolean {
     if (userId.isEmpty()) return false
+
+    val token = currentToken ?: run {
+        AppLogger.aviso("LGPD", "verificarConsentimentoExiste sem token – retornando false")
+        return false
+    }
+
     return try {
-        val result = httpClient.get("$SUPABASE_URL/rest/v1/user_consents") {
+        val response = httpClient.get("$SUPABASE_URL/rest/v1/user_consents") {
             header("apikey",        SUPABASE_KEY)
-            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Authorization", "Bearer $token")      // ← sempre token do usuário
             header("Accept",        "application/json")
             parameter("user_id",       "eq.$userId")
             parameter("aceito_termos", "eq.true")
             parameter("select",        "id")
             parameter("limit",         "1")
-        }.body<List<ConsentimentoId>>()
-        result.isNotEmpty()
+        }
+
+        if (response.status.value !in 200..299) {
+            AppLogger.aviso("LGPD", "verificarConsentimentoExiste HTTP ${response.status.value}")
+            return false
+        }
+
+        val lista = response.body<List<ConsentimentoId>>()
+        lista.isNotEmpty()
     } catch (e: Exception) {
         AppLogger.erroRede("verificarConsentimentoExiste", e, "userId=$userId")
         false
     }
 }
-
 // ── TERMOS DE URGÊNCIA ────────────────────────────────────────────────
 private const val VERSAO_TERMOS_URGENCIA = "1.0"
 
@@ -1428,24 +1507,36 @@ suspend fun gravarKycDocumento(userId: String, tipo: String, storagePath: String
 
 suspend fun buscarKycDocumentos(userId: String): List<KycDocumento> {
     return try {
-        httpClient.get("$SUPABASE_URL/rest/v1/kyc_documents") {
-            header("apikey",        SUPABASE_KEY)
+        val response = httpClient.get("$SUPABASE_URL/rest/v1/kyc_documents") {
+            header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
-            header("Accept",        "application/json")
+            header("Accept", "application/json")
             parameter("user_id", "eq.$userId")
-            parameter("select",  "id,tipo_documento,status,motivo_rejeicao,criado_em,atualizado_em")
-            parameter("order",   "criado_em.desc")
-        }.body<List<KycDocumento>>()
+            parameter("select", "id,tipo_documento,status,motivo_rejeicao,criado_em,atualizado_em")
+            parameter("order", "criado_em.desc")
+        }
+        AppLogger.info("KYC", "HTTP status: ${response.status.value}")
+        response.body<List<KycDocumento>>()
     } catch (e: Exception) {
-        AppLogger.erroRede("buscarKycDocumentos", e, "userId=$userId")
+        AppLogger.erro("KYC", "Erro em buscarKycDocumentos: ${e.message}")
         emptyList()
     }
 }
 
 suspend fun verificarKycAprovado(userId: String): Boolean {
+    AppLogger.info("KYC", ">>> userId recebido: '$userId'")
+    AppLogger.info("KYC", "Token presente: ${currentToken != null}")
+    AppLogger.info("KYC", "Token preview: ${currentToken?.take(20)}...")
     return try {
-        buscarKycDocumentos(userId).any { it.status == "approved" }
-    } catch (_: Exception) { false }
+        val docs = buscarKycDocumentos(userId)
+        AppLogger.info("KYC", "Documentos encontrados: ${docs.size}")
+        val aprovado = docs.any { it.status == "approved" }
+        AppLogger.info("KYC", "Aprovado: $aprovado")
+        aprovado
+    } catch (e: Exception) {
+        AppLogger.erro("KYC", "Erro ao buscar documentos: ${e.message}")
+        false
+    }
 }
 
 suspend fun uploadKycDocumento(userId: String, tipo: String, bytes: ByteArray, mimeType: String): String? {
@@ -1528,5 +1619,19 @@ suspend fun solicitarReembolsoEstudio(purchaseId: String, motivo: String): Strin
     } catch (e: Exception) {
         AppLogger.erroRede("solicitarReembolsoEstudio", e, "purchaseId=$purchaseId")
         "erro_rede"
+    }
+}
+fun createWebSocketClient(): HttpClient = HttpClient(OkHttp) {
+    engine {
+        config {
+            connectTimeout(30, TimeUnit.SECONDS)
+            readTimeout(0, TimeUnit.SECONDS)    // REQUERIDO para WebSocket persistente
+            writeTimeout(30, TimeUnit.SECONDS)
+            pingInterval(25, TimeUnit.SECONDS)
+            retryOnConnectionFailure(true)
+        }
+    }
+    install(WebSockets) {
+        pingInterval = 25_000L
     }
 }

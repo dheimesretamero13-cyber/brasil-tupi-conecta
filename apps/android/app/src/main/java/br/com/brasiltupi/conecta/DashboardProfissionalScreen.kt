@@ -1,5 +1,6 @@
 package br.com.brasiltupi.conecta
 
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -20,7 +21,8 @@ import br.com.brasiltupi.conecta.ui.theme.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.PaddingValues
-
+import androidx.lifecycle.viewmodel.compose.viewModel
+import br.com.brasiltupi.conecta.AbaUrgenteCompartilhada
 // ── TELA PRINCIPAL ────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,12 +33,10 @@ fun DashboardProfissionalScreen(
     onRelatorios:            (() -> Unit)?                                                       = null,
     onModalidades:           (() -> Unit)?                                                       = null,
     onKyc:                   (() -> Unit)?                                                       = null,
-    onIniciarChamadaRegular: ((consultaId: String, profId: String, clienteId: String) -> Unit)? = null,
-    // ── Fase 4.2: Sistema de Indicações ──────────────
-    onReferral:              (() -> Unit)?                                                       = null,
-    // ── Fase 4.3: Disputas formais ───────────────────
-    onDisputa:               (() -> Unit)?                                                       = null,
-) {
+    onIniciarChamadaRegular: ((consultaId: String) -> Unit)? = null,    onReferral:              (() -> Unit)?                                                       = null,
+    onDisputa:               (() -> Unit)? = null,
+    onKycStatusChanged:      ((Boolean) -> Unit)? = null,
+    ) {
     var abaSelecionada by remember { mutableStateOf("visao") }
     var menuExpandido  by remember { mutableStateOf(false) }
 
@@ -46,15 +46,13 @@ fun DashboardProfissionalScreen(
     var disponivelUrgente by remember { mutableStateOf(false) }
     var consultas         by remember { mutableStateOf<List<ConsultaProfissional>>(emptyList()) }
     var carregando        by remember { mutableStateOf(true) }
+    var isPmp             by remember { mutableStateOf(false) }
     var kycAprovado       by remember { mutableStateOf(false) }
 
-    // ── Fase 4.4: resumo de relatório inline (calculado a partir de consultas) ──
     var resumoSemanas   by remember { mutableIntStateOf(0) }
     var resumoGanhoMes  by remember { mutableDoubleStateOf(0.0) }
     var resumoNotaMedia by remember { mutableDoubleStateOf(0.0) }
-
-    // ── Fase 4.2: total de créditos de indicação ─────
-    var totalCreditos by remember { mutableIntStateOf(0) }
+    var totalCreditos   by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(currentUserId) {
         val uid = currentUserId ?: return@LaunchedEffect
@@ -65,20 +63,19 @@ fun DashboardProfissionalScreen(
         }
         val meuPerfil = getMeuPerfilProfissional(uid)
         if (meuPerfil != null) {
-            credibilidade     = meuPerfil.credibilidade
+            credibilidade = meuPerfil.credibilidade
             disponivelUrgente = meuPerfil.disponivel_urgente
+            isPmp = meuPerfil.is_pmp
+            kycAprovado = verificarKycAprovado(uid)
+            onKycStatusChanged?.invoke(kycAprovado)
         }
-        kycAprovado = verificarKycAprovado(uid)
-        consultas   = buscarConsultasProfissional(uid)
+        consultas = buscarConsultasProfissional(uid)
 
-        // Fase 4.4: preview calculado localmente com os dados já carregados
         val concluidas4s = consultas.filter { it.status in listOf("concluida", "concluido") }
         resumoSemanas   = concluidas4s.size
         resumoGanhoMes  = concluidas4s.sumOf { it.valor.toDouble() }
         val notas       = concluidas4s.map { it.avaliacao }.filter { it > 0 }
         resumoNotaMedia = if (notas.isNotEmpty()) notas.average() else 0.0
-
-        // Fase 4.2: totalCreditos carregado ao abrir ReferralScreen — aqui fica 0 por padrão
 
         carregando = false
     }
@@ -92,16 +89,16 @@ fun DashboardProfissionalScreen(
         Triple("estudio",      "Estúdio",     "🎓"),
     )
 
-    // Menu ⋮ — todas as funcionalidades expostas
+    // Menu ⋮ — rótulo "Verificação da Conta" em vez de "Documentos KYC"
     val menuItens = listOf(
-        Triple("financeiro",    "Financeiro",    "💰"),
-        Triple("credibilidade", "Credibilidade", "⭐"),
-        Triple("relatorios",    "Relatórios",    "📊"),
-        Triple("indicacoes",    "Indicações",    "🎁"),
-        Triple("disputas",      "Disputas",      "⚖️"),
-        Triple("kyc",           "Documentos KYC","🔒"),
-        Triple("perfil",        "Meu Perfil",    "👤"),
-        Triple("sair",          "Sair",          "🚪"),
+        Triple("financeiro",    "Financeiro",        "💰"),
+        Triple("credibilidade", "Credibilidade",     "⭐"),
+        Triple("relatorios",    "Relatórios",        "📊"),
+        Triple("indicacoes",    "Indicações",        "🎁"),
+        Triple("disputas",      "Disputas",          "⚖️"),
+        Triple("kyc",           "Verificação da Conta", "🔒"),
+        Triple("perfil",        "Meu Perfil",        "👤"),
+        Triple("sair",          "Sair",              "🚪"),
     )
 
     val scope = rememberCoroutineScope()
@@ -153,11 +150,8 @@ fun DashboardProfissionalScreen(
                                             "financeiro"    -> abaSelecionada = "financeiro"
                                             "credibilidade" -> abaSelecionada = "credibilidade"
                                             "relatorios"    -> if (onRelatorios != null) onRelatorios() else abaSelecionada = "relatorios"
-                                            // Fase 4.2: Indicações
                                             "indicacoes"    -> onReferral?.invoke()
-                                            // Fase 4.3: Disputas
                                             "disputas"      -> onDisputa?.invoke()
-                                            // Fase Base: acesso direto ao painel KYC (independente do guard)
                                             "kyc"           -> onKyc?.invoke()
                                             "perfil"        -> if (onPerfil != null) onPerfil() else abaSelecionada = "perfil"
                                             "sair"          -> scope.launch { signOutAndroid(); onSair() }
@@ -212,34 +206,48 @@ fun DashboardProfissionalScreen(
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             when (abaSelecionada) {
-                "visao"         -> AbaVisaoGeralDash(
-                    nomeUsuario        = nomeUsuario,
-                    credibilidade      = credibilidade,
-                    consultas          = consultas,
-                    carregando         = carregando,
-                    disponivelUrgente  = disponivelUrgente,
-                    onRelatorios       = onRelatorios,
-                    resumoSemanas      = resumoSemanas,
-                    resumoGanhoMes     = resumoGanhoMes,
-                    resumoNotaMedia    = resumoNotaMedia,
-                    totalCreditos      = totalCreditos,
-                    onReferral         = onReferral,
-                    onKyc              = onKyc,
-                    kycAprovado        = kycAprovado,
-                )
-                "atendimentos"  -> AbaAtendimentosDash(
-                    consultas               = consultas,
-                    carregando              = carregando,
-                    onIniciarChamadaRegular = onIniciarChamadaRegular,
-                )
-                "urgente"       -> AbaUrgenteDash(
-                    disponivelUrgente = disponivelUrgente,
+                "visao"         -> {
+                    AbaVisaoGeralDash(
+                        nomeUsuario       = nomeUsuario,
+                        credibilidade     = credibilidade,
+                        consultas          = consultas,
+                        carregando         = carregando,
+                        disponivelUrgente  = disponivelUrgente,
+                        onRelatorios       = onRelatorios,
+                        resumoSemanas      = resumoSemanas,
+                        resumoGanhoMes     = resumoGanhoMes,
+                        resumoNotaMedia    = resumoNotaMedia,
+                        totalCreditos      = totalCreditos,
+                        onReferral         = onReferral,
+                        onKyc              = onKyc,
+                        kycAprovado        = kycAprovado,
+                    )
+                }
+                "atendimentos"  -> {
+                    AbaAtendimentosDash(
+                        consultas               = consultas,
+                        carregando              = carregando,
+                        onIniciarChamadaRegular = onIniciarChamadaRegular,
+                    )
+                }
+                "urgente"       -> AbaUrgenteCompartilhada(
+                    disponivelInicial = disponivelUrgente,
+                    userId            = currentUserId ?: "",
                     consultas         = consultas,
                     kycAprovado       = kycAprovado,
                     onKyc             = onKyc,
+                    mostrarGuiaChamada = true,
                 )
-                "financeiro"    -> AbaFinanceiroDash()
-                "credibilidade" -> AbaCredibilidadeDash(credibilidade = credibilidade)
+
+                "financeiro"    -> {
+                    AbaFinanceiroDash(isPmp = isPmp)
+                }
+                "credibilidade" -> {
+                    AbaCredibilidadeDash(
+                        credibilidade = credibilidade,
+                        isPmp         = isPmp,
+                    )
+                }
                 "relatorios"    -> {
                     if (onRelatorios != null) { LaunchedEffect(Unit) { onRelatorios() } }
                     else Box(Modifier.fillMaxSize(), Alignment.Center) { Text("Relatórios indisponíveis", color = InkMuted) }
@@ -262,7 +270,6 @@ fun AbaVisaoGeralDash(
     carregando:        Boolean = false,
     disponivelUrgente: Boolean = false,
     onRelatorios:      (() -> Unit)? = null,
-    // Fase 4.4
     resumoSemanas:     Int    = 0,
     resumoGanhoMes:    Double = 0.0,
     resumoNotaMedia:   Double = 0.0,
@@ -465,7 +472,7 @@ fun AbaVisaoGeralDash(
             }
         }
 
-        // ── Fase Base: card de status KYC (acesso direto, mesmo aprovado) ─
+        // ── Card de status KYC com rótulo "Verificação da Conta"
         if (onKyc != null) {
             Card(
                 onClick  = onKyc,
@@ -484,7 +491,7 @@ fun AbaVisaoGeralDash(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            if (kycAprovado) "Verificação KYC aprovada" else "Verificação pendente",
+                            if (kycAprovado) "Verificação da Conta aprovada" else "Verificação da Conta pendente",
                             fontSize = 14.sp, fontWeight = FontWeight.Bold,
                             color    = if (kycAprovado) Verde else Color(0xFF6D4C00),
                         )
@@ -498,7 +505,7 @@ fun AbaVisaoGeralDash(
             }
         }
 
-        // ── Fase 4.2: Card de indicações com preview de créditos ──────────
+        // ── Card de indicações com preview de créditos
         if (onReferral != null) {
             Card(
                 onClick  = onReferral,
@@ -526,7 +533,7 @@ fun AbaVisaoGeralDash(
             }
         }
 
-        // Botão de Relatórios completos — Fase 4.4
+        // Botão de Relatórios completos
         if (onRelatorios != null) {
             OutlinedButton(
                 onClick  = onRelatorios,
@@ -541,6 +548,7 @@ fun AbaVisaoGeralDash(
     }
 }
 
+// ── CARDS DE MÉTRICA ─────────────────────────────────
 @Composable
 fun MetricaCard(
     modifier: Modifier = Modifier,
@@ -574,8 +582,7 @@ fun MetricaCard(
 fun AbaAtendimentosDash(
     consultas:               List<ConsultaProfissional> = emptyList(),
     carregando:              Boolean = false,
-    onIniciarChamadaRegular: ((consultaId: String, profId: String, clienteId: String) -> Unit)? = null,
-) {
+    onIniciarChamadaRegular: ((consultaId: String) -> Unit)? = null,) {
     var agendamentos by remember { mutableStateOf<List<AgendamentoRegular>>(emptyList()) }
     var loadingAg    by remember { mutableStateOf(true) }
     var tickMs       by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -700,8 +707,7 @@ fun AbaAtendimentosDash(
                                         if (!iniciando) {
                                             iniciando = true
                                             scope.launch {
-                                                val profUid = currentUserId ?: run { iniciando = false; return@launch }
-                                                onIniciarChamadaRegular?.invoke(ag.id, profUid, ag.clienteId)
+                                                onIniciarChamadaRegular?.invoke(ag.id)
                                                 iniciando = false
                                             }
                                         }
@@ -789,10 +795,13 @@ fun AbaAtendimentosDash(
     }
 }
 
-// ── ABA: CREDIBILIDADE ────────────────────────────────
+// ════════════════════════════════════════════════════════════════
+// ABA CREDIBILIDADE — CORRIGIDA
+// ════════════════════════════════════════════════════════════════
 @Composable
-fun AbaCredibilidadeDash(credibilidade: Int = 0) {
-    val cred = credibilidade
+fun AbaCredibilidadeDash(credibilidade: Int = 0, isPmp: Boolean = false) {
+    val mediaEstrelas = credibilidade / 20.0
+    val pontosFaltantes = (80 - credibilidade).coerceAtLeast(0)
 
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -803,16 +812,23 @@ fun AbaCredibilidadeDash(credibilidade: Int = 0) {
                 Text("Sua pontuação", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(20.dp))
                 Box(
-                    modifier         = Modifier.size(120.dp).background(if (cred >= 80) Color(0xFFFDF3D8) else VerdeClaro, RoundedCornerShape(50)),
+                    modifier         = Modifier.size(120.dp).background(if (credibilidade >= 80) Color(0xFFFDF3D8) else VerdeClaro, RoundedCornerShape(50)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("$cred", fontSize = 36.sp, fontWeight = FontWeight.Black, color = if (cred >= 80) Dourado else Verde)
+                        Text("$credibilidade", fontSize = 36.sp, fontWeight = FontWeight.Black, color = if (credibilidade >= 80) Dourado else Verde)
                         Text("pontos", fontSize = 12.sp, color = InkMuted)
                     }
                 }
                 Spacer(modifier = Modifier.height(14.dp))
-                Text(when { cred >= 80 -> "🏆 Elegível ao PMP"; cred >= 50 -> "📈 Crescendo"; else -> "🌱 Iniciando" }, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = InkSoft)
+                Text(
+                    when {
+                        credibilidade >= 80 -> "🏆 Elegível ao PMP"
+                        credibilidade >= 50 -> "📈 Crescendo"
+                        else                -> "🌱 Iniciando"
+                    },
+                    fontSize = 14.sp, fontWeight = FontWeight.Bold, color = InkSoft,
+                )
             }
         }
 
@@ -827,35 +843,15 @@ fun AbaCredibilidadeDash(credibilidade: Int = 0) {
                     Text("⭐", fontSize = 22.sp)
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
-                        Text("Média de estrelas × 20", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Azul)
-                        Text("Cada avaliação dos clientes define sua pontuação.", fontSize = 12.sp, color = InkMuted, modifier = Modifier.padding(top = 2.dp))
+                        Text("Média das estrelas recebidas × 20", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Azul)
+                        Text("Sua pontuação atual é ${"%.1f".format(mediaEstrelas)} estrelas = $credibilidade pontos.", fontSize = 12.sp, color = InkMuted, modifier = Modifier.padding(top = 2.dp))
                     }
-                }
-                Spacer(modifier = Modifier.height(14.dp))
-                listOf(
-                    Triple("1 ★",     "20 pontos",                  20),
-                    Triple("2 ★★",    "40 pontos",                  40),
-                    Triple("3 ★★★",   "60 pontos",                  60),
-                    Triple("4 ★★★★",  "80 pontos — elegível PMP",   80),
-                    Triple("5 ★★★★★", "100 pontos — máximo",        100),
-                ).forEach { (estrelas, descricao, pts) ->
-                    val cor = when { pts >= 80 -> Dourado; pts >= 60 -> Verde; else -> InkMuted }
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(estrelas, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = cor)
-                        Text(descricao, fontSize = 12.sp, color = InkMuted)
-                    }
-                    LinearProgressIndicator(
-                        progress  = { pts / 100f },
-                        modifier  = Modifier.fillMaxWidth().height(4.dp).padding(bottom = 2.dp),
-                        color     = cor,
-                        trackColor = SurfaceOff,
-                    )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth().background(UrgenteClaro, RoundedCornerShape(8.dp)).padding(12.dp), verticalAlignment = Alignment.Top) {
                     Text("⚠️", fontSize = 13.sp)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Se a média cair abaixo de 4★ (80 pontos), o Selo PMP é revogado e os atendimentos urgentes são pausados automaticamente.", fontSize = 12.sp, color = Urgente, lineHeight = 17.sp)
+                    Text("Para obter e manter o Selo PMP são necessários 80 pontos (média 4.0). Se a média cair abaixo de 4.0, o selo será revogado.", fontSize = 12.sp, color = Urgente, lineHeight = 17.sp)
                 }
             }
         }
@@ -868,17 +864,17 @@ fun AbaCredibilidadeDash(credibilidade: Int = 0) {
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Programa PMP", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Dourado)
-                Text("Faltam ${(100 - cred).coerceAtLeast(0)} pontos para o PMP", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp))
-                LinearProgressIndicator(progress = { (cred / 100f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(8.dp), color = DouradoMedio, trackColor = SurfaceOff)
-                Text("$cred/100", fontSize = 12.sp, color = InkMuted, modifier = Modifier.padding(top = 6.dp, bottom = 14.dp))
+                Text("Faltam $pontosFaltantes pontos para o PMP", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp))
+                LinearProgressIndicator(progress = { (credibilidade / 100f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(8.dp), color = DouradoMedio, trackColor = SurfaceOff)
+                Text("$credibilidade/100", fontSize = 12.sp, color = InkMuted, modifier = Modifier.padding(top = 6.dp, bottom = 14.dp))
                 Button(
-                    onClick  = {},
+                    onClick  = { /* TODO: solicitar PMP quando elegível */ },
                     modifier = Modifier.fillMaxWidth().height(46.dp),
-                    enabled  = cred >= 80,
+                    enabled  = credibilidade >= 80,
                     colors   = ButtonDefaults.buttonColors(containerColor = Azul, contentColor = Color.White, disabledContainerColor = SurfaceOff, disabledContentColor = InkMuted),
                     shape    = RoundedCornerShape(8.dp),
                 ) {
-                    Text(if (cred >= 80) "Candidatar-me ao PMP" else "Disponível com 80 pontos", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text(if (credibilidade >= 80) "Candidatar-me ao PMP" else "Disponível com 80 pontos", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -886,270 +882,6 @@ fun AbaCredibilidadeDash(credibilidade: Int = 0) {
 }
 
 // ── ABA: URGENTE ──────────────────────────────────────
-@Composable
-fun AbaUrgenteDash(
-    disponivelUrgente: Boolean = false,
-    consultas:         List<ConsultaProfissional> = emptyList(),
-    kycAprovado:       Boolean = false,
-    onKyc:             (() -> Unit)? = null,
-) {
-    val scope = rememberCoroutineScope()
-    var ativo             by remember(disponivelUrgente) { mutableStateOf(disponivelUrgente) }
-    var atualizando       by remember { mutableStateOf(false) }
-    var erroToggle        by remember { mutableStateOf(false) }
-    var mostrarTermos     by remember { mutableStateOf(false) }
-    var mostrarInstrucoes by remember { mutableStateOf(false) }
-    var jaAceitouTermos   by remember { mutableStateOf(false) }
-    var verificandoTermos by remember { mutableStateOf(true) }
-
-    LaunchedEffect(Unit) {
-        val uid = currentUserId
-        if (uid != null) jaAceitouTermos = verificarAceiteTermosUrgencia(uid)
-        verificandoTermos = false
-    }
-
-    val urgentesRealizadas = consultas.count { it.tipo.contains("rgente", ignoreCase = true) && (it.status == "concluida" || it.status == "concluido") }
-    val totalUrgentes      = consultas.count { it.tipo.contains("rgente", ignoreCase = true) }
-    val pontualidade       = if (totalUrgentes > 0) "${(urgentesRealizadas * 100 / totalUrgentes)}%" else "—"
-    val descumprimentos    = totalUrgentes - urgentesRealizadas
-
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-
-        if (!kycAprovado) {
-            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)), border = BorderStroke(1.dp, Color(0xFFF57F17).copy(alpha = 0.5f))) {
-                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("🔒", fontSize = 22.sp)
-                        Column {
-                            Text("Verificação obrigatória", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF6D4C00))
-                            Text("A área urgente exige que seu perfil esteja verificado.", fontSize = 12.sp, color = Color(0xFF795548), lineHeight = 17.sp)
-                        }
-                    }
-                    Text("Para ativar consultas urgentes você precisa enviar seus documentos e passar pela verificação de identidade (KYC). Após aprovação, o acesso é liberado automaticamente.", fontSize = 12.sp, color = Color(0xFF795548), lineHeight = 17.sp)
-                    Button(onClick = { onKyc?.invoke() }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57F17), contentColor = Color.White)) {
-                        Text("Verificar meu perfil agora", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
-                }
-            }
-            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = SurfaceOff)) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Área Urgente", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = InkMuted)
-                            Text("Disponível após verificação.", fontSize = 13.sp, color = InkMuted)
-                        }
-                        Switch(checked = false, onCheckedChange = {}, enabled = false, colors = SwitchDefaults.colors(disabledUncheckedThumbColor = InkMuted, disabledUncheckedTrackColor = SurfaceOff))
-                    }
-                }
-            }
-            return@Column
-        }
-
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Área Urgente", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
-                        Text("Apareça para clientes que precisam de atendimento imediato.", fontSize = 13.sp, color = InkMuted, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp))
-                    }
-                    if (atualizando) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Verde, strokeWidth = 2.dp)
-                    } else {
-                        Switch(
-                            checked = ativo,
-                            onCheckedChange = { novoValor ->
-                                if (novoValor && !ativo) {
-                                    if (jaAceitouTermos) {
-                                        val anteriorValor = ativo
-                                        ativo = true; atualizando = true; erroToggle = false
-                                        scope.launch {
-                                            val uid     = currentUserId
-                                            val sucesso = if (uid != null) atualizarDisponibilidadeUrgente(uid, true) else false
-                                            atualizando = false
-                                            if (!sucesso) { ativo = anteriorValor; erroToggle = true }
-                                        }
-                                    } else { mostrarTermos = true }
-                                } else if (!novoValor) {
-                                    val anteriorValor = ativo
-                                    ativo = false; atualizando = true; erroToggle = false
-                                    scope.launch {
-                                        val uid     = currentUserId
-                                        val sucesso = if (uid != null) atualizarDisponibilidadeUrgente(uid, false) else false
-                                        atualizando = false
-                                        if (!sucesso) { ativo = anteriorValor; erroToggle = true }
-                                    }
-                                }
-                            },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Verde),
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(modifier = Modifier.fillMaxWidth().background(if (ativo) VerdeClaro else UrgenteClaro, RoundedCornerShape(8.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (ativo) "🟢" else "🔴", fontSize = 14.sp)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (ativo) "Disponível agora" else "Indisponível", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (ativo) Verde else Urgente)
-                }
-                if (erroToggle) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(modifier = Modifier.fillMaxWidth().background(Color(0xFFFDE8E8), RoundedCornerShape(8.dp)).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("⚠️", fontSize = 13.sp)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Falha na conexão. Estado revertido.", fontSize = 12.sp, color = Urgente)
-                    }
-                }
-            }
-        }
-
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text("Histórico urgente", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
-                Spacer(modifier = Modifier.height(14.dp))
-                if (totalUrgentes == 0) {
-                    Text("Nenhuma urgência registrada ainda.", fontSize = 13.sp, color = InkMuted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                } else {
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        listOf(
-                            Triple("$urgentesRealizadas", "Urgentes\nrealizadas", Verde),
-                            Triple(pontualidade,           "Pontua-\nlidade",      Azul),
-                            Triple("$descumprimentos",    "Descum-\nprimentos",   if (descumprimentos == 0) Dourado else Urgente),
-                        ).forEach { (num, label, cor) ->
-                            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(num, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = cor)
-                                Text(label, fontSize = 10.sp, color = InkMuted, lineHeight = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Row(modifier = Modifier.fillMaxWidth().background(if (descumprimentos == 0) VerdeClaro else UrgenteClaro, RoundedCornerShape(8.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (descumprimentos == 0) "✓" else "⚠️", fontSize = 14.sp, color = if (descumprimentos == 0) Verde else Urgente, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (descumprimentos == 0) "Histórico limpo — acesso integral à área urgente." else "$descumprimentos descumprimento(s) registrado(s).", fontSize = 12.sp, color = if (descumprimentos == 0) Verde else Urgente)
-                    }
-                }
-            }
-        }
-
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Guia da Chamada Urgente", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
-                    TextButton(onClick = { mostrarInstrucoes = true }) { Text("Ver completo", color = Azul, fontSize = 12.sp) }
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                listOf(
-                    "🎯" to "Ouça ativamente. Não tente resolver a situação toda — seu papel é acolher e orientar.",
-                    "⏱" to "A sessão dura até 15 minutos. Seja direto e objetivo.",
-                    "🚫" to "Não faça diagnósticos definitivos. Ofereça perspectiva profissional, não certezas.",
-                    "📋" to "Ao final, indique um próximo passo claro ao cliente.",
-                ).forEach { (icon, texto) ->
-                    Row(modifier = Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.Top) {
-                        Text(icon, fontSize = 16.sp)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(texto, fontSize = 12.sp, color = InkSoft, lineHeight = 17.sp, modifier = Modifier.weight(1f))
-                    }
-                }
-            }
-        }
-    }
-
-    if (mostrarTermos) {
-        Dialog(onDismissRequest = { mostrarTermos = false }) {
-            Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
-                Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text("⚡ Termos de Prontidão Urgente", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Ink)
-                    Text("Ao ativar a Área Urgente, você declara estar ciente de que:", fontSize = 13.sp, color = InkMuted)
-                    var aceite by remember { mutableStateOf(false) }
-                    listOf(
-                        "Devo responder ao chamado em até 45 minutos após receber a notificação.",
-                        "A consulta urgente tem duração máxima de 15 minutos.",
-                        "Não escolho horários — fico disponível de forma contínua enquanto o switch estiver ativo.",
-                        "Atrasos ou descumprimentos reduzem minha credibilidade e podem suspender meu acesso à área urgente.",
-                        "Sou o único responsável pelo serviço prestado. A plataforma é apenas o canal de conexão.",
-                    ).forEach { texto ->
-                        Row(modifier = Modifier.fillMaxWidth().background(SurfaceWarm, RoundedCornerShape(8.dp)).padding(10.dp), verticalAlignment = Alignment.Top) {
-                            Text("•", fontSize = 14.sp, color = Azul, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(texto, fontSize = 12.sp, color = Ink, lineHeight = 17.sp)
-                        }
-                    }
-                    Row(
-                        modifier          = Modifier.fillMaxWidth().background(if (aceite) Verde.copy(alpha = 0.08f) else SurfaceOff, RoundedCornerShape(10.dp)).padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Checkbox(checked = aceite, onCheckedChange = { aceite = it }, colors = CheckboxDefaults.colors(checkedColor = Verde))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Li, compreendi e aceito todos os termos acima.", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (aceite) Verde else Ink)
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { mostrarTermos = false }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) {
-                            Text("Cancelar", color = InkMuted)
-                        }
-                        Button(
-                            onClick = {
-                                if (!aceite) return@Button
-                                mostrarTermos = false
-                                ativo = true; atualizando = true
-                                scope.launch {
-                                    val uid = currentUserId
-                                    if (uid != null) {
-                                        gravarAceiteTermosUrgencia(uid)
-                                        jaAceitouTermos = true
-                                        val sucesso = atualizarDisponibilidadeUrgente(uid, true)
-                                        atualizando = false
-                                        if (!sucesso) { ativo = false; erroToggle = true }
-                                    } else { atualizando = false; ativo = false }
-                                }
-                            },
-                            enabled  = aceite,
-                            modifier = Modifier.weight(1f),
-                            shape    = RoundedCornerShape(10.dp),
-                            colors   = ButtonDefaults.buttonColors(containerColor = Verde),
-                        ) {
-                            Text("Ativar agora", color = Color.White, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (mostrarInstrucoes) {
-        Dialog(onDismissRequest = { mostrarInstrucoes = false }) {
-            Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Surface)) {
-                Column(modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("📋 Guia completo — Chamada Urgente", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Ink)
-                    Text("Para o Profissional", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Azul)
-                    listOf(
-                        "Ao receber o chamado, você tem 45 minutos para iniciar. Após esse prazo, o chamado expira.",
-                        "Durante os 15 minutos, foque em escutar. A urgência do cliente é emocional — valide antes de orientar.",
-                        "Não faça diagnósticos definitivos. Ofereça perspectiva profissional e indique próximos passos concretos.",
-                        "Seja breve e claro. Ao final da chamada, resuma em uma frase o que foi tratado e o que o cliente deve fazer.",
-                        "Após a chamada, o cliente avaliará a sessão. Sua pontuação PMP depende dessa avaliação.",
-                    ).forEachIndexed { i, texto ->
-                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                            Box(modifier = Modifier.size(22.dp).background(Azul.copy(alpha = 0.12f), RoundedCornerShape(50)), contentAlignment = Alignment.Center) {
-                                Text("${i+1}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Azul)
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(texto, fontSize = 12.sp, color = Ink, lineHeight = 17.sp, modifier = Modifier.weight(1f))
-                        }
-                    }
-                    HorizontalDivider(color = SurfaceOff)
-                    Text("Lembrete legal", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Urgente)
-                    Row(modifier = Modifier.fillMaxWidth().background(UrgenteClaro, RoundedCornerShape(8.dp)).padding(12.dp), verticalAlignment = Alignment.Top) {
-                        Text("⚠️", fontSize = 14.sp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("A plataforma Brasil Tupi Conecta é o canal de conexão. O serviço prestado é de sua exclusiva responsabilidade profissional. O cliente está ciente de que busca uma orientação de urgência — não um diagnóstico definitivo.", fontSize = 12.sp, color = Urgente, lineHeight = 17.sp)
-                    }
-                    Button(onClick = { mostrarInstrucoes = false }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), colors = ButtonDefaults.buttonColors(containerColor = Verde)) {
-                        Text("Entendido", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-    }
-}
 
 // ── ABA: PERFIL PROFISSIONAL (inline) ─────────────────
 @Composable
