@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.brasiltupi.conecta.ui.theme.*
 import kotlinx.coroutines.launch
-
+import androidx.compose.ui.window.Dialog
 @Composable
 fun ModalidadesScreen(
     userId:   String,
@@ -1054,19 +1054,28 @@ private fun DialogHorario(
     var horaFim         by remember { mutableStateOf("10:00") }
     var salvando        by remember { mutableStateOf(false) }
 
-    AlertDialog(
-        onDismissRequest = { if (!salvando) onDismiss() },
-        title = { Text("Novo horário", fontWeight = FontWeight.Bold, color = Ink) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Dialog(onDismissRequest = { if (!salvando) onDismiss() }) {
+        Card(
+            shape  = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Surface),
+            modifier = Modifier.heightIn(max = 560.dp),
+        ) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text("Novo horário", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Ink)
+
                 // Dia da semana
                 Text("Dia da semana", fontSize = 12.sp, color = InkMuted)
                 Row(
-                    modifier                  = Modifier.fillMaxWidth(),
-                    horizontalArrangement     = Arrangement.spacedBy(4.dp),
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     diasSemana.chunked(4).forEach { grupo ->
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             grupo.forEach { (id, label) ->
                                 FilterChip(
                                     selected = diaSelecionado == id,
@@ -1096,7 +1105,7 @@ private fun DialogHorario(
                             Text(nomeSelecionado, fontSize = 13.sp, color = Ink)
                         }
                         DropdownMenu(
-                            expanded        = expandido,
+                            expanded         = expandido,
                             onDismissRequest = { expandido = false },
                         ) {
                             DropdownMenuItem(
@@ -1134,26 +1143,32 @@ private fun DialogHorario(
                         colors        = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde),
                     )
                 }
+
+                // Botões
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick  = { if (!salvando) onDismiss() },
+                        enabled  = !salvando,
+                        modifier = Modifier.weight(1f),
+                        shape    = RoundedCornerShape(10.dp),
+                    ) {
+                        Text("Cancelar", color = InkMuted)
+                    }
+                    Button(
+                        onClick = {
+                            salvando = true
+                            onSalvar(diaSelecionado, modalidadeId, horaInicio, horaFim)
+                        },
+                        enabled = !salvando && horaInicio.isNotBlank() && horaFim.isNotBlank(),
+                        modifier = Modifier.weight(1f),
+                        shape    = RoundedCornerShape(10.dp),
+                        colors   = ButtonDefaults.buttonColors(containerColor = Verde),
+                    ) {
+                        if (salvando) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                        else Text("Salvar", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    salvando = true
-                    onSalvar(diaSelecionado, modalidadeId, horaInicio, horaFim)
-                },
-                enabled = !salvando && horaInicio.isNotBlank() && horaFim.isNotBlank(),
-                colors  = ButtonDefaults.buttonColors(containerColor = Verde),
-            ) {
-                if (salvando) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
-                else Text("Salvar", color = Color.White, fontWeight = FontWeight.Bold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = { if (!salvando) onDismiss() }) {
-                Text("Cancelar", color = InkMuted)
-            }
-        },
-        containerColor = Surface,
-    )
+        }
+    }
 }

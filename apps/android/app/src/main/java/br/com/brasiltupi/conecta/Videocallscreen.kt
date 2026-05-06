@@ -60,17 +60,23 @@ private val STREAM_API_KEY get() = BuildConfig.STREAM_API_KEY
 
 @Composable
 fun VideoCallScreen(
-    urgenciaId:   String,
-    onEncerrada:  () -> Unit,
-    onVoltar:     () -> Unit,
-    onboardingVm: OnboardingViewModel? = null,   // PA-05 — guard first_call
+    urgenciaId:              String,
+    onEncerrada:             () -> Unit,
+    onVoltar:                () -> Unit,
+    onboardingVm:            OnboardingViewModel? = null,   // PA-05 — guard first_call
+    agendamentoRegularId:    String = "",                   // Agendamento regular (sem urgência)
 ) {
     val context        = LocalContext.current
     val scope          = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
 
+    // ── Determinar qual ID usar para token —————————————————————————————————
+    val callIdParaToken = if (agendamentoRegularId.isNotEmpty()) agendamentoRegularId else urgenciaId
+
     // ── Estado observado do repositório ──────────────────────────────────
     val callState by StreamVideoRepository.callState.collectAsState()
+
+    // ...existing code...
 
     // ── Referências ao SDK — gerenciadas pelo DisposableEffect ────────────
     var streamVideo by remember { mutableStateOf<StreamVideo?>(null) }
@@ -91,7 +97,11 @@ fun VideoCallScreen(
             cameraOk && audioOk -> {
                 permissoesConcedidas = true
                 // Permissões concedidas — iniciar fluxo de token
-                StreamVideoRepository.solicitarToken(urgenciaId)
+                if (agendamentoRegularId.isNotEmpty()) {
+                    StreamVideoRepository.solicitarTokenRegular(agendamentoRegularId)
+                } else {
+                    StreamVideoRepository.solicitarToken(urgenciaId)
+                }
             }
             else -> {
                 permissoesNegadas       = true
@@ -129,7 +139,11 @@ fun VideoCallScreen(
             is VideoCallState.TokenExpirado -> {
                 // Token expirou durante chamada ativa — renovar automaticamente
                 AppLogger.aviso(TAG_SCREEN, "Token expirado. Solicitando renovacao.")
-                StreamVideoRepository.renovarToken(urgenciaId)
+                if (agendamentoRegularId.isNotEmpty()) {
+                    StreamVideoRepository.solicitarTokenRegular(agendamentoRegularId)
+                } else {
+                    StreamVideoRepository.renovarToken(urgenciaId)
+                }
             }
 
             is VideoCallState.Encerrada -> {

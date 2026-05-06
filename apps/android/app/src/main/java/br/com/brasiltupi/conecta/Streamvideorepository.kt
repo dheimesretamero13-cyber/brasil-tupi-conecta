@@ -265,6 +265,90 @@ object StreamVideoRepository {
         }
     }
 
+    /**
+     * Solicita token para agendamento regular (sem urgência).
+     * Similar a solicitarToken, mas usa endpoint diferente e ID de agendamento.
+     */
+    fun solicitarTokenRegular(agendamentoRegularId: String) {
+        scope.launch {
+            _callState.emit(VideoCallState.SolicitandoToken(agendamentoRegularId))
+            AppLogger.chave("video_agendamento_regular_id", agendamentoRegularId)
+            AppLogger.info(TAG, "Solicitando token para agendamento regular=$agendamentoRegularId")
+
+            // Guard: usuário autenticado
+            val token = AuthRepository.token ?: run {
+                AppLogger.erroAuth("get_call_token_regular", mensagemExtra = "token Supabase ausente")
+                _callState.emit(VideoCallState.Erro(
+                    motivo = "Sessão inválida. Faça login novamente.",
+                    tipo   = TipoErroVideo.TOKEN_NEGADO,
+                ))
+                return@launch
+            }
+
+            try {
+                val response = httpClient.post("$LOCAL_URL/functions/v1/stream-token") {
+                    header("Authorization", "Bearer $token")
+                    header("apikey", LOCAL_KEY)
+                    contentType(ContentType.Application.Json)
+                    setBody(CallTokenRequest(urgenciaId = agendamentoRegularId))
+                }
+
+                val corpo = response.bodyAsText()
+                AppLogger.info(TAG, "Edge Function HTTP ${response.status.value}")
+
+                when (response.status.value) {
+                    200 -> {
+                        val resposta = jsonParser.decodeFromString<CallTokenResponse>(corpo)
+                        AppLogger.info(TAG, "Token obtido para agendamento regular=$agendamentoRegularId")
+                        AppLogger.chave("stream_call_id", resposta.callId)
+                        _callState.emit(VideoCallState.TokenObtido(
+                            token  = resposta.token,
+                            userId = resposta.userId,
+                            callId = resposta.callId,
+                        ))
+                    }
+                    401, 403 -> {
+                        AppLogger.erroAuth(
+                            operacao      = "get_call_token_regular",
+                            mensagemExtra = "HTTP ${response.status.value} — uid sem acesso",
+                        )
+                        _callState.emit(VideoCallState.Erro(
+                            motivo = "Acesso não autorizado a esta chamada.",
+                            tipo   = TipoErroVideo.ACESSO_NAO_AUTORIZADO,
+                        ))
+                    }
+                    409 -> {
+                        AppLogger.aviso(TAG, "Status inválido para agendamento=$agendamentoRegularId: $corpo")
+                        _callState.emit(VideoCallState.Erro(
+                            motivo = "Esta chamada não está mais disponível.",
+                            tipo   = TipoErroVideo.STATUS_INVALIDO,
+                        ))
+                    }
+                    else -> {
+                        val erro = RuntimeException("Edge Function HTTP ${response.status.value}: $corpo")
+                        AppLogger.erroRede(EDGE_FUNCTION_URL, erro, "agendamento_regular=$agendamentoRegularId")
+                        _callState.emit(VideoCallState.Erro(
+                            motivo = "Erro ao conectar com o servidor. Tente novamente.",
+                            tipo   = TipoErroVideo.REDE,
+                        ))
+                    }
+                }
+            } catch (e: java.net.UnknownHostException) {
+                AppLogger.erroRede(EDGE_FUNCTION_URL, e, "sem_rede agendamento_regular=$agendamentoRegularId")
+                _callState.emit(VideoCallState.Erro(
+                    motivo = "Sem conexão com a internet.",
+                    tipo   = TipoErroVideo.REDE,
+                ))
+            } catch (e: Exception) {
+                AppLogger.erroRede(EDGE_FUNCTION_URL, e, "agendamento_regular=$agendamentoRegularId")
+                _callState.emit(VideoCallState.Erro(
+                    motivo = "Falha inesperada ao obter token de chamada.",
+                    tipo   = TipoErroVideo.DESCONHECIDO,
+                ))
+            }
+        }
+    }
+
     /** Volta para Idle após o usuário dispensar um diálogo de erro. */
     fun resetar() {
         scope.launch {

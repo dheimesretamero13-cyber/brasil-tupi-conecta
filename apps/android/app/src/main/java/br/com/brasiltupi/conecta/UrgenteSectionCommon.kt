@@ -18,6 +18,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import br.com.brasiltupi.conecta.ui.theme.*
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 
 /**
  * Seção "Urgente" compartilhada entre Dashboard e Perfil Profissional.
@@ -35,11 +37,14 @@ fun AbaUrgenteCompartilhada(
     disponivelInicial: Boolean = false,
     userId:            String  = "",
     consultas:         List<ConsultaProfissional> = emptyList(),
-    kycAprovado:       Boolean? = null,   // null = sem guard KYC
+    kycAprovado:       Boolean? = null,
     onKyc:             (() -> Unit)? = null,
     mostrarGuiaChamada: Boolean = false,
+    valorUrgenteAtual: Double? = null,
+    onSalvarValorUrgente: ((Double) -> Unit)? = null,
     modifier:          Modifier = Modifier,
-) {
+)
+{
     val scope = rememberCoroutineScope()
 
     // ── estado do toggle ──────────────────────────────────────────
@@ -313,6 +318,65 @@ fun AbaUrgenteCompartilhada(
                         }
                     }
                     HorizontalDivider(color = SurfaceOff)
+                }
+            }
+        }
+        if (onSalvarValorUrgente != null && kycAprovado != false) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape    = RoundedCornerShape(12.dp),
+                colors   = CardDefaults.cardColors(containerColor = Surface),
+            ) {
+                var valorEdit by remember { mutableStateOf(valorUrgenteAtual?.toString() ?: "") }
+                var salvandoConf by remember { mutableStateOf(false) }
+                var erroConf by remember { mutableStateOf<String?>(null) }
+                val duracaoFixa = 15
+
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("⚙️ Configuração do atendimento urgente", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
+                    Text("Defina o valor cobrado por consulta urgente. A duração máxima é fixa em ${duracaoFixa} minutos conforme acordo.", fontSize = 12.sp, color = InkMuted)
+
+                    OutlinedTextField(
+                        value = valorEdit,
+                        onValueChange = { valorEdit = it.filter { c -> c.isDigit() || c == ',' || c == '.' } },
+                        label = { Text("Valor da consulta urgente (R$)") },
+                        placeholder = { Text("Ex: 49,90") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Urgente),
+                        isError = erroConf != null,
+                        supportingText = { if (erroConf != null) Text(erroConf!!, fontSize = 11.sp, color = Urgente) }
+                    )
+
+                    if (erroConf != null) {
+                        Text(erroConf!!, fontSize = 11.sp, color = Urgente)
+                    }
+
+                    Button(
+                        onClick = {
+                            erroConf = null
+                            val novoValor = valorEdit.replace(",", ".").toDoubleOrNull()
+                            if (novoValor == null || novoValor <= 0.0) {
+                                erroConf = "Digite um valor válido maior que zero."
+                                return@Button
+                            }
+                            salvandoConf = true
+                            onSalvarValorUrgente(novoValor)
+                            salvandoConf = false
+                        },
+                        enabled = !salvandoConf,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Urgente),
+                    ) {
+                        if (salvandoConf) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                        else Text("Salvar valor", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+
+                    if (valorUrgenteAtual != null && valorUrgenteAtual > 0.0) {
+                        Text("Valor atual: R$ ${"%.2f".format(valorUrgenteAtual)}", fontSize = 11.sp, color = Verde, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+                    }
                 }
             }
         }

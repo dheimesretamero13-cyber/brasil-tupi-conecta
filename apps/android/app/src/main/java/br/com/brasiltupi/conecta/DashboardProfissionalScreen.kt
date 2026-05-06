@@ -230,14 +230,59 @@ fun DashboardProfissionalScreen(
                         onIniciarChamadaRegular = onIniciarChamadaRegular,
                     )
                 }
-                "urgente"       -> AbaUrgenteCompartilhada(
-                    disponivelInicial = disponivelUrgente,
-                    userId            = currentUserId ?: "",
-                    consultas         = consultas,
-                    kycAprovado       = kycAprovado,
-                    onKyc             = onKyc,
-                    mostrarGuiaChamada = true,
-                )
+                "urgente"       -> {
+                    // Estado local para o valor da urgência (buscar do perfil)
+                    var valorUrgente by remember { mutableStateOf<Double?>(null) }
+                    var carregandoValor by remember { mutableStateOf(true) }
+                    var perfilProfissional by remember { mutableStateOf<ProfissionalComPerfil?>(null) }
+
+                    LaunchedEffect(currentUserId) {
+                        val uid = currentUserId ?: return@LaunchedEffect
+                        val perfil = getMeuPerfilProfissional(uid)
+                        perfilProfissional = perfil
+                        // O campo real é valor_urgente: Int? -> convertemos para Double?
+                        valorUrgente = perfil?.valor_urgente?.toDouble()
+                        carregandoValor = false
+                    }
+
+                    if (carregandoValor) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = Verde)
+                        }
+                    } else {
+                        AbaUrgenteCompartilhada(
+                            disponivelInicial = disponivelUrgente,
+                            userId            = currentUserId ?: "",
+                            consultas         = consultas,
+                            kycAprovado       = kycAprovado,
+                            onKyc             = onKyc,
+                            mostrarGuiaChamada = true,
+                            valorUrgenteAtual = valorUrgente,
+                            onSalvarValorUrgente = { novoValorDouble ->
+                                val uid = currentUserId ?: return@AbaUrgenteCompartilhada
+                                val novoValorInt = novoValorDouble.toInt()
+                                val perfilAtual = perfilProfissional ?: return@AbaUrgenteCompartilhada
+                                scope.launch {
+                                    // Usa a função REAL que já existe no SupabaseClient
+                                    val sucesso = atualizarPerfilProfissional(
+                                        userId = uid,
+                                        bio = perfilAtual.descricao ?: "",
+                                        area = perfilAtual.area,
+                                        conselho = perfilAtual.conselho ?: "",
+                                        numeroConselho = perfilAtual.numero_conselho ?: "",
+                                        precoNormal = perfilAtual.valor_normal,
+                                        precoUrgente = novoValorInt
+                                    )
+                                    if (sucesso) {
+                                        valorUrgente = novoValorDouble
+                                        // Atualiza também o perfil local para manter consistência
+                                        perfilProfissional = perfilAtual.copy(valor_urgente = novoValorInt)
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
 
                 "financeiro"    -> {
                     AbaFinanceiroDash(isPmp = isPmp)
@@ -706,10 +751,8 @@ fun AbaAtendimentosDash(
                                     onClick = {
                                         if (!iniciando) {
                                             iniciando = true
-                                            scope.launch {
-                                                onIniciarChamadaRegular?.invoke(ag.id)
-                                                iniciando = false
-                                            }
+                                            onIniciarChamadaRegular?.invoke(ag.id)
+                                            iniciando = false
                                         }
                                     },
                                     enabled        = !iniciando,

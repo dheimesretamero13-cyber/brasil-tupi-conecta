@@ -22,7 +22,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.PaddingValues
-
+import androidx.activity.compose.BackHandler
+import kotlinx.coroutines.delay
+import androidx.compose.foundation.lazy.rememberLazyListState
 // ── DADOS ─────────────────────────────────────────────
 @Serializable
 data class ConsultaCliente(
@@ -44,7 +46,6 @@ data class ConsultaCliente(
 @Composable
 fun DashboardClienteScreen(
     onSair:        () -> Unit,
-    onEstudio:     ((String) -> Unit)?         = null,
     onPerfil:      (() -> Unit)?               = null,
     onAgendar:     ((String, String) -> Unit)? = null,
     onChat:        ((String, String) -> Unit)? = null,
@@ -252,10 +253,8 @@ fun DashboardClienteScreen(
                         onDisputa = onDisputa,
                     )
                     "busca" -> AbaBuscaCliente(
-                        onEstudio        = onEstudio,
-                        onAgendarRegular = onAgendar,
-                        // Fase 3.4: busca avançada do Estúdio
-                        onBuscaEstudio   = onBuscaEstudio,
+                        onAgendarRegular     = onAgendar,
+                        onBuscaEstudio       = onBuscaEstudio,
                     )
                     "perfil" -> {
                         if (onPerfil != null) {
@@ -902,53 +901,43 @@ fun AbaConsultasCliente(
     }
 }
 
-// ── ABA: BUSCA ─────────────────────────────────────────
 @Composable
 fun AbaBuscaCliente(
-    onEstudio:        ((String) -> Unit)?         = null,
-    onAgendarRegular: ((String, String) -> Unit)? = null,
-    // Fase 3.4: SearchScreen com debounce, filtros e ranking_score
-    onBuscaEstudio:   (() -> Unit)?               = null,
+    onAgendarRegular:     ((String, String) -> Unit)? = null,
+    onBuscaEstudio:       (() -> Unit)?               = null,
 ) {
-    var profSelecionado by remember { mutableStateOf<ProfissionalPMP?>(null) }
-    var agendando       by remember { mutableStateOf<Pair<ProfissionalPMP, String>?>(null) }
-
-    if (profSelecionado != null) {
-        PerfilPublicoScreen(
-            prof      = profSelecionado!!,
-            onVoltar  = { profSelecionado = null },
-            onAgendar = { tipo -> val prof = profSelecionado; if (prof != null) agendando = prof to tipo },
-        )
-        return
-    }
-    if (agendando != null) {
-        AgendarScreen(
-            prof        = agendando!!.first,
-            tipo        = agendando!!.second,
-            onVoltar    = { agendando = null },
-            onConcluido = { agendando = null; profSelecionado = null },
-        )
-        return
+    // Estado único de navegação
+    var uiState by remember { mutableStateOf<BuscaUiState>(BuscaUiState.Lista) }
+    BackHandler(enabled = uiState !is BuscaUiState.Lista) {
+        when (uiState) {
+            is BuscaUiState.Perfil -> uiState = BuscaUiState.Lista
+            is BuscaUiState.Agendamento -> uiState = BuscaUiState.Perfil((uiState as BuscaUiState.Agendamento).prof)
+            is BuscaUiState.Estudio -> uiState = BuscaUiState.Perfil((uiState as BuscaUiState.Estudio).prof)
+            is BuscaUiState.AgendamentoModalidade -> uiState = BuscaUiState.Perfil((uiState as BuscaUiState.AgendamentoModalidade).prof)
+            else -> {}
+        }
     }
 
     var abaAtiva by remember { mutableStateOf(0) }  // 0=Urgente 1=PMP 2=Geral
 
-    var listaUrgente  by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
-    var loadUrgente   by remember { mutableStateOf(true) }
+    // Dados das três abas
+    var listaUrgente by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
+    var loadUrgente by remember { mutableStateOf(true) }
     var filtroUrgente by remember { mutableStateOf("") }
 
-    var listaPMP  by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
-    var loadPMP   by remember { mutableStateOf(true) }
+    var listaPMP by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
+    var loadPMP by remember { mutableStateOf(true) }
     var filtroPMP by remember { mutableStateOf("") }
 
-    var listaGeral        by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
-    var listaGeralBase    by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
-    var loadGeral         by remember { mutableStateOf(true) }
-    var filtroGeralArea   by remember { mutableStateOf("") }
-    var filtroSomentePMP  by remember { mutableStateOf(false) }
-    var filtroSomenteUrg  by remember { mutableStateOf(false) }
-    var filtroSomenteVer  by remember { mutableStateOf(false) }
+    var listaGeral by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
+    var listaGeralBase by remember { mutableStateOf<List<ProfissionalComPerfil>>(emptyList()) }
+    var loadGeral by remember { mutableStateOf(true) }
+    var filtroGeralArea by remember { mutableStateOf("") }
+    var filtroSomentePMP by remember { mutableStateOf(false) }
+    var filtroSomenteUrg by remember { mutableStateOf(false) }
+    var filtroSomenteVer by remember { mutableStateOf(false) }
 
+    // Carregar dados iniciais
     LaunchedEffect(abaAtiva) {
         when (abaAtiva) {
             0 -> if (loadUrgente) {
@@ -962,11 +951,12 @@ fun AbaBuscaCliente(
             2 -> if (loadGeral) {
                 listaGeralBase = getProfissionaisPMPAndroid(somenteUrgente = false, busca = "", aplicarFiltroPMP = false)
                 listaGeral = listaGeralBase
-                loadGeral  = false
+                loadGeral = false
             }
         }
     }
 
+    // Atualizar lista geral quando os filtros mudam
     LaunchedEffect(filtroGeralArea, filtroSomentePMP, filtroSomenteUrg, filtroSomenteVer) {
         listaGeral = listaGeralBase.filter { p ->
             val matchArea = filtroGeralArea.isBlank() ||
@@ -979,261 +969,388 @@ fun AbaBuscaCliente(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // Estado para o LazyColumn colapsável
+    val scrollState = rememberLazyListState()
+    var filtrosExpandidos by remember { mutableStateOf(true) }
+    var ultimoOffset by remember { mutableIntStateOf(0) }
 
-        // ── Fase 3.4: Banner de acesso à Busca Avançada do Estúdio ───────
+    // Detectar rolagem para baixo para colapsar
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(50)
+            val offset = scrollState.firstVisibleItemScrollOffset
+            if (offset > ultimoOffset + 20 && filtrosExpandidos) {
+                filtrosExpandidos = false
+            }
+            ultimoOffset = offset
+        }
+    }
+
+    // ── Renderização por estado de navegação ───────────────────────────
+    when (val state = uiState) {
+
+        is BuscaUiState.Lista -> {
+            LazyColumn(
+                state = scrollState,
+                contentPadding = PaddingValues(bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp)
+            ) {
+                // CABEÇALHO COLAPSÁVEL
+                item {
+                    Column {
+                        if (filtrosExpandidos) {
+                            // Versão expandida: banner do estúdio, TabRow e filtros
+                            if (onBuscaEstudio != null) {
+                                Card(
+                                    onClick = onBuscaEstudio,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(0.dp),
+                                    colors = CardDefaults.cardColors(containerColor = AzulClaro),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp).fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text("🎓", fontSize = 16.sp)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Buscar no Estúdio", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Azul)
+                                            Text("Cursos, PDFs e produtos digitais dos profissionais", fontSize = 11.sp, color = InkMuted)
+                                        }
+                                        Text("→", fontSize = 14.sp, color = Azul, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                            TabRow(
+                                selectedTabIndex = abaAtiva,
+                                containerColor = Surface,
+                                contentColor = Verde,
+                            ) {
+                                listOf("⚡ Urgente", "🏆 PMP", "🔍 Geral").forEachIndexed { idx, label ->
+                                    Tab(
+                                        selected = abaAtiva == idx,
+                                        onClick = { abaAtiva = idx },
+                                        text = {
+                                            Text(
+                                                label,
+                                                fontSize = 13.sp,
+                                                fontWeight = if (abaAtiva == idx) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (abaAtiva == idx) Verde else InkMuted,
+                                            )
+                                        }
+                                    )
+                                }
+                            }
+                            // Filtros conforme aba ativa
+                            FiltrosAba(
+                                abaAtiva = abaAtiva,
+                                filtroUrgente = filtroUrgente,
+                                onFiltroUrgenteChange = { filtroUrgente = it },
+                                filtroPMP = filtroPMP,
+                                onFiltroPMPChange = { filtroPMP = it },
+                                filtroGeralArea = filtroGeralArea,
+                                onFiltroGeralAreaChange = { filtroGeralArea = it },
+                                filtroSomentePMP = filtroSomentePMP,
+                                onFiltroSomentePMPChange = { filtroSomentePMP = it },
+                                filtroSomenteUrg = filtroSomenteUrg,
+                                onFiltroSomenteUrgChange = { filtroSomenteUrg = it },
+                                filtroSomenteVer = filtroSomenteVer,
+                                onFiltroSomenteVerChange = { filtroSomenteVer = it },
+                            )
+                        } else {
+                            // Versão colapsada: apenas banner do estúdio (se existir) + caixa de pesquisa resumida
+                            CabecalhoBuscaClienteColapsado(
+                                onBuscaEstudio = onBuscaEstudio,
+                                abaAtiva = abaAtiva,
+                                filtroTexto = when (abaAtiva) {
+                                    0 -> filtroUrgente
+                                    1 -> filtroPMP
+                                    else -> ""
+                                },
+                                onFiltroTextoChange = { novo ->
+                                    when (abaAtiva) {
+                                        0 -> filtroUrgente = novo
+                                        1 -> filtroPMP = novo
+                                    }
+                                },
+                                onExpandir = { filtrosExpandidos = true }
+                            )
+                        }
+                    }
+                }
+
+                // LISTA DE PROFISSIONAIS (conforme aba ativa)
+                when (abaAtiva) {
+                    0 -> {
+                        val lista = listaUrgente.filter { p ->
+                            filtroUrgente.isBlank() ||
+                                    p.area.contains(filtroUrgente, ignoreCase = true) ||
+                                    (p.perfis?.nome ?: "").contains(filtroUrgente, ignoreCase = true)
+                        }
+                        if (loadUrgente) {
+                            item { LoadingIndicator() }
+                        } else if (lista.isEmpty()) {
+                            item { EmptyBusca("Nenhum profissional urgente agora", "Tente outro termo de busca.") }
+                        } else {
+                            items(lista) { prof ->
+                                CardProfissionalBusca(
+                                    prof = prof,
+                                    mostrarBotaoUrg = true,
+                                    onClickProf = { uiState = BuscaUiState.Perfil(prof.toProfissionalPMP()) },
+                                    onVerEstudio = { uiState = BuscaUiState.Estudio(prof.toProfissionalPMP()) },
+                                    onAgendar = onAgendarRegular,
+                                )
+                            }
+                        }
+                    }
+                    1 -> {
+                        val lista = listaPMP.filter { p ->
+                            filtroPMP.isBlank() ||
+                                    p.area.contains(filtroPMP, ignoreCase = true) ||
+                                    (p.perfis?.nome ?: "").contains(filtroPMP, ignoreCase = true)
+                        }
+                        if (loadPMP) {
+                            item { LoadingIndicator() }
+                        } else if (lista.isEmpty()) {
+                            item { EmptyBusca("Nenhum profissional PMP encontrado", "Tente outro termo de busca.") }
+                        } else {
+                            items(lista) { prof ->
+                                CardProfissionalBusca(
+                                    prof = prof,
+                                    mostrarBotaoUrg = false,
+                                    onClickProf = { uiState = BuscaUiState.Perfil(prof.toProfissionalPMP()) },
+                                    onVerEstudio = { uiState = BuscaUiState.Estudio(prof.toProfissionalPMP()) },
+                                    onAgendar = onAgendarRegular,
+                                )
+                            }
+                        }
+                    }
+                    2 -> {
+                        if (loadGeral) {
+                            item { LoadingIndicator() }
+                        } else if (listaGeral.isEmpty()) {
+                            item { EmptyBusca("Nenhum profissional encontrado", "Tente remover alguns filtros.") }
+                        } else {
+                            items(listaGeral) { prof ->
+                                CardProfissionalBusca(
+                                    prof = prof,
+                                    mostrarBotaoUrg = false,
+                                    onClickProf = { uiState = BuscaUiState.Perfil(prof.toProfissionalPMP()) },
+                                    onVerEstudio = { uiState = BuscaUiState.Estudio(prof.toProfissionalPMP()) },
+                                    onAgendar = onAgendarRegular,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        is BuscaUiState.Perfil -> {
+            val currentProf = state.prof
+            PerfilPublicoScreen(
+                prof = currentProf,
+                onVoltar = { uiState = BuscaUiState.Lista },
+                onAgendar = { tipo ->
+                    AppLogger.info("AbaBuscaCliente", "onAgendar chamado com tipo=$tipo")
+                    uiState = BuscaUiState.Agendamento(currentProf, tipo)
+                },
+                onAgendarModalidade = { modalidadeId ->
+                    AppLogger.info("AbaBuscaCliente", "onAgendarModalidade chamado com modalidadeId=$modalidadeId")
+                    uiState = BuscaUiState.AgendamentoModalidade(currentProf, modalidadeId)
+                },
+                onEstudio = { uiState = BuscaUiState.Estudio(currentProf) },
+            )
+        }
+
+        is BuscaUiState.Agendamento -> {
+            val prof = state.prof
+            val tipo = state.tipo
+            val etapaInicial = if (currentUserId != null) 2 else 1
+            AppLogger.info("AbaBuscaCliente", "Exibindo AgendarScreen para tipo=$tipo, etapaInicial=$etapaInicial")
+            AgendarScreen(
+                prof = prof,
+                tipo = tipo,
+                etapaInicial = etapaInicial,
+                onVoltar = { uiState = BuscaUiState.Perfil(prof) },
+                onConcluido = { uiState = BuscaUiState.Lista },
+                onPagar = { /* navegação de pagamento */ },
+            )
+        }
+
+        is BuscaUiState.Estudio -> {
+            EstudioVitrineScreen(
+                profissionalId = state.prof.supabaseId,
+                onVoltar = { uiState = BuscaUiState.Perfil(state.prof) }
+            )
+        }
+
+        is BuscaUiState.AgendamentoModalidade -> {
+            AgendamentoModalidadeScreen(
+                profissionalId = state.prof.supabaseId,
+                modalidadeId = state.modalidadeId,
+                onVoltar = { uiState = BuscaUiState.Perfil(state.prof) },
+                onAgendado = { uiState = BuscaUiState.Lista },
+                onPagar = { /* navegação para pagamento */ }
+            )
+        }
+    }
+}
+@Composable
+private fun FiltrosAba(
+    abaAtiva: Int,
+    filtroUrgente: String,
+    onFiltroUrgenteChange: (String) -> Unit,
+    filtroPMP: String,
+    onFiltroPMPChange: (String) -> Unit,
+    filtroGeralArea: String,
+    onFiltroGeralAreaChange: (String) -> Unit,
+    filtroSomentePMP: Boolean,
+    onFiltroSomentePMPChange: (Boolean) -> Unit,
+    filtroSomenteUrg: Boolean,
+    onFiltroSomenteUrgChange: (Boolean) -> Unit,
+    filtroSomenteVer: Boolean,
+    onFiltroSomenteVerChange: (Boolean) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Surface)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        when (abaAtiva) {
+            0 -> {
+                OutlinedTextField(
+                    value = filtroUrgente,
+                    onValueChange = onFiltroUrgenteChange,
+                    placeholder = { Text("Tipo de profissional (ex: psicólogo)", fontSize = 12.sp) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde),
+                )
+            }
+            1 -> {
+                OutlinedTextField(
+                    value = filtroPMP,
+                    onValueChange = onFiltroPMPChange,
+                    placeholder = { Text("Tipo de profissional (ex: médico)", fontSize = 12.sp) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde),
+                )
+            }
+            2 -> {
+                OutlinedTextField(
+                    value = filtroGeralArea,
+                    onValueChange = onFiltroGeralAreaChange,
+                    placeholder = { Text("Médico, psicólogo, nutricionista...", fontSize = 12.sp) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilterChip(
+                        selected = filtroSomentePMP,
+                        onClick = { onFiltroSomentePMPChange(!filtroSomentePMP) },
+                        label = { Text("🏆 PMP", fontSize = 11.sp) },
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = DouradoClaro, selectedLabelColor = Dourado),
+                    )
+                    FilterChip(
+                        selected = filtroSomenteVer,
+                        onClick = { onFiltroSomenteVerChange(!filtroSomenteVer) },
+                        label = { Text("✅ Verificado", fontSize = 11.sp) },
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Verde.copy(alpha = 0.15f), selectedLabelColor = Verde),
+                    )
+                    FilterChip(
+                        selected = filtroSomenteUrg,
+                        onClick = { onFiltroSomenteUrgChange(!filtroSomenteUrg) },
+                        label = { Text("⚡ Urgente", fontSize = 11.sp) },
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = UrgenteClaro, selectedLabelColor = Urgente),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CabecalhoBuscaClienteColapsado(
+    onBuscaEstudio: (() -> Unit)?,
+    abaAtiva: Int,
+    filtroTexto: String,
+    onFiltroTextoChange: (String) -> Unit,
+    onExpandir: () -> Unit,
+) {
+    Column {
         if (onBuscaEstudio != null) {
             Card(
-                onClick  = onBuscaEstudio,
+                onClick = onBuscaEstudio,
                 modifier = Modifier.fillMaxWidth(),
-                shape    = RoundedCornerShape(0.dp),
-                colors   = CardDefaults.cardColors(containerColor = AzulClaro),
+                shape = RoundedCornerShape(0.dp),
+                colors = CardDefaults.cardColors(containerColor = AzulClaro),
             ) {
                 Row(
-                    modifier          = Modifier.padding(horizontal = 16.dp, vertical = 10.dp).fillMaxWidth(),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp).fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("🎓", fontSize = 16.sp)
                     Spacer(modifier = Modifier.width(8.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Buscar no Estúdio", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Azul)
-                        Text("Cursos, PDFs e produtos digitais dos profissionais", fontSize = 11.sp, color = InkMuted)
+                        Text("Cursos, materiais", fontSize = 11.sp, color = InkMuted)
                     }
                     Text("→", fontSize = 14.sp, color = Azul, fontWeight = FontWeight.Bold)
                 }
             }
         }
-
-        TabRow(
-            selectedTabIndex = abaAtiva,
-            containerColor   = Surface,
-            contentColor     = Verde,
-        ) {
-            listOf(
-                Triple(0, "⚡ Urgente", UrgenteClaro),
-                Triple(1, "🏆 PMP",     DouradoClaro),
-                Triple(2, "🔍 Geral",   SurfaceWarm),
-            ).forEach { (idx, label, _) ->
-                Tab(
-                    selected = abaAtiva == idx,
-                    onClick  = { abaAtiva = idx },
-                    text     = {
-                        Text(
-                            label,
-                            fontSize   = 13.sp,
-                            fontWeight = if (abaAtiva == idx) FontWeight.Bold else FontWeight.Normal,
-                            color      = if (abaAtiva == idx) Verde else InkMuted,
-                        )
-                    },
-                )
-            }
-        }
-
-        when (abaAtiva) {
-            0 -> {
-                AbaInternaBusca(
-                    descricao = "Profissionais disponíveis agora · respondem em até 45 min",
-                    corBanner = Color(0xFF1A0808),
-                    corTexto  = Color(0xFFFF8A80),
-                    icone     = "⚡",
-                    loading   = loadUrgente,
-                    lista     = listaUrgente.filter { p ->
-                        filtroUrgente.isBlank() ||
-                                p.area.contains(filtroUrgente, ignoreCase = true) ||
-                                (p.perfis?.nome ?: "").contains(filtroUrgente, ignoreCase = true)
-                    },
-                    filtroTexto       = filtroUrgente,
-                    onFiltroChange    = { filtroUrgente = it },
-                    placeholderFiltro = "Tipo de profissional (ex: psicólogo)",
-                    onClickProf       = { profSelecionado = it.toProfissionalPMP() },
-                    onEstudio         = onEstudio,
-                    onAgendar         = onAgendarRegular,
-                    mostrarBotaoUrg   = true,
-                )
-            }
-            1 -> {
-                AbaInternaBusca(
-                    descricao = "Profissionais com Selo de Maestria — avaliação 4★ ou superior",
-                    corBanner = DouradoClaro,
-                    corTexto  = Dourado,
-                    icone     = "🏆",
-                    loading   = loadPMP,
-                    lista     = listaPMP.filter { p ->
-                        filtroPMP.isBlank() ||
-                                p.area.contains(filtroPMP, ignoreCase = true) ||
-                                (p.perfis?.nome ?: "").contains(filtroPMP, ignoreCase = true)
-                    },
-                    filtroTexto       = filtroPMP,
-                    onFiltroChange    = { filtroPMP = it },
-                    placeholderFiltro = "Tipo de profissional (ex: médico)",
-                    onClickProf       = { profSelecionado = it.toProfissionalPMP() },
-                    onEstudio         = onEstudio,
-                    onAgendar         = onAgendarRegular,
-                    mostrarBotaoUrg   = false,
-                )
-            }
-            2 -> {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Surface)
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        OutlinedTextField(
-                            value         = filtroGeralArea,
-                            onValueChange = { filtroGeralArea = it },
-                            placeholder   = { Text("Médico, psicólogo, nutricionista...", fontSize = 12.sp) },
-                            singleLine    = true,
-                            modifier      = Modifier.fillMaxWidth(),
-                            shape         = RoundedCornerShape(8.dp),
-                            colors        = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde),
-                        )
-                        Row(
-                            modifier              = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            FilterChip(
-                                selected = filtroSomentePMP,
-                                onClick  = { filtroSomentePMP = !filtroSomentePMP },
-                                label    = { Text("🏆 PMP", fontSize = 11.sp) },
-                                colors   = FilterChipDefaults.filterChipColors(selectedContainerColor = DouradoClaro, selectedLabelColor = Dourado),
-                            )
-                            FilterChip(
-                                selected = filtroSomenteVer,
-                                onClick  = { filtroSomenteVer = !filtroSomenteVer },
-                                label    = { Text("✅ Verificado", fontSize = 11.sp) },
-                                colors   = FilterChipDefaults.filterChipColors(selectedContainerColor = Verde.copy(alpha = 0.15f), selectedLabelColor = Verde),
-                            )
-                            FilterChip(
-                                selected = filtroSomenteUrg,
-                                onClick  = { filtroSomenteUrg = !filtroSomenteUrg },
-                                label    = { Text("⚡ Urgente", fontSize = 11.sp) },
-                                colors   = FilterChipDefaults.filterChipColors(selectedContainerColor = UrgenteClaro, selectedLabelColor = Urgente),
-                            )
-                        }
-                    }
-                    HorizontalDivider(color = SurfaceOff)
-
-                    if (loadGeral) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = Verde)
-                        }
-                    } else if (listaGeral.isEmpty()) {
-                        EmptyBusca("Nenhum profissional encontrado", "Tente remover alguns filtros.")
-                    } else {
-                        LazyColumn(
-                            modifier            = Modifier.fillMaxSize(),
-                            contentPadding      = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            item {
-                                Text(
-                                    "${listaGeral.size} profissional${if (listaGeral.size != 1) "is" else ""} encontrado${if (listaGeral.size != 1) "s" else ""}",
-                                    fontSize = 12.sp, color = InkMuted,
-                                )
-                            }
-                            items(listaGeral) { prof ->
-                                CardProfissionalBusca(
-                                    prof            = prof,
-                                    mostrarBotaoUrg = false,
-                                    onClickProf     = { profSelecionado = prof.toProfissionalPMP() },
-                                    onEstudio       = onEstudio,
-                                    onAgendar       = onAgendarRegular,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ── SUB-COMPOSABLE: abas Urgente e PMP ─────────────────
-@Composable
-private fun AbaInternaBusca(
-    descricao:         String,
-    corBanner:         Color,
-    corTexto:          Color,
-    icone:             String,
-    loading:           Boolean,
-    lista:             List<ProfissionalComPerfil>,
-    filtroTexto:       String,
-    onFiltroChange:    (String) -> Unit,
-    placeholderFiltro: String,
-    onClickProf:       (ProfissionalComPerfil) -> Unit,
-    onEstudio:         ((String) -> Unit)?,
-    onAgendar:         ((String, String) -> Unit)?,
-    mostrarBotaoUrg:   Boolean,
-) {
-    Column(modifier = Modifier.fillMaxSize()) {
         Row(
-            modifier          = Modifier
+            modifier = Modifier
                 .fillMaxWidth()
-                .background(corBanner)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .background(Surface)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(icone, fontSize = 16.sp)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(descricao, fontSize = 12.sp, color = corTexto, lineHeight = 16.sp)
-        }
-        Box(modifier = Modifier.fillMaxWidth().background(Surface).padding(horizontal = 16.dp, vertical = 8.dp)) {
             OutlinedTextField(
-                value         = filtroTexto,
-                onValueChange = onFiltroChange,
-                placeholder   = { Text(placeholderFiltro, fontSize = 12.sp) },
-                singleLine    = true,
-                modifier      = Modifier.fillMaxWidth(),
-                shape         = RoundedCornerShape(8.dp),
-                trailingIcon  = {
-                    if (filtroTexto.isNotBlank()) {
-                        TextButton(onClick = { onFiltroChange("") }) {
-                            Text("✕", fontSize = 12.sp, color = InkMuted)
-                        }
-                    }
-                },
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde),
+                value = filtroTexto,
+                onValueChange = onFiltroTextoChange,
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("Buscar...", fontSize = 13.sp) },
+                shape = RoundedCornerShape(20.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Verde,
+                    unfocusedBorderColor = Color(0xFFE0E0E0),
+                ),
+                singleLine = true,
             )
-        }
-        HorizontalDivider(color = SurfaceOff)
-
-        if (loading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Verde)
-            }
-        } else if (lista.isEmpty()) {
-            EmptyBusca(
-                titulo    = if (mostrarBotaoUrg) "Nenhum profissional urgente agora" else "Nenhum profissional PMP encontrado",
-                subtitulo = "Tente outro termo de busca.",
-            )
-        } else {
-            LazyColumn(
-                modifier            = Modifier.fillMaxSize(),
-                contentPadding      = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                item {
-                    Text(
-                        "${lista.size} profissional${if (lista.size != 1) "is" else ""} encontrado${if (lista.size != 1) "s" else ""}",
-                        fontSize = 12.sp, color = InkMuted,
-                    )
-                }
-                items(lista) { prof ->
-                    CardProfissionalBusca(
-                        prof            = prof,
-                        mostrarBotaoUrg = mostrarBotaoUrg,
-                        onClickProf     = { onClickProf(prof) },
-                        onEstudio       = onEstudio,
-                        onAgendar       = onAgendar,
-                    )
-                }
+            Spacer(modifier = Modifier.width(8.dp))
+            IconButton(onClick = onExpandir) {
+                Text("▼", fontSize = 16.sp, color = InkMuted)
             }
         }
     }
 }
+
+@Composable
+private fun LoadingIndicator() {
+    Box(
+        modifier = Modifier.fillMaxWidth().padding(40.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator(color = Verde)
+            Spacer(modifier = Modifier.height(12.dp))
+            Text("Carregando...", fontSize = 13.sp, color = InkMuted)
+        }
+    }
+}
+
 
 // ── CARD DE PROFISSIONAL ──────────────────────────────
 @Composable
@@ -1241,7 +1358,7 @@ private fun CardProfissionalBusca(
     prof:            ProfissionalComPerfil,
     mostrarBotaoUrg: Boolean,
     onClickProf:     () -> Unit,
-    onEstudio:       ((String) -> Unit)?,
+    onVerEstudio:    (() -> Unit)?,
     onAgendar:       ((String, String) -> Unit)?,
 ) {
     val nome     = prof.perfis?.nome ?: "Profissional"
@@ -1296,7 +1413,7 @@ private fun CardProfissionalBusca(
                 }
             }
 
-            val temAcoes = onAgendar != null || onEstudio != null || mostrarBotaoUrg
+            val temAcoes = onAgendar != null || onVerEstudio != null || mostrarBotaoUrg
             if (temAcoes) {
                 Spacer(modifier = Modifier.height(10.dp))
                 HorizontalDivider(color = SurfaceOff)
@@ -1320,9 +1437,9 @@ private fun CardProfissionalBusca(
                             Text("📅 Agendar", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
-                    if (onEstudio != null) {
+                    if (onVerEstudio != null) {
                         TextButton(
-                            onClick = { onEstudio(prof.id) },
+                            onClick = onVerEstudio,
                             colors  = ButtonDefaults.textButtonColors(contentColor = Azul),
                         ) {
                             Text("Ver Estúdio →", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -1334,19 +1451,6 @@ private fun CardProfissionalBusca(
     }
 }
 
-@Composable
-private fun CardProfissionalReal(
-    prof:      ProfissionalComPerfil,
-    onClick:   () -> Unit,
-    onEstudio: ((String) -> Unit)? = null,
-    onAgendar: ((String, String) -> Unit)? = null,
-) = CardProfissionalBusca(
-    prof            = prof,
-    mostrarBotaoUrg = false,
-    onClickProf     = onClick,
-    onEstudio       = onEstudio,
-    onAgendar       = onAgendar,
-)
 
 @Composable
 private fun EmptyBusca(titulo: String, subtitulo: String) {

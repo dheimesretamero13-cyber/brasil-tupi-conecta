@@ -81,6 +81,7 @@ data class PerfilUsuario(
     val foto_url: String? = null,
     val capa_url: String? = null,
     @SerialName("criado_em") val criadoEm: String? = null,
+    val valor_consulta_urgente: Double? = null,
 )
 
 @Serializable
@@ -106,6 +107,7 @@ data class ProfissionalComPerfil(
     val valor_normal: Int = 80,
     val valor_urgente: Int? = null,
     val verificado: Boolean = false,
+    @SerialName("total_atendimentos") val total_atendimentos: Int? = null,
     val perfis: PerfilNested? = null,
     @SerialName("avaliacao_media") val avaliacao_media: Double? = null,
 )
@@ -186,6 +188,10 @@ data class ProfissionalPMP(
     val conselho: String = "",
     val descricao: String = "",
     val especialidades: List<String> = emptyList(),
+    val fotoUrl: String? = null,
+    val capaUrl: String? = null,
+    val verificado: Boolean = false,
+    val pmp: Boolean = false,
 )
 
 // ── CURSO ─────────────────────────────────────────────────────────────
@@ -498,6 +504,7 @@ private data class GravarKycDocumentoRequest(
     val mime_type: String,
     val status: String = "pending",
 )
+
 
 // ── HELPERS ───────────────────────────────────────────────────────────
 private fun parseTimestamptz(raw: String?): Pair<String, String> {
@@ -813,7 +820,7 @@ suspend fun getProfissionaisPMPAndroid(
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Accept", "application/json")
-            parameter("select", "*, perfis(nome,email,cidade,estado,foto_url,capa_url)")
+            parameter("select", "*, perfis(nome,email,cidade,estado,foto_url,capa_url), verificado, is_pmp")
             if (aplicarFiltroPMP) {
                 parameter("is_pmp",       "eq.true")
                 parameter("verificado",   "eq.true")
@@ -1007,6 +1014,7 @@ suspend fun atualizarDisponibilidadeUrgente(profissionalId: String, disponivel: 
 suspend fun criarAgendamento(
     clienteId: String, profId: String, data: String, hora: String,
     tipo: String, valor: Double,
+    status: String = "agendada",
 ): String? {
     return try {
         val partes  = data.split("/")
@@ -1025,6 +1033,7 @@ suspend fun criarAgendamento(
                 cliente_id      = clienteId,
                 profissional_id = profId,
                 tipo            = tipo,
+                status          = status,
                 data_agendada   = dataIso,
                 valor           = valor.toInt(),
             ))

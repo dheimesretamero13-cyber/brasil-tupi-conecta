@@ -9,15 +9,18 @@ fun ProfissionalComPerfil.toProfissionalPMP(): ProfissionalPMP {
         nome              = nomeProf,
         area              = this.area,
         cidade            = buildCidade(this.perfis?.cidade, this.perfis?.estado),
-        // Avaliação real vinda do banco (média das notas). Se ainda não houver avaliações, exibe 0.0.
         avaliacao         = this.avaliacao_media ?: 0.0,
-        atendimentos      = this.credibilidade / 2,
+        atendimentos      = this.total_atendimentos ?: (this.credibilidade / 2), // usa campo real se disponível
         disponivelUrgente = this.disponivel_urgente,
         valorNormal       = this.valor_normal,
         valorUrgente      = this.valor_urgente,
         conselho          = listOfNotNull(this.conselho, this.numero_conselho).joinToString(" "),
         descricao         = this.descricao.orEmpty(),
         especialidades    = listOf(this.area),
+        fotoUrl           = this.perfis?.foto_url,
+        capaUrl           = this.perfis?.capa_url,
+        verificado        = this.verificado,
+        pmp               = this.is_pmp,
     )
 }
 

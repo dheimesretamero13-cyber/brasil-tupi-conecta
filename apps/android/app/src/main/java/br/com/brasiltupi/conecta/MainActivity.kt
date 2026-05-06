@@ -98,7 +98,11 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
     var agendamentoRegularIdPagamento  by remember { mutableStateOf("") }
     var destinoAposLegal          by remember { mutableStateOf("") }
     var kycAprovadoProf           by remember { mutableStateOf(false) }
-
+    var agendamentoRegularIdAtivo by remember { mutableStateOf("") }
+    var agendamentoModalidadeId   by remember { mutableStateOf("") }
+    var agendamentoModalidadeProfId by remember { mutableStateOf("") }
+    var estudioOrigem by remember { mutableStateOf("busca") }   // "busca" ou "dashboard-cliente"
+    var agendamentoModalidadeOrigem by remember { mutableStateOf("busca") }
 
 
     val activity = context as? android.app.Activity
@@ -270,6 +274,7 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             )
         }
 
+
         "termos-uso" -> TermosUsoScreen(
             onVoltar = { tela = "legal-onboarding" },
         )
@@ -353,6 +358,13 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
                 tela = if (currentUserId != null) "onboarding-check" else "welcome"
             },
         )
+        "sala-chamada-regular" -> VideoCallScreen(
+            urgenciaId  = "",  // não é urgência
+            onEncerrada = { tela = "dashboard-profissional" },
+            onVoltar    = { tela = "dashboard-profissional" },
+            // NOVO PARÂMETRO: permite que VideoCallScreen use agendamento regular
+            agendamentoRegularId = agendamentoRegularIdAtivo,
+        )
 
         "onboarding-check" -> {
             var destino by remember { mutableStateOf("") }
@@ -395,15 +407,19 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
                 StreamVideoRepository.solicitarToken(urgenciaId)
                 tela = "sala-chamada"
             },
-            onDisputa  = { tela = "disputas" },
-            onReferral = { tela = "referral-profissional" },
-            onKycStatusChanged = { novoStatus -> kycAprovadoProf = novoStatus }
-
+            onDisputa        = { tela = "disputas" },
+            onReferral       = { tela = "referral-profissional" },
+            onKycStatusChanged = { novoStatus -> kycAprovadoProf = novoStatus },
+            // NOVO: callback para iniciar chamada de agendamento regular
+            onIniciarChamadaRegular = { agendamentoRegularId ->
+                agendamentoRegularIdAtivo = agendamentoRegularId
+                StreamVideoRepository.solicitarTokenRegular(agendamentoRegularId) // nova função
+                tela = "sala-chamada-regular"
+            }
         )
 
         "dashboard-cliente" -> DashboardClienteScreen(
             onSair       = { tela = "welcome" },
-            onEstudio    = { profId -> estudioProfId = profId; tela = "estudio-vitrine" },
             onPerfil     = { tela = "perfil-cliente" },
             onAgendar    = { profId, profNome ->
                 agendamentoProfId   = profId
@@ -421,6 +437,9 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
                 tela = "suporte"
             },
             onBiblioteca = { tela = "biblioteca" },
+            onReferral   = { tela = "referral" },
+            onDisputa    = { tela = "disputas" },
+            onBuscaEstudio = { tela = "busca-conteudo" },
         )
 
         "perfil-profissional" -> PerfilProfissionalScreen(
@@ -453,6 +472,18 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             },
         )
 
+        "agendamento-modalidade" -> AgendamentoModalidadeScreen(
+            profissionalId = agendamentoModalidadeProfId,
+            modalidadeId   = agendamentoModalidadeId,
+            onVoltar       = { tela = agendamentoModalidadeOrigem },
+            onAgendado     = { tela = "dashboard-cliente" },
+            onPagar        = { agendId ->
+                agendamentoRegularIdPagamento = agendId
+                PagamentoRepository.criarPreferenciaRegular(agendId)
+                tela = "pagamento-regular"
+            },
+        )
+
         "pagamento-regular" -> PagamentoScreen(
             urgenciaId   = agendamentoRegularIdPagamento,
             onConfirmado = { tela = "dashboard-cliente" },
@@ -461,8 +492,29 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
 
         "busca" -> BuscaScreen(
             onVoltar  = { tela = "welcome" },
-            onEstudio = { profId -> estudioProfId = profId; tela = "estudio-vitrine" },
-            onPagar   = { tela = "pagamento" },
+            onEstudio = { profId ->
+                estudioProfId = profId
+                estudioOrigem = "busca"
+                tela = "estudio-vitrine"
+            },
+            onPagar = { tela = "pagamento" },
+            onAgendarModalidade = { profissionalId, nome, modalidadeId ->
+                agendamentoModalidadeProfId = profissionalId
+                agendamentoModalidadeId     = modalidadeId
+                tela = "agendamento-modalidade"
+            },
+            onPerfil   = { tela = "perfil-cliente" },
+            onReferral = { tela = "referral" },
+            onSuporte  = { tela = "suporte" },
+            onSair     = {
+                scope.launch { signOutAndroid() }
+                tela = "welcome"
+            },
+            onIniciarChamadaUrgente = { consultaId ->
+                // Navegar diretamente para a VideoCallScreen com o ID da consulta urgente
+                urgenciaIdAtiva = consultaId
+                tela = "sala-chamada"
+            }
         )
 
         "estudio-dashboard" -> EstudioDashboardScreen(
@@ -478,7 +530,7 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
 
         "estudio-vitrine" -> EstudioVitrineScreen(
             profissionalId = estudioProfId,
-            onVoltar       = { tela = "busca" },
+            onVoltar       = { tela = estudioOrigem },
         )
 
         "player-video" -> VideoPlayerScreen(
@@ -572,6 +624,7 @@ fun DashboardProfissionalComRealtime(
     onReferral: () -> Unit = {},
     onDisputa: () -> Unit = {},
     onKycStatusChanged: ((Boolean) -> Unit)? = null,
+    onIniciarChamadaRegular: (agendamentoRegularId: String) -> Unit = {},
 ) {
     var urgenciaAtiva           by remember { mutableStateOf<Urgencia?>(null) }
     var feedbackMsg             by remember { mutableStateOf("") }
@@ -643,6 +696,7 @@ fun DashboardProfissionalComRealtime(
             onReferral = onReferral,
             onDisputa  = onDisputa,
             onKycStatusChanged = onKycStatusChanged,
+            onIniciarChamadaRegular = onIniciarChamadaRegular,
         )
         when (statusRealtime) {
             StatusRealtime.INSTAVEL -> BannerRealtimeInstavel(offline = false)
