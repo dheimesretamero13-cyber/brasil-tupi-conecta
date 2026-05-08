@@ -28,6 +28,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -48,6 +49,7 @@ import io.getstream.video.android.core.Call
 import io.getstream.video.android.core.StreamVideo
 import io.getstream.video.android.core.StreamVideoBuilder
 import io.getstream.video.android.model.User
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val TAG_SCREEN = "VideoCallScreen"
@@ -70,13 +72,11 @@ fun VideoCallScreen(
     val scope          = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // ── Determinar qual ID usar para token —————————————————————————————————
+    // ── Determinar qual ID usar para token ─────────────────────────────────
     val callIdParaToken = if (agendamentoRegularId.isNotEmpty()) agendamentoRegularId else urgenciaId
 
     // ── Estado observado do repositório ──────────────────────────────────
     val callState by StreamVideoRepository.callState.collectAsState()
-
-    // ...existing code...
 
     // ── Referências ao SDK — gerenciadas pelo DisposableEffect ────────────
     var streamVideo by remember { mutableStateOf<StreamVideo?>(null) }
@@ -87,6 +87,17 @@ fun VideoCallScreen(
     var permissoesNegadas       by remember { mutableStateOf(false) }
     var mostrarExplicacaoPermissao by remember { mutableStateOf(false) }
 
+    // ── Estados do cronômetro (apenas para chamadas urgentes) ────────────
+    val isUrgente = agendamentoRegularId.isEmpty() && urgenciaId.isNotEmpty()
+    var tempoRestanteSegundos by remember { mutableIntStateOf(900) }   // 15 minutos
+    var minutosExcedentes by remember { mutableIntStateOf(0) }
+    var alerta12MinMostrado by remember { mutableStateOf(false) }
+    var dialogoProlongamentoCliente by remember { mutableStateOf(false) }
+    var dialogoAutorizacaoProfissional by remember { mutableStateOf(false) }
+    var prolongamentoAutorizado by remember { mutableStateOf(false) }
+    var valorMinutoExtra by remember { mutableStateOf<Double?>(null) }
+    var cronometroAtivo by remember { mutableStateOf(false) }
+
     // ── Launcher de permissões ────────────────────────────────────────────
     val permissaoLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -96,7 +107,6 @@ fun VideoCallScreen(
         when {
             cameraOk && audioOk -> {
                 permissoesConcedidas = true
-                // Permissões concedidas — iniciar fluxo de token
                 if (agendamentoRegularId.isNotEmpty()) {
                     StreamVideoRepository.solicitarTokenRegular(agendamentoRegularId)
                 } else {
@@ -120,12 +130,11 @@ fun VideoCallScreen(
         )
     }
 
-    // ── Orquestrador de estados do repositório ────────────────────────────
+    // ── Orquestrador de estados do repositório + cronômetro ──────────────
     LaunchedEffect(callState) {
         when (val estado = callState) {
 
             is VideoCallState.TokenObtido -> {
-                // Inicializar StreamVideoClient e executar join()
                 inicializarEEntrar(
                     context     = context,
                     token       = estado.token,
@@ -137,7 +146,6 @@ fun VideoCallScreen(
             }
 
             is VideoCallState.TokenExpirado -> {
-                // Token expirou durante chamada ativa — renovar automaticamente
                 AppLogger.aviso(TAG_SCREEN, "Token expirado. Solicitando renovacao.")
                 if (agendamentoRegularId.isNotEmpty()) {
                     StreamVideoRepository.solicitarTokenRegular(agendamentoRegularId)
@@ -151,10 +159,43 @@ fun VideoCallScreen(
             }
 
             is VideoCallState.EmChamada -> {
-                // PA-05 — Analytics: first_call com guard DataStore
+                // Buscar valor por minuto extra para urgências
+                if (isUrgente && valorMinutoExtra == null) {
+                    scope.launch {
+                        valorMinutoExtra = obterValorMinutoExtrapolado(urgenciaId)
+                    }
+                }
+                // PA-05 — Analytics: first_call
                 scope.launch {
                     if (onboardingVm?.registrarPrimeiraChamada() == true) {
                         AnalyticsTracker.firstCall(urgenciaId)
+                    }
+                }
+
+                // Iniciar cronômetro da chamada urgente
+                if (isUrgente && !cronometroAtivo) {
+                    cronometroAtivo = true
+                    scope.launch {
+                        tempoRestanteSegundos = 900
+                        minutosExcedentes = 0
+                        alerta12MinMostrado = false
+                        prolongamentoAutorizado = false
+                        dialogoProlongamentoCliente = false
+                        dialogoAutorizacaoProfissional = false
+
+                        while (tempoRestanteSegundos > 0) {
+                            delay(1000L)
+                            tempoRestanteSegundos--
+
+                            // Alerta aos 12 minutos (180 segundos restantes)
+                            if (tempoRestanteSegundos == 180 && !alerta12MinMostrado) {
+                                alerta12MinMostrado = true
+                            }
+                        }
+                        // Tempo esgotado
+                        if (!prolongamentoAutorizado) {
+                            dialogoProlongamentoCliente = true
+                        }
                     }
                 }
             }
@@ -163,15 +204,22 @@ fun VideoCallScreen(
         }
     }
 
+    // ── Contagem de minutos excedentes após prolongamento autorizado ────
+    LaunchedEffect(prolongamentoAutorizado) {
+        if (prolongamentoAutorizado) {
+            dialogoProlongamentoCliente = false
+            dialogoAutorizacaoProfissional = false
+            while (prolongamentoAutorizado) {
+                delay(60_000L) // 1 minuto
+                minutosExcedentes++
+            }
+        }
+    }
+
     // ── DisposableEffect — garantia de cleanup no ciclo de vida ──────────
-    // Executa leave() + cleanup() quando:
-    //   • O Composable sair da composição (navegação)
-    //   • O app for para background (ON_STOP)
-    //   • A Activity for destruída
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                // App em background — encerrar chamada
                 scope.launch {
                     encerrarChamadaSeguro(
                         streamVideo = streamVideo,
@@ -184,7 +232,6 @@ fun VideoCallScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            // Cleanup ao sair do Composable
             scope.launch {
                 encerrarChamadaSeguro(
                     streamVideo = streamVideo,
@@ -203,7 +250,6 @@ fun VideoCallScreen(
     ) {
         when (val estado = callState) {
 
-            // Permissão solicitada / token sendo obtido / SDK inicializando
             is VideoCallState.Idle,
             is VideoCallState.SolicitandoToken,
             is VideoCallState.TokenObtido,
@@ -225,9 +271,6 @@ fun VideoCallScreen(
                         call     = call,
                         modifier = Modifier.fillMaxSize(),
                         onCallAction = { action ->
-                            // O Stream SDK trata mute, câmera, flip via DefaultOnCallActionHandler
-                            // internamente quando não sobrescrevemos. Aqui interceptamos apenas
-                            // LeaveCall para garantir nosso cleanup + notificação ao repositório.
                             val isLeave = action.javaClass.simpleName
                                 .contains("Leave", ignoreCase = true)
                             if (isLeave) {
@@ -239,25 +282,40 @@ fun VideoCallScreen(
                                     )
                                 }
                             } else {
-                                // Delegar para o handler padrão do SDK
                                 DefaultOnCallActionHandler.onCallAction(call, action)
                             }
                         },
                     )
                 } ?: LoadingChamada("Carregando vídeo...")
+
+                // Indicador de tempo para chamadas urgentes
+                if (isUrgente) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 80.dp)
+                    ) {
+                        Text(
+                            text = formatarTempo(tempoRestanteSegundos + minutosExcedentes * 60),
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
+                }
             }
 
-            // Reconectando após token expirado
             is VideoCallState.TokenExpirado -> {
                 LoadingChamada("Renovando sessão...")
             }
 
-            // Chamada encerrada — tratado no LaunchedEffect acima (onEncerrada())
             is VideoCallState.Encerrada -> {
                 LoadingChamada("Encerrando chamada...")
             }
 
-            // Erro — exibir diálogo e voltar
             is VideoCallState.Erro -> {
                 ErroCallDialog(
                     motivo   = estado.motivo,
@@ -269,7 +327,7 @@ fun VideoCallScreen(
             }
         }
 
-        // Diálogo de permissão negada — sobrepõe qualquer estado
+        // Diálogo de permissão negada
         if (mostrarExplicacaoPermissao) {
             PermissaoNegadaDialog(
                 onConfirmar = {
@@ -278,12 +336,139 @@ fun VideoCallScreen(
                 }
             )
         }
+
+        // ── Alerta 12 minutos ──────────────────────────────────────────
+        if (alerta12MinMostrado && tempoRestanteSegundos <= 180 && tempoRestanteSegundos > 0) {
+            LaunchedEffect(Unit) {
+                delay(5_000)
+                alerta12MinMostrado = false
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 140.dp)
+                    .background(Color(0xFFFFA000), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    "⏰ Faltam ${tempoRestanteSegundos / 60} min!",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+            }
+        }
+
+        // ── Diálogo de prolongamento (cliente) ─────────────────────────
+        if (dialogoProlongamentoCliente) {
+            AlertDialog(
+                onDismissRequest = { },
+                title = { Text("Tempo esgotado", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column {
+                        Text("Os 15 minutos da consulta urgente acabaram.")
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (valorMinutoExtra != null && valorMinutoExtra!! > 0.0) {
+                            Text(
+                                "Valor por minuto adicional: R$ ${"%.2f".format(valorMinutoExtra!!)}",
+                                fontWeight = FontWeight.SemiBold,
+                                color = Urgente
+                            )
+                            Text("Deseja continuar?")
+                        } else {
+                            Text("O profissional não definiu valor para minuto extra. Entre em contato.")
+                        }
+                    }
+                },
+                confirmButton = {
+                    if (valorMinutoExtra != null && valorMinutoExtra!! > 0.0) {
+                        Button(
+                            onClick = {
+                                dialogoProlongamentoCliente = false
+                                scope.launch {
+                                    try {
+                                        activeCall?.sendCustomEvent(
+                                            mapOf(
+                                                "type" to "solicitar_prolongamento",
+                                                "valorMinutoExtra" to valorMinutoExtra.toString()
+                                            )
+                                        )
+                                    } catch (e: Exception) {
+                                        AppLogger.aviso(TAG_SCREEN, "Falha ao enviar solicitação de prolongamento: ${e.message}")
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Verde)
+                        ) {
+                            Text("Continuar (cobrado)", color = Color.White)
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        dialogoProlongamentoCliente = false
+                        scope.launch {
+                            encerrarChamadaSeguro(streamVideo, activeCall, urgenciaId)
+                        }
+                    }) {
+                        Text("Encerrar chamada")
+                    }
+                }
+            )
+        }
+
+        // ── Diálogo de autorização do profissional ──────────────────────
+        if (dialogoAutorizacaoProfissional) {
+            AlertDialog(
+                onDismissRequest = { },
+                title = { Text("Solicitação de prolongamento", fontWeight = FontWeight.Bold) },
+                text = {
+                    Text("O cliente deseja continuar a consulta. Será cobrado por minuto adicional.")
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            dialogoAutorizacaoProfissional = false
+                            prolongamentoAutorizado = true
+                            scope.launch {
+                                try {
+                                    activeCall?.sendCustomEvent(
+                                        mapOf("type" to "autorizar_prolongamento")
+                                    )
+                                } catch (e: Exception) {
+                                    AppLogger.aviso(TAG_SCREEN, "Falha ao autorizar prolongamento: ${e.message}")
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Verde)
+                    ) {
+                        Text("Autorizar", color = Color.White)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        dialogoAutorizacaoProfissional = false
+                        scope.launch {
+                            try {
+                                activeCall?.sendCustomEvent(
+                                    mapOf("type" to "recusar_prolongamento")
+                                )
+                            } catch (e: Exception) {
+                                AppLogger.aviso(TAG_SCREEN, "Falha ao recusar prolongamento: ${e.message}")
+                            }
+                            encerrarChamadaSeguro(streamVideo, activeCall, urgenciaId)
+                        }
+                    }) {
+                        Text("Recusar")
+                    }
+                }
+            )
+        }
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // INICIALIZAR SDK E ENTRAR NA CHAMADA
-// Separado do Composable para manter o LaunchedEffect limpo.
 // ═══════════════════════════════════════════════════════════════════════════
 
 private suspend fun inicializarEEntrar(
@@ -297,12 +482,10 @@ private suspend fun inicializarEEntrar(
     try {
         AppLogger.info(TAG_SCREEN, "Inicializando StreamVideo para user=$userId call=$callId")
 
-        // Encerrar instância anterior se existir (troca de token)
         if (StreamVideo.isInstalled) {
             StreamVideo.instance().cleanup()
         }
 
-        // Inicializar cliente com token do backend — sem segredo no app
         val sv = StreamVideoBuilder(
             context = context,
             apiKey  = STREAM_API_KEY,
@@ -314,14 +497,11 @@ private suspend fun inicializarEEntrar(
         AppLogger.chave("stream_user_id", userId)
         AppLogger.chave("stream_call_id", callId)
 
-        // Obter referência à call — o callId é o urgencia_id
         val call = sv.call(type = "default", id = callId)
         onCall(call)
 
-        // Notificar repositório que estamos conectando (atualiza StateFlow)
         StreamVideoRepository.notificarConectando(callId)
 
-        // Executar join() — create=false pois a sala é criada pelo backend
         val resultado = call.join(create = false)
 
         resultado.onSuccess {
@@ -338,13 +518,11 @@ private suspend fun inicializarEEntrar(
                 RuntimeException(mensagem),
             )
 
-            // Detectar expiração de token (erro 401 do Stream)
             val isTokenExpirado = mensagem.contains("401") ||
                     mensagem.contains("unauthorized", ignoreCase = true)
 
             if (isTokenExpirado) {
                 AppLogger.aviso(TAG_SCREEN, "Token expirado detectado no join()")
-                // Repositório emite TokenExpirado → LaunchedEffect solicita renovação
                 StreamVideoRepository.notificarErroChamada(
                     motivo     = "Sessão expirada. Renovando...",
                     tipo       = TipoErroVideo.TOKEN_NEGADO,
@@ -371,8 +549,6 @@ private suspend fun inicializarEEntrar(
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ENCERRAR CHAMADA COM SEGURANÇA
-// Chamado tanto pelo DisposableEffect quanto pelo botão de encerrar.
-// Idempotente — seguro chamar múltiplas vezes.
 // ═══════════════════════════════════════════════════════════════════════════
 
 private suspend fun encerrarChamadaSeguro(
@@ -483,4 +659,11 @@ private fun PermissaoNegadaDialog(onConfirmar: () -> Unit) {
             }
         },
     )
+}
+
+// ── Formatar tempo (mm:ss) ────────────────────────────────────────────────
+private fun formatarTempo(totalSegundos: Int): String {
+    val minutos = totalSegundos / 60
+    val segundos = totalSegundos % 60
+    return "%02d:%02d".format(minutos, segundos)
 }

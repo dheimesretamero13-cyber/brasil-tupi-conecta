@@ -23,6 +23,11 @@ import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.brasiltupi.conecta.AbaUrgenteCompartilhada
+import br.com.brasiltupi.conecta.formatarMoeda
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
+import kotlinx.serialization.json.Json
 // ── TELA PRINCIPAL ────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -221,6 +226,8 @@ fun DashboardProfissionalScreen(
                         onReferral         = onReferral,
                         onKyc              = onKyc,
                         kycAprovado        = kycAprovado,
+                        isPmp              = isPmp,
+                        onDisponibilidadeUrgenteChanged = { nova -> disponivelUrgente = nova },
                     )
                 }
                 "atendimentos"  -> {
@@ -231,8 +238,8 @@ fun DashboardProfissionalScreen(
                     )
                 }
                 "urgente"       -> {
-                    // Estado local para o valor da urgência (buscar do perfil)
                     var valorUrgente by remember { mutableStateOf<Double?>(null) }
+                    var valorMinutoExtrapolado by remember { mutableStateOf<Double?>(null) }   // NOVO
                     var carregandoValor by remember { mutableStateOf(true) }
                     var perfilProfissional by remember { mutableStateOf<ProfissionalComPerfil?>(null) }
 
@@ -240,46 +247,34 @@ fun DashboardProfissionalScreen(
                         val uid = currentUserId ?: return@LaunchedEffect
                         val perfil = getMeuPerfilProfissional(uid)
                         perfilProfissional = perfil
-                        // O campo real é valor_urgente: Int? -> convertemos para Double?
                         valorUrgente = perfil?.valor_urgente?.toDouble()
+                        valorMinutoExtrapolado = perfil?.valorMinutoExtrapolado   // NOVO
                         carregandoValor = false
                     }
 
                     if (carregandoValor) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
                             CircularProgressIndicator(color = Verde)
                         }
                     } else {
                         AbaUrgenteCompartilhada(
                             disponivelInicial = disponivelUrgente,
-                            userId            = currentUserId ?: "",
-                            consultas         = consultas,
-                            kycAprovado       = kycAprovado,
-                            onKyc             = onKyc,
+                            userId = currentUserId ?: "",
+                            consultas = consultas,
+                            kycAprovado = kycAprovado,
+                            onKyc = onKyc,
                             mostrarGuiaChamada = true,
                             valorUrgenteAtual = valorUrgente,
+                            valorMinutoExtrapoladoAtual = valorMinutoExtrapolado,   // NOVO
                             onSalvarValorUrgente = { novoValorDouble ->
-                                val uid = currentUserId ?: return@AbaUrgenteCompartilhada
-                                val novoValorInt = novoValorDouble.toInt()
-                                val perfilAtual = perfilProfissional ?: return@AbaUrgenteCompartilhada
-                                scope.launch {
-                                    // Usa a função REAL que já existe no SupabaseClient
-                                    val sucesso = atualizarPerfilProfissional(
-                                        userId = uid,
-                                        bio = perfilAtual.descricao ?: "",
-                                        area = perfilAtual.area,
-                                        conselho = perfilAtual.conselho ?: "",
-                                        numeroConselho = perfilAtual.numero_conselho ?: "",
-                                        precoNormal = perfilAtual.valor_normal,
-                                        precoUrgente = novoValorInt
-                                    )
-                                    if (sucesso) {
-                                        valorUrgente = novoValorDouble
-                                        // Atualiza também o perfil local para manter consistência
-                                        perfilProfissional = perfilAtual.copy(valor_urgente = novoValorInt)
-                                    }
-                                }
-                            }
+                                valorUrgente = novoValorDouble
+                            },
+                            onSalvarValorMinutoExtrapolado = { novoValorMinuto ->
+                                valorMinutoExtrapolado = novoValorMinuto
+                            },
                         )
                     }
                 }
@@ -307,6 +302,7 @@ fun DashboardProfissionalScreen(
 }
 
 // ── ABA: VISÃO GERAL ──────────────────────────────────
+
 @Composable
 fun AbaVisaoGeralDash(
     nomeUsuario:       String  = "",
@@ -322,6 +318,8 @@ fun AbaVisaoGeralDash(
     onReferral:        (() -> Unit)? = null,
     onKyc:             (() -> Unit)? = null,
     kycAprovado:       Boolean = false,
+    isPmp:             Boolean = false,
+    onDisponibilidadeUrgenteChanged: ((Boolean) -> Unit)? = null,
 ) {
     val concluidas = consultas.filter { it.status == "concluida" || it.status == "concluido" }
     val agendadas  = consultas.filter { it.status == "agendada"  || it.status == "agendado"  }
@@ -332,6 +330,27 @@ fun AbaVisaoGeralDash(
     val avaliacaoMedia = if (notasValidas.isNotEmpty()) "%.1f".format(notasValidas.average()) else "--"
 
     val primeiroNome = nomeUsuario.split(" ").firstOrNull() ?: "Profissional"
+    var resumoFin by remember { mutableStateOf<ResumoFinanceiro?>(null) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(isPmp) {
+        try {
+            val uid = currentUserId ?: return@LaunchedEffect
+            val token = AuthRepository.token ?: BuildConfig.SUPABASE_KEY
+            val response = httpClient.post("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/resumo_financeiro") {
+                header("apikey", BuildConfig.SUPABASE_KEY)
+                header("Authorization", "Bearer $token")
+                header("Content-Type", "application/json")
+                setBody("{\"p_prof_id\":\"$uid\"}")
+            }
+            if (response.status.value == 200) {
+                val lista = Json { ignoreUnknownKeys = true }.decodeFromString<List<ResumoFinanceiro>>(response.bodyAsText())
+                val bruto = lista.first()
+                val taxaCorreta = if (isPmp) 10.0 else 30.0
+                val liquido = bruto.totalBruto * (1.0 - taxaCorreta / 100.0)
+                resumoFin = bruto.copy(taxaPct = taxaCorreta, totalLiquido = liquido)
+            }
+        } catch (_: Exception) {}
+    }
 
     Column(
         modifier = Modifier
@@ -363,7 +382,7 @@ fun AbaVisaoGeralDash(
             MetricaCard(modifier = Modifier.weight(1f), icone = "⭐", numero = avaliacaoMedia,      label = "Avaliação",    cor = Dourado)
         }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            MetricaCard(modifier = Modifier.weight(1f), icone = "💰", numero = "R$ $ganhosMes", label = "Ganhos total",  cor = Azul)
+            MetricaCard(modifier = Modifier.weight(1f), icone = "💰", numero = if (resumoFin != null) formatarMoeda(resumoFin!!.totalBruto) else "R$ --", label = "Ganhos (bruto)", cor = Azul)
             MetricaCard(modifier = Modifier.weight(1f), icone = "🎯", numero = "$credibilidade", label = "Credibilidade", cor = Verde)
         }
 
@@ -494,7 +513,8 @@ fun AbaVisaoGeralDash(
             }
         }
 
-        // Status urgente
+        // Status urgente com toggle
+        var toggleLoadingUrg by remember { mutableStateOf(false) }
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape    = RoundedCornerShape(12.dp),
@@ -510,8 +530,25 @@ fun AbaVisaoGeralDash(
                         color    = if (disponivelUrgente) Verde else Urgente,
                     )
                     Text(
-                        if (disponivelUrgente) "Você aparece na área urgente" else "Ative na aba Urgente",
+                        if (disponivelUrgente) "Você aparece na área urgente" else "Ative o switch ao lado",
                         fontSize = 11.sp, color = InkMuted,
+                    )
+                }
+                if (toggleLoadingUrg) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Verde, strokeWidth = 2.dp)
+                } else {
+                    Switch(
+                        checked = disponivelUrgente,
+                        onCheckedChange = { novo ->
+                            toggleLoadingUrg = true
+                            scope.launch {
+                                val uid = currentUserId ?: return@launch
+                                atualizarDisponibilidadeUrgente(uid, novo)
+                                onDisponibilidadeUrgenteChanged?.invoke(novo)
+                                toggleLoadingUrg = false
+                            }
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Verde),
                     )
                 }
             }

@@ -72,6 +72,7 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
 
     LaunchedEffect(onboardingVm) { onVmReady(onboardingVm) }
 
+    var itemIdParaPagamento by remember { mutableStateOf("") }
     var tela                      by remember { mutableStateOf("") }
     var lgpdVerificada            by remember { mutableStateOf(false) }
     var estudioProfId             by remember { mutableStateOf("") }
@@ -118,6 +119,7 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
                     tela = "sala-chamada"
                 }
             }
+
             "pagamento", "dashboard-profissional" -> {
                 if (fcmUrgenciaId.isNotEmpty()) {
                     urgenciaIdPagamento = fcmUrgenciaId
@@ -326,6 +328,11 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             },
             onPularForced = { tela = "dashboard-cliente" },
         )
+        "pagamento-estudio" -> PagamentoEstudioScreen(
+            itemId = itemIdParaPagamento,
+            onConfirmado = { tela = "biblioteca" },
+            onVoltar = { tela = "dashboard-cliente" }
+        )
 
         "pagamento" -> PagamentoScreen(
             urgenciaId   = urgenciaIdPagamento,
@@ -532,6 +539,9 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             profissionalId = estudioProfId,
             onVoltar       = { tela = estudioOrigem },
         )
+        "busca-conteudo" -> EstudioBuscaScreen(
+            onVoltar = { tela = "dashboard-cliente" }
+        )
 
         "player-video" -> VideoPlayerScreen(
             aulaId     = aulaIdAtiva,
@@ -552,31 +562,43 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
         "biblioteca" -> BibliotecaScreen(
             onVoltar     = { tela = "dashboard-cliente" },
             onAbrirCurso = { produtoId, titulo ->
-                aulaIdAtiva     = produtoId
+                produtoIdAtivo = produtoId
                 tituloAulaAtiva = titulo
-                tela            = "player-video"
+                tela = "conteudo-curso"
             },
             onAbrirPdf = { produtoId, titulo, allowScreenshot ->
                 produtoIdAtivo       = produtoId
                 tituloProdutoAtivo   = titulo
                 allowScreenshotAtivo = allowScreenshot
-                tela                 = "pdf-viewer"
+                tela = "pdf-viewer"
             },
         )
 
-        "busca-conteudo" -> SearchScreen(
-            onVoltar    = { tela = "dashboard-cliente" },
-            onAbrirItem = { item ->
-                searchItemSelecionado = item
-                tela = "estudio-detalhe-busca"
-            },
-        )
+        "conteudo-curso" -> {
+            ConteudoCursoScreen(
+                estudioId = produtoIdAtivo, // reusar a variável
+                tituloItem = tituloAulaAtiva,
+                repository = ContentRepositoryFactory.create(),
+                onVoltar = { tela = "biblioteca" },
+                onAbrirVideo = { url, titulo ->
+                    // Podemos reusar VideoPlayerScreen, mas com URL direta (não aulaId)
+                    // Como VideoPlayerScreen espera aulaId/cursoId, precisamos de uma adaptação.
+                    // Por ora, apenas log.
+                },
+                onAbrirPdf = { url, titulo ->
+                    // Abrir PdfViewerScreen com a URL assinada
+                }
+            )
+        }
 
         "estudio-detalhe-busca" -> searchItemSelecionado?.let { item ->
             EstudioDetalheScreen(
                 item     = item.toItemEstudio(),
                 onVoltar = { tela = "busca-conteudo" },
-                onPagar  = { tela = "pagamento" },
+                onPagar  = { itemEstudio ->
+                    itemIdParaPagamento = itemEstudio.id
+                    tela = "pagamento-estudio"
+                },
             )
         }
 

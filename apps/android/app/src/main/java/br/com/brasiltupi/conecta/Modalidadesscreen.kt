@@ -10,6 +10,7 @@ package br.com.brasiltupi.conecta
 // Navegação: dashboard-profissional → "modalidades" → volta para dashboard
 // ═══════════════════════════════════════════════════════════════════════════
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -26,9 +27,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import br.com.brasiltupi.conecta.ui.theme.*
 import kotlinx.coroutines.launch
-import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.text.style.TextAlign
+
 @Composable
 fun ModalidadesScreen(
     userId:   String,
@@ -295,13 +298,21 @@ private fun AbaModalidades(
         ) {
             Text("📋", fontSize = 16.sp)
             Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                "Configure os tipos de atendimento que você oferece. " +
-                        "Cada modalidade define o formato, duração e valor cobrado.",
-                fontSize   = 13.sp,
-                color      = Color(0xFF1565C0),
-                lineHeight = 19.sp,
-            )
+            Column {
+                Text(
+                    "Seus serviços",
+                    fontSize   = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color      = Color(0xFF1565C0),
+                )
+                Text(
+                    "Crie pacotes, consultas avulsas ou programas recorrentes. " +
+                    "Tudo que você configurar aqui aparecerá para seus clientes no momento do agendamento.",
+                    fontSize   = 13.sp,
+                    color      = Color(0xFF1565C0).copy(alpha = 0.8f),
+                    lineHeight = 19.sp,
+                )
+            }
         }
 
         // Lista de modalidades existentes
@@ -368,9 +379,6 @@ private fun AbaModalidades(
     }
 
     // Dialog: Nova / Editar modalidade
-    // ── FIX: estado salvando/erro vive aqui no pai, não dentro do Dialog.
-    // Isso evita a race condition onde o Dialog some antes da coroutine terminar,
-    // deixando salvando=true preso num composable já destruído.
     var salvandoModal   by remember { mutableStateOf(false) }
     var erroModal       by remember { mutableStateOf<String?>(null) }
 
@@ -379,7 +387,7 @@ private fun AbaModalidades(
             inicial   = editando,
             salvando  = salvandoModal,
             erro      = erroModal,
-            onSalvar  = { tipo, titulo, descricao, duracao, sessoesSemana, sessoesTotal, valor ->
+            onSalvar  = { tipo, titulo, descricao, duracao, sessoesSemana, sessoesTotal, valor, modeloCobranca, duracaoMeses, horasPorSemana ->
                 salvandoModal = true
                 erroModal     = null
                 scope.launch {
@@ -392,6 +400,9 @@ private fun AbaModalidades(
                             sessoesPorSemana = sessoesSemana,
                             sessoesTotal     = sessoesTotal,
                             valor            = valor,
+                            modeloCobranca   = modeloCobranca,
+                            duracaoMeses     = duracaoMeses,
+                            horasPorSemana   = horasPorSemana,
                             ativo            = true,
                         )
                     } else {
@@ -404,6 +415,9 @@ private fun AbaModalidades(
                             sessoesPorSemana = sessoesSemana,
                             sessoesTotal     = sessoesTotal,
                             valor            = valor,
+                            modeloCobranca   = modeloCobranca,
+                            duracaoMeses     = duracaoMeses,
+                            horasPorSemana   = horasPorSemana,
                         )
                     }
                     salvandoModal = false
@@ -494,6 +508,34 @@ private fun CardModalidade(
                             }
                         }
                     }
+                    // Badge modelo de cobrança
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                when (modalidade.modeloCobranca) {
+                                    "integral" -> Color(0xFFE8F5E9)
+                                    "fidelidade" -> Color(0xFFF3E5F5)
+                                    else -> SurfaceOff
+                                },
+                                RoundedCornerShape(20.dp)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            when (modalidade.modeloCobranca) {
+                                "integral" -> "Pacote"
+                                "fidelidade" -> "Fidelidade"
+                                else -> "Avulso"
+                            },
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = when (modalidade.modeloCobranca) {
+                                "integral" -> Color(0xFF2E7D32)
+                                "fidelidade" -> Color(0xFF6A1B9A)
+                                else -> InkMuted
+                            }
+                        )
+                    }
                     if (!modalidade.descricao.isNullOrBlank()) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(modalidade.descricao, fontSize = 12.sp, color = InkMuted, lineHeight = 17.sp)
@@ -548,8 +590,10 @@ private fun CardModalidade(
 @Composable
 private fun DialogModalidade(
     inicial:   ModalidadeAtendimento?,
-    salvando:  Boolean,          // controlado pelo pai — evita race condition
-    erro:      String?,          // mensagem de erro do pai
+    salvando:  Boolean,
+    erro:      String?,
+    isPmp:     Boolean = false,
+    verificado: Boolean = false,
     onSalvar:  (
         tipo:            String,
         titulo:          String,
@@ -558,10 +602,12 @@ private fun DialogModalidade(
         sessoesPorSemana: Int?,
         sessoesTotal:    Int?,
         valor:           Double,
+        modeloCobranca:  String,
+        duracaoMeses:    Int?,
+        horasPorSemana:  Int?,
     ) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    // ── Campos do formulário ──────────────────────────
     var tipo             by remember { mutableStateOf(inicial?.tipo ?: "minutos") }
     var titulo           by remember { mutableStateOf(inicial?.titulo ?: "") }
     var descricao        by remember { mutableStateOf(inicial?.descricao ?: "") }
@@ -569,15 +615,16 @@ private fun DialogModalidade(
     var sessoesSemanaStr by remember { mutableStateOf(inicial?.sessoesPorSemana?.toString() ?: "") }
     var sessoesTotalStr  by remember { mutableStateOf(inicial?.sessoesTotal?.toString() ?: "") }
     var valorStr         by remember { mutableStateOf(inicial?.valor?.let { "%.2f".format(it) } ?: "") }
-
-    val tiposDisponiveis = listOf(
-        "minutos" to "Sessão (min)",
-        "hora"    to "Sessão (hora)",
-        "semanal" to "Pacote semanal",
-        "mensal"  to "Pacote mensal",
-    )
-
-    // Validação inline
+    var modeloCobranca     by remember { mutableStateOf(inicial?.modeloCobranca ?: "avulso") }
+    var duracaoMesesStr    by remember { mutableStateOf(inicial?.duracaoMeses?.toString() ?: "") }
+    var horasPorSemanaStr  by remember { mutableStateOf(inicial?.horasPorSemana?.toString() ?: "") }
+    var isPmpDialog by remember { mutableStateOf(false) }
+    var verificadoDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val perfil = getMeuPerfilProfissional(currentUserId ?: "")
+        isPmpDialog = perfil?.is_pmp ?: false
+        verificadoDialog = perfil?.verificado ?: false
+    }
     val duracaoMinutos   = duracaoStr.toIntOrNull()
     val sessoesSemana    = sessoesSemanaStr.toIntOrNull()
     val sessoesTotal     = sessoesTotalStr.toIntOrNull()
@@ -585,13 +632,13 @@ private fun DialogModalidade(
 
     val formValido = titulo.isNotBlank() && valor != null && when (tipo) {
         "minutos" -> duracaoMinutos != null && duracaoMinutos > 0
-        "hora"    -> true  // duração padrão = 60 min
+        "hora"    -> true
         "semanal" -> sessoesSemana != null && sessoesSemana > 0
         "mensal"  -> sessoesTotal  != null && sessoesTotal  > 0
         else      -> true
     }
 
-    androidx.compose.ui.window.Dialog(onDismissRequest = { if (!salvando) onDismiss() }) {
+    Dialog(onDismissRequest = { if (!salvando) onDismiss() }) {
         Card(
             shape  = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = Surface),
@@ -602,7 +649,6 @@ private fun DialogModalidade(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                // Título do dialog
                 Text(
                     if (inicial != null) "Editar modalidade" else "Nova modalidade",
                     fontSize   = 17.sp,
@@ -610,49 +656,51 @@ private fun DialogModalidade(
                     color      = Ink,
                 )
 
-                // ── Seleção de tipo (só ao criar) ─────────
                 if (inicial == null) {
                     Text("Tipo de atendimento", fontSize = 12.sp, color = InkMuted)
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        // Linha 1: sessão por minutos / por hora
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("minutos" to "⏱ Sessão (min)", "hora" to "🕐 Sessão (hora)").forEach { (id, label) ->
+                            listOf(
+                                "minutos" to "⏱ Sessão (min)",
+                                "hora" to "🕐 Sessão (hora)"
+                            ).forEach { (id, label) ->
                                 FilterChip(
                                     selected = tipo == id,
-                                    onClick  = { tipo = id },
-                                    label    = { Text(label, fontSize = 11.sp) },
+                                    onClick = { tipo = id },
+                                    label = { Text(label, fontSize = 11.sp) },
                                     modifier = Modifier.weight(1f),
-                                    colors   = FilterChipDefaults.filterChipColors(
+                                    colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = Azul.copy(alpha = 0.12f),
-                                        selectedLabelColor     = Azul,
+                                        selectedLabelColor = Azul,
                                     ),
                                 )
                             }
                         }
-                        // Linha 2: pacotes
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("semanal" to "📆 Pacote semanal", "mensal" to "🗓 Pacote mensal").forEach { (id, label) ->
+                            listOf(
+                                "semanal" to "📆 Pacote semanal",
+                                "mensal" to "🗓 Pacote mensal"
+                            ).forEach { (id, label) ->
                                 FilterChip(
                                     selected = tipo == id,
-                                    onClick  = { tipo = id },
-                                    label    = { Text(label, fontSize = 11.sp) },
+                                    onClick = { tipo = id },
+                                    label = { Text(label, fontSize = 11.sp) },
                                     modifier = Modifier.weight(1f),
-                                    colors   = FilterChipDefaults.filterChipColors(
+                                    colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = Verde.copy(alpha = 0.12f),
-                                        selectedLabelColor     = Verde,
+                                        selectedLabelColor = Verde,
                                     ),
                                 )
                             }
                         }
                     }
 
-                    // Banner explicativo por tipo
                     val bannerTexto = when (tipo) {
                         "minutos" -> "O cliente agenda uma sessão avulsa. Você define a duração em minutos e o horário disponível."
-                        "hora"    -> "Sessão de 60 minutos. Você define o horário disponível."
+                        "hora" -> "Sessão de 60 minutos. Você define o horário disponível."
                         "semanal" -> "Pacote recorrente. Você define quantas sessões por semana e o valor semanal."
-                        "mensal"  -> "Pacote fechado. Você define o total de sessões e o valor único do pacote."
-                        else      -> ""
+                        "mensal" -> "Pacote fechado. Você define o total de sessões e o valor único do pacote."
+                        else -> ""
                     }
                     if (bannerTexto.isNotEmpty()) {
                         Row(
@@ -668,8 +716,56 @@ private fun DialogModalidade(
                         }
                     }
                 }
+                    // ── Modelo de cobrança ─────────────────────────
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Modelo de cobrança", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(
+                            "avulso" to "Avulso",
+                            "integral" to "Pacote integral",
+                            "fidelidade" to "Fidelidade mensal"
+                        ).forEach { (id, label) ->
+                            FilterChip(
+                                selected = modeloCobranca == id,
+                                onClick = { modeloCobranca = id },
+                                label = { Text(label, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Azul.copy(alpha = 0.15f),
+                                    selectedLabelColor = Azul,
+                                )
+                            )
+                        }
+                    }
 
-                // ── Título ────────────────────────────────
+                    if (modeloCobranca == "integral" || modeloCobranca == "fidelidade") {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = duracaoMesesStr,
+                            onValueChange = { duracaoMesesStr = it.filter { c -> c.isDigit() } },
+                            label = { Text("Duração (meses)") },
+                            placeholder = { Text("Ex: 3") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde),
+                        )
+                    }
+
+                    if (modeloCobranca == "fidelidade") {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = horasPorSemanaStr,
+                            onValueChange = { horasPorSemanaStr = it.filter { c -> c.isDigit() } },
+                            label = { Text("Horas por semana") },
+                            placeholder = { Text("Ex: 2") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde),
+                        )
+                    }
+
+
                 OutlinedTextField(
                     value         = titulo,
                     onValueChange = { titulo = it },
@@ -688,7 +784,6 @@ private fun DialogModalidade(
                     colors        = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde),
                 )
 
-                // ── Descrição ─────────────────────────────
                 OutlinedTextField(
                     value         = descricao,
                     onValueChange = { descricao = it },
@@ -698,7 +793,6 @@ private fun DialogModalidade(
                     colors        = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde),
                 )
 
-                // ── Campos específicos por tipo ───────────
                 when (tipo) {
                     "minutos" -> {
                         OutlinedTextField(
@@ -714,7 +808,6 @@ private fun DialogModalidade(
                         )
                     }
                     "hora" -> {
-                        // Duração fixa 60 min — apenas informativo
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -775,7 +868,6 @@ private fun DialogModalidade(
                     }
                 }
 
-                // ── Valor ─────────────────────────────────
                 OutlinedTextField(
                     value         = valorStr,
                     onValueChange = { valorStr = it.filter { c -> c.isDigit() || c == ',' || c == '.' } },
@@ -792,7 +884,16 @@ private fun DialogModalidade(
                     colors        = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde),
                 )
 
-                // ── Resumo do pacote (quando campos preenchidos) ──
+                    if (valor != null && valor > 0) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        IndicadorTaxaPlataforma(
+                            valorBruto = valor,
+                            isPmp = isPmpDialog,
+                            verificado = verificadoDialog,
+                            modifier = Modifier
+                        )
+                    }
+
                 if (formValido && valor != null) {
                     val resumo = when (tipo) {
                         "minutos" -> "Sessão de ${duracaoMinutos}min · R$ ${"%.2f".format(valor)}"
@@ -814,7 +915,6 @@ private fun DialogModalidade(
                     }
                 }
 
-                // ── Mensagem de erro do pai ───────────────
                 if (erro != null) {
                     Row(
                         modifier = Modifier
@@ -829,7 +929,6 @@ private fun DialogModalidade(
                     }
                 }
 
-                // ── Botões ────────────────────────────────
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         onClick  = { if (!salvando) onDismiss() },
@@ -843,9 +942,11 @@ private fun DialogModalidade(
                         onClick = {
                             if (!formValido || valor == null) return@Button
                             val dur = when (tipo) {
-                                "hora"  -> 60               // fixa
+                                "hora"  -> 60
                                 else    -> duracaoMinutos
                             }
+                            val durMeses = duracaoMesesStr.toIntOrNull()
+                            val hrsSemana = horasPorSemanaStr.toIntOrNull()
                             onSalvar(
                                 tipo,
                                 titulo.trim(),
@@ -854,6 +955,9 @@ private fun DialogModalidade(
                                 sessoesSemana,
                                 sessoesTotal,
                                 valor,
+                                modeloCobranca,
+                                durMeses,
+                                hrsSemana
                             )
                         },
                         enabled  = formValido && !salvando,
@@ -882,7 +986,8 @@ private fun AbaHorarios(
     onAtualizar:     () -> Unit,
 ) {
     var mostrarFormNovo by remember { mutableStateOf(false) }
-    val scope           = rememberCoroutineScope()
+    var disponibilidadeEditando by remember { mutableStateOf<DisponibilidadeRegular?>(null) }
+    val scope = rememberCoroutineScope()
 
     val diasSemana = listOf(
         "segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo"
@@ -895,22 +1000,31 @@ private fun AbaHorarios(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // Banner informativo
         Row(
-            modifier          = Modifier
+            modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFFFFF8E1), RoundedCornerShape(10.dp))
+                .background(Color(0xFFF3E5F5), RoundedCornerShape(10.dp))
                 .padding(14.dp),
             verticalAlignment = Alignment.Top,
         ) {
-            Text("⏰", fontSize = 16.sp)
+            Text("🕐", fontSize = 16.sp)
             Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                "Defina os horários em que você está disponível para atendimentos regulares. " +
-                        "Clientes poderão agendar apenas nos slots que você configurar aqui.",
-                fontSize   = 13.sp,
-                color      = Color(0xFFF57F17),
-                lineHeight = 19.sp,
-            )
+            Column {
+                Text(
+                    "Sua agenda semanal",
+                    fontSize   = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color      = Color(0xFF6A1B9A),
+                )
+                Text(
+                    "Defina seus horários de atendimento para cada dia da semana. " +
+                            "Vincule cada faixa a uma modalidade ou deixe livre para todas.",
+                    fontSize   = 13.sp,
+                    color      = Color(0xFF6A1B9A).copy(alpha = 0.8f),
+                    lineHeight = 19.sp,
+                )
+            }
         }
 
         // Agrupar por dia da semana
@@ -952,15 +1066,21 @@ private fun AbaHorarios(
                                         Text("Todas as modalidades", fontSize = 11.sp, color = InkMuted)
                                     }
                                 }
-                                IconButton(
-                                    onClick = {
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    IconButton(onClick = {
+                                        disponibilidadeEditando = slot
+                                        mostrarFormNovo = true
+                                    }) {
+                                        Text("✏️", fontSize = 16.sp)
+                                    }
+                                    IconButton(onClick = {
                                         scope.launch {
                                             AtendimentosRepository.removerDisponibilidade(slot.id)
                                             onAtualizar()
                                         }
+                                    }) {
+                                        Text("🗑", fontSize = 16.sp)
                                     }
-                                ) {
-                                    Text("🗑", fontSize = 16.sp)
                                 }
                             }
                             HorizontalDivider(color = SurfaceOff)
@@ -983,24 +1103,26 @@ private fun AbaHorarios(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("📅", fontSize = 32.sp)
+                    Text("📅", fontSize = 48.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "Nenhum horário configurado",
-                        fontSize   = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        "Sua agenda está vazia",
+                        fontSize   = 16.sp,
+                        fontWeight = FontWeight.Bold,
                         color      = Ink,
                     )
                     Text(
-                        "Adicione seus horários disponíveis abaixo.",
+                        "Organize seus horários semanais para começar a receber agendamentos.",
                         fontSize = 13.sp,
                         color    = InkMuted,
+                        textAlign = TextAlign.Center,
                     )
                 }
             }
         }
 
         Button(
-            onClick  = { mostrarFormNovo = true },
+            onClick  = { mostrarFormNovo = true; disponibilidadeEditando = null },
             modifier = Modifier.fillMaxWidth().height(48.dp),
             shape    = RoundedCornerShape(10.dp),
             colors   = ButtonDefaults.buttonColors(containerColor = Azul),
@@ -1014,45 +1136,58 @@ private fun AbaHorarios(
     if (mostrarFormNovo) {
         DialogHorario(
             modalidades = modalidades,
-            onSalvar    = { dia, modalidadeId, horaInicio, horaFim ->
-                scope.launch {
+            disponibilidadeEdicao = disponibilidadeEditando,
+            onSalvar = { dia, modalidadeId, horaInicio, horaFim ->
+                val ok = if (disponibilidadeEditando != null) {
+                    AtendimentosRepository.atualizarDisponibilidade(
+                        id = disponibilidadeEditando!!.id,
+                        diaSemana = dia,
+                        modalidadeId = modalidadeId,
+                        horaInicio = horaInicio,
+                        horaFim = horaFim,
+                    )
+                } else {
                     AtendimentosRepository.criarDisponibilidade(
                         profissionalId = userId,
-                        modalidadeId   = modalidadeId.ifBlank { null },
-                        diaSemana      = dia,
-                        horaInicio     = horaInicio,
-                        horaFim        = horaFim,
+                        modalidadeId = modalidadeId.ifBlank { null },
+                        diaSemana = dia,
+                        horaInicio = horaInicio,
+                        horaFim = horaFim,
                     )
-                    onAtualizar()
-                    mostrarFormNovo = false
                 }
+                ok   // retorno explícito para o DialogHorario
             },
-            onDismiss   = { mostrarFormNovo = false },
+            onDismiss = {
+                mostrarFormNovo = false
+                disponibilidadeEditando = null
+                scope.launch { onAtualizar() }
+            },
+            onDelete = if (disponibilidadeEditando != null) {{
+                AtendimentosRepository.removerDisponibilidade(disponibilidadeEditando!!.id)
+            }} else null,
         )
     }
 }
-
 @Composable
 private fun DialogHorario(
-    modalidades: List<ModalidadeAtendimento>,
-    onSalvar:    (dia: String, modalidadeId: String, horaInicio: String, horaFim: String) -> Unit,
-    onDismiss:   () -> Unit,
+    modalidades:            List<ModalidadeAtendimento>,
+    disponibilidadeEdicao:  DisponibilidadeRegular? = null,
+    onSalvar:               suspend (dia: String, modalidadeId: String, horaInicio: String, horaFim: String) -> Boolean,
+    onDismiss:              () -> Unit,
+    onDelete:               (suspend () -> Unit)? = null,
 ) {
     val diasSemana = listOf(
-        "segunda" to "Segunda",
-        "terca"   to "Terça",
-        "quarta"  to "Quarta",
-        "quinta"  to "Quinta",
-        "sexta"   to "Sexta",
-        "sabado"  to "Sábado",
-        "domingo" to "Domingo",
+        "segunda" to "Segunda", "terca" to "Terça", "quarta" to "Quarta",
+        "quinta" to "Quinta", "sexta" to "Sexta", "sabado" to "Sábado", "domingo" to "Domingo",
     )
 
-    var diaSelecionado  by remember { mutableStateOf("segunda") }
-    var modalidadeId    by remember { mutableStateOf("") }
-    var horaInicio      by remember { mutableStateOf("09:00") }
-    var horaFim         by remember { mutableStateOf("10:00") }
+    var diaSelecionado  by remember { mutableStateOf(disponibilidadeEdicao?.diaSemana ?: "segunda") }
+    var modalidadeId    by remember { mutableStateOf(disponibilidadeEdicao?.modalidadeId ?: "") }
+    var horaInicio      by remember { mutableStateOf(disponibilidadeEdicao?.horaInicio ?: "09:00") }
+    var horaFim         by remember { mutableStateOf(disponibilidadeEdicao?.horaFim ?: "10:00") }
     var salvando        by remember { mutableStateOf(false) }
+    var erro            by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     Dialog(onDismissRequest = { if (!salvando) onDismiss() }) {
         Card(
@@ -1066,9 +1201,11 @@ private fun DialogHorario(
                     .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Text("Novo horário", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Ink)
+                Text(
+                    if (disponibilidadeEdicao == null) "Novo horário" else "Editar horário",
+                    fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Ink
+                )
 
-                // Dia da semana
                 Text("Dia da semana", fontSize = 12.sp, color = InkMuted)
                 Row(
                     modifier              = Modifier.fillMaxWidth(),
@@ -1091,7 +1228,6 @@ private fun DialogHorario(
                     }
                 }
 
-                // Modalidade (opcional)
                 if (modalidades.isNotEmpty()) {
                     Text("Modalidade (opcional)", fontSize = 12.sp, color = InkMuted)
                     Text("Deixe em branco para aplicar a todas.", fontSize = 11.sp, color = InkMuted)
@@ -1101,9 +1237,7 @@ private fun DialogHorario(
                         OutlinedButton(
                             onClick = { expandido = true },
                             modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(nomeSelecionado, fontSize = 13.sp, color = Ink)
-                        }
+                        ) { Text(nomeSelecionado, fontSize = 13.sp, color = Ink) }
                         DropdownMenu(
                             expanded         = expandido,
                             onDismissRequest = { expandido = false },
@@ -1122,7 +1256,6 @@ private fun DialogHorario(
                     }
                 }
 
-                // Horário
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value         = horaInicio,
@@ -1144,28 +1277,73 @@ private fun DialogHorario(
                     )
                 }
 
-                // Botões
+                if (erro != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(UrgenteClaro, RoundedCornerShape(8.dp))
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("⚠️", fontSize = 13.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(erro!!, fontSize = 12.sp, color = Urgente, lineHeight = 16.sp)
+                    }
+                }
+
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         onClick  = { if (!salvando) onDismiss() },
                         enabled  = !salvando,
                         modifier = Modifier.weight(1f),
                         shape    = RoundedCornerShape(10.dp),
-                    ) {
-                        Text("Cancelar", color = InkMuted)
-                    }
+                    ) { Text("Cancelar", color = InkMuted) }
+
                     Button(
                         onClick = {
+                            if (horaInicio.isBlank() || horaFim.isBlank()) return@Button
                             salvando = true
-                            onSalvar(diaSelecionado, modalidadeId, horaInicio, horaFim)
+                            erro = null
+                            scope.launch {
+                                val ok = onSalvar(diaSelecionado, modalidadeId, horaInicio, horaFim)
+                                salvando = false
+                                if (ok) {
+                                    onDismiss()
+                                } else {
+                                    erro = "Falha ao salvar horário. Verifique sua conexão."
+                                }
+                            }
                         },
-                        enabled = !salvando && horaInicio.isNotBlank() && horaFim.isNotBlank(),
+                        enabled  = !salvando && horaInicio.isNotBlank() && horaFim.isNotBlank(),
                         modifier = Modifier.weight(1f),
                         shape    = RoundedCornerShape(10.dp),
                         colors   = ButtonDefaults.buttonColors(containerColor = Verde),
                     ) {
                         if (salvando) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
                         else Text("Salvar", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                if (disponibilidadeEdicao != null && onDelete != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            if (!salvando) {
+                                scope.launch {
+                                    salvando = true
+                                    onDelete()
+                                    salvando = false
+                                    onDismiss()
+                                }
+                            }
+                        },
+                        enabled  = !salvando,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape    = RoundedCornerShape(10.dp),
+                        colors   = ButtonDefaults.outlinedButtonColors(contentColor = Urgente),
+                        border   = BorderStroke(1.dp, Urgente.copy(alpha = 0.4f)),
+                    ) {
+                        Text("Excluir horário", color = Urgente, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }

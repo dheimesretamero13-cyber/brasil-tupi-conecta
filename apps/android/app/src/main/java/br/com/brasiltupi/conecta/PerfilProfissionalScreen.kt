@@ -56,6 +56,8 @@ fun PerfilProfissionalScreen(
     var consultasUrgente by remember { mutableStateOf<List<ConsultaProfissional>>(emptyList()) }
     val scope   = rememberCoroutineScope()
     val context = LocalContext.current
+    var valorUrgenteAtual by remember { mutableStateOf<Double?>(null) }
+    var valorMinutoExtrapoladoAtual by remember { mutableStateOf<Double?>(null) }
 
     LaunchedEffect(userId) {
         if (userId.isEmpty()) { carregando = false; return@LaunchedEffect }
@@ -80,6 +82,8 @@ fun PerfilProfissionalScreen(
                 credReal        = meu.credibilidade
                 isPMPReal       = meu.is_pmp
                 dispUrgenteReal = meu.disponivel_urgente
+                valorUrgenteAtual = meu?.valor_urgente?.toDouble()
+                valorMinutoExtrapoladoAtual = meu?.valorMinutoExtrapolado
             }
             try {
                 val docs = buscarKycDocumentos(userId)
@@ -364,15 +368,49 @@ fun PerfilProfissionalScreen(
                 userId          = userId,
                 onContaExcluida = onContaExcluida,
             )
-            "urgente" -> AbaUrgenteCompartilhada(
-                disponivelInicial = dispUrgenteReal,
-                userId            = userId,
-                consultas         = consultasUrgente,
-                kycAprovado       = null,
-                onKyc             = null,
-                mostrarGuiaChamada = false,
-                modifier          = Modifier.fillMaxSize()
-            )
+            "urgente" -> {
+                val scopeUrgente = rememberCoroutineScope()
+                AbaUrgenteCompartilhada(
+                    disponivelInicial = dispUrgenteReal,
+                    userId            = userId,
+                    consultas         = consultasUrgente,
+                    kycAprovado       = null,
+                    onKyc             = null,
+                    mostrarGuiaChamada = false,
+                    valorUrgenteAtual  = valorUrgenteAtual,
+                    valorMinutoExtrapoladoAtual = valorMinutoExtrapoladoAtual,
+                    onSalvarValorUrgente = { novoValor ->
+                        scopeUrgente.launch {
+                            val perfil = getMeuPerfilProfissional(userId)
+                            if (perfil != null) {
+                                val ok = atualizarPerfilProfissional(
+                                    userId = userId,
+                                    bio = perfil.descricao ?: "",
+                                    area = perfil.area,
+                                    conselho = perfil.conselho ?: "",
+                                    numeroConselho = perfil.numero_conselho ?: "",
+                                    precoNormal = perfil.valor_normal,
+                                    precoUrgente = novoValor.toInt(),
+                                )
+                                if (ok) {
+                                    valorUrgenteAtual = novoValor
+                                }
+                            }
+                        }
+                    },
+                    onSalvarValorMinutoExtrapolado = { novoValorMinuto ->
+                        scopeUrgente.launch {
+                            val resultado = atualizarValorMinutoUrgente(userId, novoValorMinuto)
+                            resultado.onSuccess {
+                                valorMinutoExtrapoladoAtual = novoValorMinuto
+                            }
+                            // Em caso de erro, a mensagem já é exibida pelo UrgenteSectionCommon
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
         }
     }
 }
@@ -856,378 +894,7 @@ fun AbaSegurancaProfissional(
     }
 }
 
-// ── ABA: URGENTE ──────────────────────────────────────
-// Espelha a mesma lógica de AbaUrgenteDash:
-//   — verifica aceite de termos ao carregar (verificarAceiteTermosUrgencia)
-//   — se nunca aceitou: abre modal antes de ativar o switch
-//   — se já aceitou: ativa direto
-//   — dados de histórico: calculados a partir de consultas reais (sem mock)
-@Composable
-fun AbaUrgenteProfissional(
-    disponivelInicial: Boolean = false,
-    userId:            String  = "",
-) {
-    val scope = rememberCoroutineScope()
 
-    var ativo             by remember { mutableStateOf(disponivelInicial) }
-    var atualizando       by remember { mutableStateOf(false) }
-    var erroToggle        by remember { mutableStateOf(false) }
-    var mostrarTermos     by remember { mutableStateOf(false) }
-    // jaAceitouTermos: false enquanto carrega, setado pelo LaunchedEffect
-    var jaAceitouTermos   by remember { mutableStateOf(false) }
-    var verificandoTermos by remember { mutableStateOf(true) }
 
-    // Consultas reais para o histórico urgente
-    var consultas         by remember { mutableStateOf<List<ConsultaProfissional>>(emptyList()) }
 
-    LaunchedEffect(userId) {
-        if (userId.isEmpty()) { verificandoTermos = false; return@LaunchedEffect }
-        jaAceitouTermos   = verificarAceiteTermosUrgencia(userId)
-        consultas         = buscarConsultasProfissional(userId)
-        verificandoTermos = false
-    }
 
-    // Métricas de histórico urgente calculadas a partir de dados reais
-    val urgentesTotais    = consultas.count { it.tipo.contains("rgente", ignoreCase = true) }
-    val urgentesRealizadas = consultas.count {
-        it.tipo.contains("rgente", ignoreCase = true) &&
-                (it.status == "concluida" || it.status == "concluido")
-    }
-    val pontualidade   = if (urgentesTotais > 0) "${urgentesRealizadas * 100 / urgentesTotais}%" else "—"
-    val descumprimentos = urgentesTotais - urgentesRealizadas
-
-    // ── Modal de Termos (mesmo conteúdo da AbaUrgenteDash) ────────────
-    // var aceite no escopo do Dialog (não dentro do Column filho) para
-    // evitar reset por recomposição.
-    var aceiteTermos by remember(mostrarTermos) { mutableStateOf(false) }
-
-    if (mostrarTermos) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = { mostrarTermos = false }) {
-            Card(
-                shape    = RoundedCornerShape(16.dp),
-                colors   = CardDefaults.cardColors(containerColor = Surface),
-                modifier = Modifier.heightIn(max = 560.dp),
-            ) {
-                Column(
-                    modifier            = Modifier
-                        .verticalScroll(rememberScrollState())
-                        .padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    Text("⚡ Termos de Prontidão Urgente", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Ink)
-                    Text(
-                        "Ao ativar a Área Urgente, você declara estar ciente de que:",
-                        fontSize = 13.sp, color = InkMuted,
-                    )
-                    listOf(
-                        "Devo responder ao chamado em até 45 minutos após receber a notificação.",
-                        "A consulta urgente tem duração máxima de 15 minutos.",
-                        "Não escolho horários — fico disponível de forma contínua enquanto o switch estiver ativo.",
-                        "Atrasos ou descumprimentos reduzem minha credibilidade e podem suspender meu acesso à área urgente.",
-                        "Sou o único responsável pelo serviço prestado. A plataforma é apenas o canal de conexão.",
-                    ).forEach { texto ->
-                        Row(
-                            modifier          = Modifier
-                                .fillMaxWidth()
-                                .background(SurfaceWarm, RoundedCornerShape(8.dp))
-                                .padding(10.dp),
-                            verticalAlignment = Alignment.Top,
-                        ) {
-                            Text("•", fontSize = 14.sp, color = Azul, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(texto, fontSize = 12.sp, color = Ink, lineHeight = 17.sp)
-                        }
-                    }
-                    Row(
-                        modifier          = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                if (aceiteTermos) Verde.copy(alpha = 0.08f) else SurfaceOff,
-                                RoundedCornerShape(10.dp),
-                            )
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Checkbox(
-                            checked         = aceiteTermos,
-                            onCheckedChange = { aceiteTermos = it },
-                            colors          = CheckboxDefaults.colors(checkedColor = Verde),
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            "Li, compreendi e aceito todos os termos acima.",
-                            fontSize   = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color      = if (aceiteTermos) Verde else Ink,
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick  = { mostrarTermos = false },
-                            modifier = Modifier.weight(1f),
-                            shape    = RoundedCornerShape(10.dp),
-                        ) {
-                            Text("Cancelar", color = InkMuted)
-                        }
-                        Button(
-                            onClick = {
-                                if (!aceiteTermos) return@Button
-                                mostrarTermos = false
-                                ativo         = true
-                                atualizando   = true
-                                scope.launch {
-                                    if (userId.isNotEmpty()) {
-                                        gravarAceiteTermosUrgencia(userId)
-                                        jaAceitouTermos = true
-                                        val sucesso = atualizarDisponibilidadeUrgente(userId, true)
-                                        atualizando = false
-                                        if (!sucesso) { ativo = false; erroToggle = true }
-                                    } else {
-                                        atualizando = false
-                                        ativo = false
-                                    }
-                                }
-                            },
-                            enabled  = aceiteTermos,
-                            modifier = Modifier.weight(1f),
-                            shape    = RoundedCornerShape(10.dp),
-                            colors   = ButtonDefaults.buttonColors(containerColor = Verde),
-                        ) {
-                            Text("Ativar agora", color = Color.White, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Column(
-        modifier            = Modifier
-            .fillMaxWidth()
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        // ── Card: Toggle de disponibilidade ───────────────────────────
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape    = RoundedCornerShape(12.dp),
-            colors   = CardDefaults.cardColors(containerColor = Surface),
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Row(
-                    modifier              = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment     = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Área Urgente", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
-                        Text(
-                            "Quando ativo, você aparece para clientes que precisam de atendimento imediato.",
-                            fontSize   = 13.sp,
-                            color      = InkMuted,
-                            lineHeight = 18.sp,
-                            modifier   = Modifier.padding(top = 4.dp),
-                        )
-                    }
-                    when {
-                        verificandoTermos || atualizando -> CircularProgressIndicator(
-                            modifier    = Modifier.size(24.dp),
-                            color       = Verde,
-                            strokeWidth = 2.dp,
-                        )
-                        else -> Switch(
-                            checked         = ativo,
-                            onCheckedChange = { novoValor ->
-                                erroToggle = false
-                                if (novoValor && !ativo) {
-                                    // Ativar: exige termos se ainda não aceitou
-                                    if (jaAceitouTermos) {
-                                        val anterior = ativo
-                                        ativo        = true
-                                        atualizando  = true
-                                        scope.launch {
-                                            val ok = if (userId.isNotEmpty())
-                                                atualizarDisponibilidadeUrgente(userId, true)
-                                            else false
-                                            atualizando = false
-                                            if (!ok) { ativo = anterior; erroToggle = true }
-                                        }
-                                    } else {
-                                        mostrarTermos = true
-                                    }
-                                } else if (!novoValor) {
-                                    // Desativar: direto, sem modal
-                                    val anterior = ativo
-                                    ativo        = false
-                                    atualizando  = true
-                                    scope.launch {
-                                        val ok = if (userId.isNotEmpty())
-                                            atualizarDisponibilidadeUrgente(userId, false)
-                                        else false
-                                        atualizando = false
-                                        if (!ok) { ativo = anterior; erroToggle = true }
-                                    }
-                                }
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = Verde,
-                            ),
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    modifier          = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            if (ativo) VerdeClaro else UrgenteClaro,
-                            RoundedCornerShape(8.dp),
-                        )
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(if (ativo) "🟢" else "🔴", fontSize = 14.sp)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        if (ativo) "Você está disponível para consultas urgentes"
-                        else "Você está indisponível para consultas urgentes",
-                        fontSize   = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color      = if (ativo) Verde else Urgente,
-                    )
-                }
-                // Badge de conformidade: confirma que os termos foram aceitos
-                if (jaAceitouTermos) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier          = Modifier
-                            .fillMaxWidth()
-                            .background(Verde.copy(alpha = 0.07f), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("✅", fontSize = 12.sp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            "Termos de prontidão aceitos neste dispositivo.",
-                            fontSize = 11.sp, color = Verde,
-                        )
-                    }
-                }
-                if (erroToggle) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier          = Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFFFDE8E8), RoundedCornerShape(8.dp))
-                            .padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("⚠️", fontSize = 13.sp)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Falha na conexão. Estado revertido.", fontSize = 12.sp, color = Urgente)
-                    }
-                }
-            }
-        }
-
-        // ── Card: Regras do Acordo ─────────────────────────────────────
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape    = RoundedCornerShape(12.dp),
-            colors   = CardDefaults.cardColors(containerColor = Surface),
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text("Regras do Acordo de Prontidão", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
-                Spacer(modifier = Modifier.height(14.dp))
-                listOf(
-                    Triple("⏱", "45 minutos",     "Tempo máximo para iniciar o atendimento."),
-                    Triple("📋", "15 minutos",     "Duração máxima da consulta."),
-                    Triple("⚠",  "Descumprimento", "Atrasos resultam em perda de credibilidade."),
-                    Triple("🚫", "Reincidência",   "Suspensão do acesso à área urgente."),
-                ).forEach { (icon, titulo, desc) ->
-                    Row(
-                        modifier          = Modifier.padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        Text(icon, fontSize = 18.sp)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(titulo, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Ink)
-                            Text(desc, fontSize = 12.sp, color = InkMuted, lineHeight = 17.sp)
-                        }
-                    }
-                    HorizontalDivider(color = SurfaceOff)
-                }
-            }
-        }
-
-        // ── Card: Histórico urgente (dados reais) ─────────────────────
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape    = RoundedCornerShape(12.dp),
-            colors   = CardDefaults.cardColors(containerColor = Surface),
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text("Seu histórico urgente", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
-                Spacer(modifier = Modifier.height(14.dp))
-                if (urgentesTotais == 0) {
-                    Text(
-                        "Nenhuma urgência registrada ainda.",
-                        fontSize  = 13.sp, color = InkMuted,
-                        modifier  = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.Center,
-                    )
-                } else {
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        listOf(
-                            Triple("$urgentesRealizadas", "Urgentes\nrealizadas",  Verde),
-                            Triple(pontualidade,           "Taxa de\npontualidade", Azul),
-                            Triple("$descumprimentos",    "Descum-\nprimentos",    if (descumprimentos == 0) Dourado else Urgente),
-                        ).forEach { (num, label, cor) ->
-                            Column(
-                                modifier            = Modifier.weight(1f),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                Text(num, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = cor)
-                                Text(
-                                    label,
-                                    fontSize   = 10.sp,
-                                    color      = InkMuted,
-                                    lineHeight = 14.sp,
-                                    modifier   = Modifier.padding(top = 4.dp),
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Row(
-                        modifier          = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                if (descumprimentos == 0) VerdeClaro else UrgenteClaro,
-                                RoundedCornerShape(8.dp),
-                            )
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            if (descumprimentos == 0) "✓" else "⚠️",
-                            fontSize   = 14.sp,
-                            color      = if (descumprimentos == 0) Verde else Urgente,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            if (descumprimentos == 0) "Histórico limpo — acesso integral à área urgente."
-                            else "$descumprimentos descumprimento(s) registrado(s).",
-                            fontSize = 12.sp,
-                            color    = if (descumprimentos == 0) Verde else Urgente,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}

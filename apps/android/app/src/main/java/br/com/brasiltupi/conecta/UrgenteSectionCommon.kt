@@ -33,6 +33,68 @@ import androidx.compose.ui.text.input.KeyboardType
  * @param modifier           Modifier opcional para a Column raiz.
  */
 @Composable
+internal fun IndicadorTaxaPlataforma(
+    valorBruto: Double,
+    isPmp: Boolean,
+    verificado: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val taxa = if (isPmp && verificado) 0.10 else 0.30
+    val rotuloTaxa = if (isPmp && verificado) "PMP (10%)" else "Plataforma (30%)"
+    val valorTaxa = valorBruto * taxa
+    val valorLiquido = valorBruto - valorTaxa
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5)),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Valor bruto", fontSize = 12.sp, color = InkMuted)
+                Text(
+                    "R$ ${"%.2f".format(valorBruto)}",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Ink,
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Taxa $rotuloTaxa", fontSize = 12.sp, color = InkMuted)
+                Text(
+                    "− R$ ${"%.2f".format(valorTaxa)}",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Urgente,
+                )
+            }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp), color = SurfaceOff)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Você receberá", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Ink)
+                Text(
+                    "R$ ${"%.2f".format(valorLiquido)}",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Verde,
+                )
+            }
+        }
+    }
+}
+@Composable
 fun AbaUrgenteCompartilhada(
     disponivelInicial: Boolean = false,
     userId:            String  = "",
@@ -41,10 +103,11 @@ fun AbaUrgenteCompartilhada(
     onKyc:             (() -> Unit)? = null,
     mostrarGuiaChamada: Boolean = false,
     valorUrgenteAtual: Double? = null,
+    valorMinutoExtrapoladoAtual: Double? = null,      // NOVO: valor por minuto extra
     onSalvarValorUrgente: ((Double) -> Unit)? = null,
+    onSalvarValorMinutoExtrapolado: ((Double) -> Unit)? = null,   // NOVO
     modifier:          Modifier = Modifier,
-)
-{
+) {
     val scope = rememberCoroutineScope()
 
     // ── estado do toggle ──────────────────────────────────────────
@@ -54,11 +117,16 @@ fun AbaUrgenteCompartilhada(
     var mostrarTermos     by remember { mutableStateOf(false) }
     var jaAceitouTermos   by remember { mutableStateOf(false) }
     var verificandoTermos by remember { mutableStateOf(true) }
+    var isPmpUrgente by remember { mutableStateOf(false) }
+    var verificadoUrgente by remember { mutableStateOf(false) }
 
     // ── verifica aceite dos termos ao iniciar ─────────────────────
     LaunchedEffect(userId) {
         if (userId.isEmpty()) { verificandoTermos = false; return@LaunchedEffect }
         jaAceitouTermos  = verificarAceiteTermosUrgencia(userId)
+        val perfil = getMeuPerfilProfissional(userId)
+        isPmpUrgente = perfil?.is_pmp ?: false
+        verificadoUrgente = perfil?.verificado ?: false
         verificandoTermos = false
     }
 
@@ -328,13 +396,24 @@ fun AbaUrgenteCompartilhada(
                 colors   = CardDefaults.cardColors(containerColor = Surface),
             ) {
                 var valorEdit by remember { mutableStateOf(valorUrgenteAtual?.toString() ?: "") }
+                var valorMinutoEdit by remember { mutableStateOf(valorMinutoExtrapoladoAtual?.toString() ?: "") }
                 var salvandoConf by remember { mutableStateOf(false) }
                 var erroConf by remember { mutableStateOf<String?>(null) }
-                val duracaoFixa = 15
+                var podeEditar by remember { mutableStateOf(true) }
+                var mensagemBloqueio by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(userId) {
+                    if (userId.isNotEmpty()) {
+                        val status = verificarBloqueioValorMinuto(userId)
+                        podeEditar = !status.bloqueado
+                        mensagemBloqueio = if (status.bloqueado && status.proximaLiberacao != null) {
+                            "Alteração bloqueada até ${status.proximaLiberacao}. Você só pode alterar o valor uma vez a cada 30 dias."
+                        } else null
+                    }
+                }
 
                 Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("⚙️ Configuração do atendimento urgente", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
-                    Text("Defina o valor cobrado por consulta urgente. A duração máxima é fixa em ${duracaoFixa} minutos conforme acordo.", fontSize = 12.sp, color = InkMuted)
+                    Text("Duração fixa: 15 minutos. O cliente poderá solicitar tempo extra, cobrado por minuto.", fontSize = 12.sp, color = InkMuted)
 
                     OutlinedTextField(
                         value = valorEdit,
@@ -349,33 +428,95 @@ fun AbaUrgenteCompartilhada(
                         supportingText = { if (erroConf != null) Text(erroConf!!, fontSize = 11.sp, color = Urgente) }
                     )
 
+                    OutlinedTextField(
+                        value = valorMinutoEdit,
+                        onValueChange = { if (podeEditar) valorMinutoEdit = it.filter { c -> c.isDigit() || c == ',' || c == '.' } },
+                        label = { Text("Valor por minuto adicional (R$)") },
+                        placeholder = { Text("Ex: 2,50") },
+                        singleLine = true,
+                        enabled = podeEditar,
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Urgente,
+                            disabledBorderColor = SurfaceOff,
+                            disabledLabelColor = InkMuted
+                        ),
+                    )
+                    if (mensagemBloqueio != null) {
+                        Text(
+                            mensagemBloqueio!!,
+                            fontSize = 11.sp,
+                            color = Urgente,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
                     if (erroConf != null) {
                         Text(erroConf!!, fontSize = 11.sp, color = Urgente)
+                    }
+                    if (valorUrgenteAtual != null && valorUrgenteAtual > 0) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        IndicadorTaxaPlataforma(
+                            valorBruto = valorUrgenteAtual!!,
+                            isPmp = isPmpUrgente,
+                            verificado = verificadoUrgente,
+                        )
                     }
 
                     Button(
                         onClick = {
                             erroConf = null
+                            mensagemBloqueio = null
                             val novoValor = valorEdit.replace(",", ".").toDoubleOrNull()
                             if (novoValor == null || novoValor <= 0.0) {
                                 erroConf = "Digite um valor válido maior que zero."
                                 return@Button
                             }
+                            val novoValorMinuto = valorMinutoEdit.replace(",", ".").toDoubleOrNull()
+                            if (novoValorMinuto == null || novoValorMinuto <= 0.0) {
+                                erroConf = "Digite um valor válido para o minuto extra."
+                                return@Button
+                            }
+                            if (novoValorMinuto > 6.0) {
+                                erroConf = "O valor por minuto não pode ultrapassar R$ 6,00."
+                                return@Button
+                            }
                             salvandoConf = true
-                            onSalvarValorUrgente(novoValor)
-                            salvandoConf = false
+                            scope.launch {
+                                val resultado = atualizarValorMinutoUrgente(userId, novoValorMinuto)
+                                salvandoConf = false
+                                resultado.onSuccess {
+                                    onSalvarValorUrgente(novoValor)
+                                    onSalvarValorMinutoExtrapolado?.invoke(novoValorMinuto)
+                                }.onFailure { ex ->
+                                    val msg = ex.message ?: "Erro ao salvar."
+                                    if (msg.contains("30 dias")) {
+                                        podeEditar = false
+                                        mensagemBloqueio = msg
+                                    } else {
+                                        erroConf = msg
+                                    }
+                                }
+                            }
                         },
-                        enabled = !salvandoConf,
+                        enabled = !salvandoConf && podeEditar,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Urgente),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (podeEditar) Urgente else SurfaceOff,
+                            disabledContainerColor = SurfaceOff,
+                            disabledContentColor = InkMuted
+                        ),
                     ) {
                         if (salvandoConf) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
-                        else Text("Salvar valor", color = Color.White, fontWeight = FontWeight.Bold)
+                        else Text("Salvar configurações", color = if (podeEditar) Color.White else InkMuted, fontWeight = FontWeight.Bold)
                     }
 
                     if (valorUrgenteAtual != null && valorUrgenteAtual > 0.0) {
-                        Text("Valor atual: R$ ${"%.2f".format(valorUrgenteAtual)}", fontSize = 11.sp, color = Verde, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+                        Text("Atual: R$ ${"%.2f".format(valorUrgenteAtual)} / +R$ ${"%.2f".format(valorMinutoExtrapoladoAtual ?: 0.0)}/min",
+                            fontSize = 11.sp, color = Verde, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                     }
                 }
             }

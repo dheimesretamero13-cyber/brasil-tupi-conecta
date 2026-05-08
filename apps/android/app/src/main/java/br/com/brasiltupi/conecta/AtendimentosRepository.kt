@@ -22,6 +22,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlinx.serialization.json.*
 
 // ── Configuração exclusiva via BuildConfig ──────────────────────────────
 private val ATEND_URL = BuildConfig.SUPABASE_URL
@@ -45,6 +46,9 @@ data class ModalidadeAtendimento(
     @SerialName("sessoes_por_semana") val sessoesPorSemana: Int? = null,
     @SerialName("sessoes_total") val sessoesTotal: Int? = null,
     val valor:                    Double  = 0.0,
+    @SerialName("modelo_cobranca") val modeloCobranca: String = "avulso", // avulso, integral, fidelidade
+    @SerialName("duracao_meses") val duracaoMeses: Int? = null,
+    @SerialName("horas_por_semana") val horasPorSemana: Int? = null,
     val ativo:                    Boolean = true,
 )
 
@@ -123,6 +127,9 @@ private data class CriarModalidadeRequest(
     @SerialName("sessoes_por_semana") val sessoesPorSemana: Int? = null,
     @SerialName("sessoes_total")      val sessoesTotal:     Int? = null,
     val valor:                        Double,
+    @SerialName("modelo_cobranca") val modeloCobranca: String = "avulso",
+    @SerialName("duracao_meses") val duracaoMeses: Int? = null,
+    @SerialName("horas_por_semana") val horasPorSemana: Int? = null,
     val ativo:                        Boolean = true,
 )
 
@@ -134,6 +141,9 @@ private data class AtualizarModalidadeRequest(
     @SerialName("sessoes_por_semana")    val sessoesPorSemana: Int? = null,
     @SerialName("sessoes_total")         val sessoesTotal:     Int? = null,
     val valor:                           Double,
+    @SerialName("modelo_cobranca") val modeloCobranca: String = "avulso",
+    @SerialName("duracao_meses") val duracaoMeses: Int? = null,
+    @SerialName("horas_por_semana") val horasPorSemana: Int? = null,
     val ativo:                           Boolean,
 )
 
@@ -344,6 +354,9 @@ object AtendimentosRepository {
         sessoesPorSemana: Int?   = null,
         sessoesTotal:    Int?    = null,
         valor:           Double,
+        modeloCobranca:  String  = "avulso",
+        duracaoMeses:    Int?    = null,
+        horasPorSemana:  Int?    = null,
     ): Boolean {
         return try {
             val response = httpClient.post("$ATEND_URL/rest/v1/modalidades_atendimento") {
@@ -360,6 +373,9 @@ object AtendimentosRepository {
                     sessoesPorSemana = sessoesPorSemana,
                     sessoesTotal     = sessoesTotal,
                     valor            = valor,
+                    modeloCobranca   = modeloCobranca,
+                    duracaoMeses     = duracaoMeses,
+                    horasPorSemana   = horasPorSemana,
                 ))
             }
             response.status.value in 200..299
@@ -377,6 +393,9 @@ object AtendimentosRepository {
         sessoesPorSemana: Int?  = null,
         sessoesTotal:    Int?   = null,
         valor:           Double,
+        modeloCobranca:  String = "avulso",
+        duracaoMeses:    Int?   = null,
+        horasPorSemana:  Int?   = null,
         ativo:           Boolean,
     ): Boolean {
         return try {
@@ -394,6 +413,9 @@ object AtendimentosRepository {
                     sessoesPorSemana = sessoesPorSemana,
                     sessoesTotal     = sessoesTotal,
                     valor            = valor,
+                    modeloCobranca   = modeloCobranca,
+                    duracaoMeses     = duracaoMeses,
+                    horasPorSemana   = horasPorSemana,
                     ativo            = ativo,
                 ))
             }
@@ -421,7 +443,41 @@ object AtendimentosRepository {
             emptyList()
         }
     }
-
+    suspend fun atualizarDisponibilidade(
+        id: String,
+        diaSemana: String,
+        modalidadeId: String,
+        horaInicio: String,
+        horaFim: String,
+    ): Boolean {
+        return try {
+            val token = AuthRepository.token ?: BuildConfig.SUPABASE_KEY
+            val response = httpClient.patch(
+                "${BuildConfig.SUPABASE_URL}/rest/v1/disponibilidade_regular?id=eq.$id"
+            ) {
+                header("apikey", BuildConfig.SUPABASE_KEY)
+                header("Authorization", "Bearer $token")
+                header("Content-Type", "application/json")
+                header("Prefer", "return=minimal")
+                val modalidadeJson: JsonElement = if (modalidadeId.isBlank()) JsonNull else JsonPrimitive(modalidadeId)
+                setBody(
+                    buildJsonObject {
+                        put("dia_semana", diaSemana)
+                        put("modalidade_id", modalidadeJson)
+                        put("hora_inicio", horaInicio)
+                        put("hora_fim", horaFim)
+                    }.toString()
+                )
+            }
+            if (response.status.value !in 200..299) {
+                AppLogger.erro(TAG, "atualizarDisponibilidade HTTP ${response.status.value} corpo=${response.bodyAsText()}")
+            }
+            response.status.value in 200..299
+        } catch (e: Exception) {
+            AppLogger.erroRede("atualizarDisponibilidade", e, "id=$id")
+            false
+        }
+    }
     // ── 8. CRUD DISPONIBILIDADE (profissional) ───────────────────────────
 
     suspend fun criarDisponibilidade(
@@ -444,6 +500,9 @@ object AtendimentosRepository {
                     horaInicio     = horaInicio,
                     horaFim        = horaFim,
                 ))
+            }
+            if (response.status.value !in 200..299) {
+                AppLogger.erro(TAG, "criarDisponibilidade HTTP ${response.status.value} corpo=${response.bodyAsText()}")
             }
             response.status.value in 200..299
         } catch (e: Exception) {
@@ -485,6 +544,39 @@ object AtendimentosRepository {
             response.status.value in 200..299
         } catch (e: Exception) {
             AppLogger.erroRede("disponibilidade_regular (remover)", e, "slot=$slotId")
+            false
+        }
+    }
+    suspend fun criarPreferenciaModalidade(modalidadeId: String): PreferenciaResponse? {
+        return try {
+            val token = currentToken ?: return null
+            val response = httpClient.post("$ATEND_URL/rest/v1/rpc/criar_preferencia_modalidade") {
+                header("apikey", ATEND_KEY)
+                header("Authorization", "Bearer $token")
+                header("Content-Type", "application/json")
+                setBody("{\"p_modalidade_id\":\"$modalidadeId\",\"p_cliente_id\":\"${currentUserId ?: ""}\"}")
+            }
+            if (response.status.value in 200..299) {
+                json.decodeFromString<PreferenciaResponse>(response.bodyAsText())
+            } else null
+        } catch (e: Exception) {
+            AppLogger.erroRede("criar_preferencia_modalidade", e, "modalidadeId=$modalidadeId")
+            null
+        }
+    }
+
+    suspend fun verificarAcessoModalidade(modalidadeId: String): Boolean {
+        return try {
+            val token = currentToken ?: return false
+            val response = httpClient.post("$ATEND_URL/rest/v1/rpc/verificar_acesso_modalidade") {
+                header("apikey", ATEND_KEY)
+                header("Authorization", "Bearer $token")
+                header("Content-Type", "application/json")
+                setBody("{\"p_modalidade_id\":\"$modalidadeId\",\"p_cliente_id\":\"${currentUserId ?: ""}\"}")
+            }
+            response.status.value in 200..299 && response.bodyAsText().trim() == "true"
+        } catch (e: Exception) {
+            AppLogger.erroRede("verificar_acesso_modalidade", e, "modalidadeId=$modalidadeId")
             false
         }
     }

@@ -46,53 +46,33 @@ private data class SalvarProgressoRequest(
 
 class ContentRepository {
 
-    // ── 1. URL TEMPORÁRIA — VÍDEO (DRM leve — expira em 1h) ──────────────
-    suspend fun gerarUrlTemporaria(aulaId: String): String {
+    // ── URL assinada genérica (bucket + objectPath) ────────────────────────
+    suspend fun gerarUrlTemporaria(bucket: String, objectPath: String, expiresIn: Int = 3600): String {
         return try {
             val response = httpClient.post(
-                "$LOCAL_URL/storage/v1/object/sign/aulas/$aulaId"
+                "$LOCAL_URL/storage/v1/object/sign/$bucket/$objectPath"
             ) {
                 header("apikey", LOCAL_KEY)
-                header("Authorization", "Bearer ${currentToken ?: LOCAL_KEY}")
+                header("Authorization", "Bearer $LOCAL_KEY")
                 header("Content-Type", "application/json")
-                setBody("{\"expiresIn\": 3600}")
+                setBody("{\"expiresIn\": $expiresIn}")
             }.body<Map<String, String?>>()
 
             val signedUrl = response["signedURL"] ?: response["signedUrl"]
-            if (signedUrl.isNullOrBlank()) {
-                AppLogger.aviso("ContentRepository", "signedURL vazio para aula=$aulaId")
-                throw IllegalStateException("URL temporaria nao gerada para aula=$aulaId")
-            }
+            ?: throw IllegalStateException("URL assinada não gerada para $bucket/$objectPath")
             "$LOCAL_URL/storage/v1$signedUrl"
         } catch (e: Exception) {
-            AppLogger.erro("ContentRepository", "Falha ao gerar URL temporaria aula=$aulaId", e)
+            AppLogger.erro("ContentRepository", "Falha ao gerar URL assinada $bucket/$objectPath", e)
             throw e
         }
     }
 
-    // ── 2. URL TEMPORÁRIA — PDF (DRM leve — expira em 1h) ────────────────
-    // Bucket separado: 'produtos-pdf' — RLS garante acesso apenas a compradores
-    suspend fun gerarUrlTemporariaPdf(produtoId: String): String {
-        return try {
-            val response = httpClient.post(
-                "$LOCAL_URL/storage/v1/object/sign/produtos-pdf/$produtoId.pdf"
-            ) {
-                header("apikey", LOCAL_KEY)
-                header("Authorization", "Bearer ${currentToken ?: LOCAL_KEY}")
-                header("Content-Type", "application/json")
-                setBody("{\"expiresIn\": 3600}")
-            }.body<Map<String, String?>>()
+    // Manter compatibilidade com chamadas antigas
+    suspend fun gerarUrlTemporaria(aulaId: String): String =
+        gerarUrlTemporaria(bucket = "aulas", objectPath = aulaId)
 
-            val signedUrl = response["signedURL"] ?: response["signedUrl"]
-            if (signedUrl.isNullOrBlank()) {
-                throw IllegalStateException("URL temporaria nao gerada para produto=$produtoId")
-            }
-            "$LOCAL_URL/storage/v1$signedUrl"
-        } catch (e: Exception) {
-            AppLogger.erro("ContentRepository", "Falha ao gerar URL PDF produto=$produtoId", e)
-            throw e
-        }
-    }
+    suspend fun gerarUrlTemporariaPdf(produtoId: String): String =
+        gerarUrlTemporaria(bucket = "produtos-pdf", objectPath = "$produtoId.pdf")
 
     // ── 3. BUSCAR PROGRESSO SALVO ─────────────────────────────────────────
     suspend fun buscarProgresso(aulaId: String, cursoId: String): ProgressoAula? {

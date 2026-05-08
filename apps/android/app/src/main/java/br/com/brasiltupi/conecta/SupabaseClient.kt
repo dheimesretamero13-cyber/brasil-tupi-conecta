@@ -82,6 +82,7 @@ data class PerfilUsuario(
     val capa_url: String? = null,
     @SerialName("criado_em") val criadoEm: String? = null,
     val valor_consulta_urgente: Double? = null,
+    @SerialName("valor_minuto_extrapolado") val valorMinutoExtrapolado: Double? = null,
 )
 
 @Serializable
@@ -106,6 +107,7 @@ data class ProfissionalComPerfil(
     val disponivel_urgente: Boolean = false,
     val valor_normal: Int = 80,
     val valor_urgente: Int? = null,
+    @SerialName("valor_minuto_extrapolado") val valorMinutoExtrapolado: Double? = null,
     val verificado: Boolean = false,
     @SerialName("total_atendimentos") val total_atendimentos: Int? = null,
     val perfis: PerfilNested? = null,
@@ -355,12 +357,29 @@ private data class CriarItemEstudioRequest(
     val tipo: String,
     val preco: Double,
     val preco_original: Double? = null,
+    val capa_url: String? = null,
     val video_url: String? = null,
     val arquivo_url: String? = null,
     val link_externo: String? = null,
     val tem_entrega: Boolean = false,
     val destaque: Boolean = false,
     val ativo: Boolean = true,
+    // campos específicos por tipo
+    val materia: String? = null,
+    @SerialName("duracao_minutos") val duracaoMinutos: Int? = null,
+    @SerialName("nivel_aula") val nivelAula: String? = null,
+    @SerialName("carga_horaria_h") val cargaHorariaH: Int? = null,
+    @SerialName("num_modulos") val numModulos: Int? = null,
+    val certificado: Boolean = false,
+    @SerialName("nivel_curso") val nivelCurso: String? = null,
+    @SerialName("autor_livro") val autorLivro: String? = null,
+    val isbn: String? = null,
+    @SerialName("num_paginas") val numPaginas: Int? = null,
+    val edicao: String? = null,
+    val plataforma: String? = null,
+    @SerialName("versao_produto") val versaoProduto: String? = null,
+    @SerialName("suporte_incluido") val suporteIncluido: Boolean = false,
+    @SerialName("link_acesso_digital") val linkAcessoDigital: String? = null,
 )
 @Serializable
 data class EditarItemEstudioRequest(
@@ -369,11 +388,28 @@ data class EditarItemEstudioRequest(
     val tipo:           String,
     val preco:          Double,
     @SerialName("preco_original") val precoOriginal: Double? = null,
+    @SerialName("capa_url")       val capaUrl:       String? = null,
     @SerialName("video_url")      val videoUrl:      String? = null,
     @SerialName("arquivo_url")    val arquivoUrl:    String? = null,
     @SerialName("link_externo")   val linkExterno:   String? = null,
     @SerialName("tem_entrega")    val temEntrega:    Boolean = false,
     val destaque:       Boolean    = false,
+    // campos específicos por tipo
+    val materia: String? = null,
+    @SerialName("duracao_minutos") val duracaoMinutos: Int? = null,
+    @SerialName("nivel_aula") val nivelAula: String? = null,
+    @SerialName("carga_horaria_h") val cargaHorariaH: Int? = null,
+    @SerialName("num_modulos") val numModulos: Int? = null,
+    val certificado: Boolean = false,
+    @SerialName("nivel_curso") val nivelCurso: String? = null,
+    @SerialName("autor_livro") val autorLivro: String? = null,
+    val isbn: String? = null,
+    @SerialName("num_paginas") val numPaginas: Int? = null,
+    val edicao: String? = null,
+    val plataforma: String? = null,
+    @SerialName("versao_produto") val versaoProduto: String? = null,
+    @SerialName("suporte_incluido") val suporteIncluido: Boolean = false,
+    @SerialName("link_acesso_digital") val linkAcessoDigital: String? = null,
 )
 
 @Serializable
@@ -887,9 +923,14 @@ suspend fun getEstudioProfissionalAndroid(profissionalId: String, filtroTipo: St
 
 suspend fun criarItemEstudioAndroid(
     profissionalId: String, titulo: String, descricao: String, tipo: String,
-    preco: Double, precoOriginal: Double? = null, videoUrl: String? = null,
-    arquivoUrl: String? = null, linkExterno: String? = null,
+    preco: Double, precoOriginal: Double? = null, capaUrl: String? = null,
+    videoUrl: String? = null, arquivoUrl: String? = null, linkExterno: String? = null,
     temEntrega: Boolean = false, destaque: Boolean = false,
+    materia: String? = null, duracaoMinutos: Int? = null, nivelAula: String? = null,
+    cargaHorariaH: Int? = null, numModulos: Int? = null, certificado: Boolean = false,
+    nivelCurso: String? = null, autorLivro: String? = null, isbn: String? = null,
+    numPaginas: Int? = null, edicao: String? = null, plataforma: String? = null,
+    versaoProduto: String? = null, suporteIncluido: Boolean = false, linkAcessoDigital: String? = null,
 ): Boolean {
     return try {
         val response = httpClient.post("$SUPABASE_URL/rest/v1/estudio") {
@@ -900,8 +941,15 @@ suspend fun criarItemEstudioAndroid(
             setBody(CriarItemEstudioRequest(
                 profissional_id = profissionalId, titulo = titulo, descricao = descricao,
                 tipo = tipo, preco = preco, preco_original = precoOriginal,
+                capa_url = capaUrl,
                 video_url = videoUrl, arquivo_url = arquivoUrl, link_externo = linkExterno,
                 tem_entrega = temEntrega, destaque = destaque,
+                materia = materia, duracaoMinutos = duracaoMinutos, nivelAula = nivelAula,
+                cargaHorariaH = cargaHorariaH, numModulos = numModulos, certificado = certificado,
+                nivelCurso = nivelCurso, autorLivro = autorLivro, isbn = isbn,
+                numPaginas = numPaginas, edicao = edicao, plataforma = plataforma,
+                versaoProduto = versaoProduto, suporteIncluido = suporteIncluido,
+                linkAcessoDigital = linkAcessoDigital,
             ))
         }
         response.status.value in 200..299
@@ -977,13 +1025,13 @@ suspend fun atualizarPerfilProfissional(
             header("Content-Type", "application/json")
             header("Prefer", "resolution=merge-duplicates,return=minimal")
             setBody(AtualizarPerfilProfissionalRequest(
-                id              = userId,
-                descricao       = bio,
-                area            = area,
-                conselho        = conselho,
-                numero_conselho = numeroConselho,
-                valor_normal    = precoNormal,
-                valor_urgente   = precoUrgente,
+                id                     = userId,
+                descricao              = bio,
+                area                   = area,
+                conselho               = conselho,
+                numero_conselho         = numeroConselho,
+                valor_normal           = precoNormal,
+                valor_urgente          = precoUrgente,
             ))
         }
         response.status.value in 200..299
@@ -1564,6 +1612,80 @@ suspend fun uploadKycDocumento(userId: String, tipo: String, bytes: ByteArray, m
         null
     }
 }
+// ── UPLOAD GENÉRICO PARA ESTÚDIO ──────────────────────────────────────
+suspend fun uploadArquivoEstudio(
+    bytes: ByteArray,
+    mimeType: String,
+    caminho: String,        // ex: "${userId}/${itemId}/video.mp4"
+): String? {
+    return try {
+        val response = httpClient.put(
+            "$SUPABASE_URL/storage/v1/object/estudio-assets/$caminho"
+        ) {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Content-Type", mimeType)
+            header("x-upsert", "true")
+            setBody(bytes)
+        }
+        if (response.status.value in 200..299) caminho else null
+    } catch (e: Exception) {
+        AppLogger.erroRede("uploadArquivoEstudio", e, "caminho=$caminho")
+        null
+    }
+}
+
+// ── CONTEÚDOS DO ESTÚDIO ──────────────────────────────────────────────
+@Serializable
+data class ConteudoEstudioRequest(
+    @SerialName("estudio_id") val estudioId: String,
+    val ordem: Int,
+    val titulo: String,
+    val descricao: String? = null,
+    val tipo: String,
+    @SerialName("storage_path") val storagePath: String? = null,
+    @SerialName("url_externa") val urlExterna: String? = null,
+)
+suspend fun inserirConteudoEstudio(request: ConteudoEstudioRequest): Boolean {
+    return try {
+        val response = httpClient.post("$SUPABASE_URL/rest/v1/estudio_conteudos") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Content-Type", "application/json")
+            header("Prefer", "return=minimal")
+            setBody(request)
+        }
+        response.status.value in 200..299
+    } catch (e: Exception) {
+        AppLogger.erroRede("inserirConteudoEstudio", e, "estudioId=${request.estudioId}")
+        false
+    }
+}
+@Serializable
+data class ConteudoEstudioResponse(
+    val id: String,
+    val titulo: String,
+    val descricao: String? = null,
+    val tipo: String,
+    @SerialName("storage_path") val storagePath: String? = null,
+    @SerialName("url_externa") val urlExterna: String? = null,
+)
+
+suspend fun buscarConteudosEstudio(estudioId: String): List<ConteudoEstudioResponse> {
+    return try {
+        httpClient.get("$SUPABASE_URL/rest/v1/estudio_conteudos") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Accept", "application/json")
+            parameter("estudio_id", "eq.$estudioId")
+            parameter("select", "id,titulo,descricao,tipo,storage_path,url_externa")
+            parameter("order", "ordem.asc")
+        }.body<List<ConteudoEstudioResponse>>()
+    } catch (e: Exception) {
+        AppLogger.erroRede("buscarConteudosEstudio", e, "estudioId=$estudioId")
+        emptyList()
+    }
+}
 
 // ── EXCLUIR CONTA ─────────────────────────────────────────────────────
 suspend fun excluirContaAndroid(): Boolean {
@@ -1585,6 +1707,38 @@ suspend fun excluirContaAndroid(): Boolean {
     } catch (e: Exception) {
         AppLogger.erroRede("functions/v1/excluir-conta", e, "excluir_conta")
         false
+    }
+}
+suspend fun obterValorMinutoExtrapolado(urgenciaId: String): Double? {
+    return try {
+        val token = currentToken ?: SUPABASE_KEY
+        // Busca a urgência para obter o professional_id
+        val urgenciaResponse = httpClient.get(
+            "$SUPABASE_URL/rest/v1/urgencias?id=eq.$urgenciaId&select=professional_id"
+        ) {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer $token")
+            header("Accept", "application/json")
+            parameter("limit", "1")
+        }
+        val urgenciaList = json.decodeFromString<List<Map<String, String?>>>(urgenciaResponse.bodyAsText())
+        val profissionalId = urgenciaList.firstOrNull()?.get("professional_id") ?: return null
+
+        // Busca o perfil do profissional para pegar o valor por minuto extra
+        val profissionalResponse = httpClient.get(
+            "$SUPABASE_URL/rest/v1/profissionais?id=eq.$profissionalId&select=valor_minuto_extrapolado"
+        ) {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer $token")
+            header("Accept", "application/json")
+            parameter("limit", "1")
+        }
+        val profissionalList = json.decodeFromString<List<Map<String, String?>>>(profissionalResponse.bodyAsText())
+        val valor = profissionalList.firstOrNull()?.get("valor_minuto_extrapolado")
+        valor?.toDoubleOrNull()
+    } catch (e: Exception) {
+        AppLogger.erroRede("obterValorMinutoExtrapolado", e, "urgenciaId=$urgenciaId")
+        null
     }
 }
 
@@ -1628,6 +1782,54 @@ suspend fun solicitarReembolsoEstudio(purchaseId: String, motivo: String): Strin
     } catch (e: Exception) {
         AppLogger.erroRede("solicitarReembolsoEstudio", e, "purchaseId=$purchaseId")
         "erro_rede"
+    }
+}
+suspend fun atualizarValorMinutoUrgente(profissionalId: String, novoValor: Double): Result<Unit> {
+    return try {
+        val token = currentToken ?: return Result.failure(Exception("Token ausente"))
+        val response = httpClient.post("$SUPABASE_URL/rest/v1/rpc/atualizar_valor_minuto_urgente") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer $token")
+            header("Content-Type", "application/json")
+            setBody("{\"p_profissional_id\":\"$profissionalId\",\"p_novo_valor\":$novoValor}")
+        }
+        val corpo = response.bodyAsText()
+        val json = Json { ignoreUnknownKeys = true }.parseToJsonElement(corpo).jsonObject
+        val sucesso = json["sucesso"]?.jsonPrimitive?.boolean ?: false
+        if (sucesso) {
+            Result.success(Unit)
+        } else {
+            val erroMsg = json["erro"]?.jsonPrimitive?.content ?: "Erro desconhecido"
+            Result.failure(Exception(erroMsg))
+        }
+    } catch (e: Exception) {
+        AppLogger.erroRede("atualizarValorMinutoUrgente", e, "profId=$profissionalId")
+        Result.failure(e)
+    }
+}
+data class StatusBloqueioValorMinuto(
+    val bloqueado: Boolean,
+    val proximaLiberacao: String? = null
+)
+
+suspend fun verificarBloqueioValorMinuto(profissionalId: String): StatusBloqueioValorMinuto {
+    return try {
+        val token = currentToken ?: return StatusBloqueioValorMinuto(bloqueado = true)
+        val response = httpClient.post("$SUPABASE_URL/rest/v1/rpc/verificar_bloqueio_valor_minuto") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer $token")
+            header("Content-Type", "application/json")
+            setBody("{\"p_profissional_id\":\"$profissionalId\"}")
+        }
+        val corpo = response.bodyAsText()
+        val json = Json { ignoreUnknownKeys = true }.parseToJsonElement(corpo).jsonObject
+        StatusBloqueioValorMinuto(
+            bloqueado = json["bloqueado"]?.jsonPrimitive?.boolean ?: false,
+            proximaLiberacao = json["proxima_liberacao"]?.jsonPrimitive?.content
+        )
+    } catch (e: Exception) {
+        AppLogger.erroRede("verificarBloqueioValorMinuto", e, "profId=$profissionalId")
+        StatusBloqueioValorMinuto(bloqueado = true)
     }
 }
 fun createWebSocketClient(): HttpClient = HttpClient(OkHttp) {

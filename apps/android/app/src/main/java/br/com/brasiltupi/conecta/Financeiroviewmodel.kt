@@ -67,7 +67,7 @@ data class PontoGrafico(
 )
 
 @Serializable
-private data class ResumoFinanceiroRequest(
+data class ResumoFinanceiroRequest(
     @SerialName("p_prof_id") val profId: String,
 )
 
