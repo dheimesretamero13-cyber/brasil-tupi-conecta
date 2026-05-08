@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.brasiltupi.conecta.ui.theme.*
@@ -32,8 +33,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.foundation.rememberScrollState
 import kotlinx.coroutines.delay
 
-
-// Estado único de navegação da BuscaScreen
 sealed class BuscaUiState {
     object Lista : BuscaUiState()
     data class Perfil(val prof: ProfissionalPMP) : BuscaUiState()
@@ -42,42 +41,66 @@ sealed class BuscaUiState {
     data class AgendamentoModalidade(val prof: ProfissionalPMP, val modalidadeId: String) : BuscaUiState()
 }
 
-// ProfissionalPMP é declarado em SupabaseClient.kt — não redeclarar aqui.
-
-// ── TELA PRINCIPAL ────────────────────────────────────
+// TELA PRINCIPAL
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BuscaScreen(
-    onVoltar:             () -> Unit,
-    onEstudio:            (String) -> Unit,
-    onPagar:              () -> Unit,
+    onVoltar: () -> Unit,
+    onEstudio: (String) -> Unit,
+    onPagar: () -> Unit,
     onIniciarChamadaUrgente: (String) -> Unit,
-    onAgendarModalidade:  (profissionalId: String, nome: String, modalidadeId: String) -> Unit = { _, _, _ -> },
-    onPerfil:             () -> Unit = {},
-    onReferral:           () -> Unit = {},
-    onSuporte:            () -> Unit = {},
-    onSair:               () -> Unit = {},
+    onAgendarModalidade: (profissionalId: String, nome: String, modalidadeId: String) -> Unit = { _, _, _ -> },
+    onPerfil: () -> Unit = {},
+    onReferral: () -> Unit = {},
+    onSuporte: () -> Unit = {},
+    onSair: () -> Unit = {},
 ) {
     var busca by remember { mutableStateOf("") }
     var somenteUrgente by remember { mutableStateOf(false) }
     var uiState by remember { mutableStateOf<BuscaUiState>(BuscaUiState.Lista) }
-    BackHandler(enabled = uiState !is BuscaUiState.Lista) {
-        when (uiState) {
-            is BuscaUiState.Perfil -> uiState = BuscaUiState.Lista
-            is BuscaUiState.Agendamento -> uiState = BuscaUiState.Perfil((uiState as BuscaUiState.Agendamento).prof)
-            else -> {}
-        }
-    }
+    var exibindoEstudio by remember { mutableStateOf(false) }
+
+    // Dados de profissionais (usando função já testada no Dashboard)
     var profissionaisDB by remember { mutableStateOf<List<ProfissionalPMP>>(emptyList()) }
     var loadingDB by remember { mutableStateOf(true) }
 
+    // Dados do estúdio (todos os itens, depois filtramos por PMP)
+    var itensEstudioBrutos by remember { mutableStateOf<List<ItemEstudio>>(emptyList()) }
+    var idsPMP by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var loadingEstudio by remember { mutableStateOf(true) }
+
+    // Carrega profissionais PMP (identificadores para filtro)
+    LaunchedEffect(Unit) {
+        // Obtém todos os profissionais e extrai os IDs dos que são PMP
+        val pmpProfiles = getProfissionaisPMPAndroid(somenteUrgente = false, busca = "", aplicarFiltroPMP = false)
+        idsPMP = pmpProfiles.filter { it.is_pmp }.map { it.id }.toSet()
+    }
+
+    // Carrega profissionais da busca (usando a função real)
     LaunchedEffect(somenteUrgente) {
         loadingDB = true
-        val dados = getProfissionaisPMPAndroid(somenteUrgente, "")
-        profissionaisDB = dados.map { it.toProfissionalPMP() }
+        // Carrega todos os profissionais (sem filtro extra), como no Dashboard
+        val dados = getProfissionaisPMPAndroid(
+            somenteUrgente = somenteUrgente,
+            busca = "",
+            aplicarFiltroPMP = false
+        )
+        // Filtra apenas os que possuem o selo PMP (is_pmp = true)
+        profissionaisDB = dados.filter { it.is_pmp }.map { it.toProfissionalPMP() }
         loadingDB = false
     }
 
+    // Carrega todos os itens do estúdio e filtra apenas os de profissionais PMP
+    LaunchedEffect(exibindoEstudio, idsPMP) {
+        if (exibindoEstudio && idsPMP.isNotEmpty()) {
+            loadingEstudio = true
+            val todos = getProfissionaisEstudioAndroid()
+            itensEstudioBrutos = todos.filter { it.profissionalId in idsPMP }
+            loadingEstudio = false
+        }
+    }
+
+    // Lista final de profissionais (filtrada pela busca textual)
     val resultado = profissionaisDB.filter { p ->
         val matchBusca = busca.isEmpty() ||
                 p.nome.contains(busca, ignoreCase = true) ||
@@ -88,6 +111,21 @@ fun BuscaScreen(
         matchBusca && matchUrgente
     }
 
+    // Lista final do estúdio (filtro textual)
+    val estúdioFiltrado = itensEstudioBrutos.filter { item ->
+        busca.isEmpty() ||
+                item.titulo.contains(busca, ignoreCase = true) ||
+                item.autorNome.contains(busca, ignoreCase = true)
+    }
+
+    BackHandler(enabled = uiState !is BuscaUiState.Lista) {
+        when (uiState) {
+            is BuscaUiState.Perfil -> uiState = BuscaUiState.Lista
+            is BuscaUiState.Agendamento -> uiState = BuscaUiState.Perfil((uiState as BuscaUiState.Agendamento).prof)
+            else -> {}
+        }
+    }
+
     when (val state = uiState) {
 
         is BuscaUiState.Lista -> {
@@ -95,10 +133,9 @@ fun BuscaScreen(
             var filtrosExpandidos by remember { mutableStateOf(true) }
             var ultimoOffset by remember { mutableIntStateOf(0) }
 
-            // Detectar rolagem para baixo para colapsar
-             LaunchedEffect(Unit) {
+            LaunchedEffect(Unit) {
                 while (true) {
-                    delay(50) // verifica a cada 50ms
+                    delay(50)
                     val offset = scrollState.firstVisibleItemScrollOffset
                     if (offset > ultimoOffset + 20 && filtrosExpandidos) {
                         filtrosExpandidos = false
@@ -109,7 +146,13 @@ fun BuscaScreen(
 
             Column(modifier = Modifier.fillMaxSize()) {
                 TopAppBar(
-                    title = { Text("Buscar Profissionais", color = Color.White, fontSize = 16.sp) },
+                    title = {
+                        Text(
+                            if (exibindoEstudio) "Produtos no Estúdio" else "Buscar Profissionais",
+                            color = Color.White,
+                            fontSize = 16.sp
+                        )
+                    },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Azul),
                     actions = {
                         var menuExpandido by remember { mutableStateOf(false) }
@@ -122,25 +165,33 @@ fun BuscaScreen(
                                 onDismissRequest = { menuExpandido = false },
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Meu Perfil") },
-                                    onClick = { menuExpandido = false; onPerfil() },
-                                    leadingIcon = { Text("👤") }
+                                    text = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(if (!exibindoEstudio) "✓ " else "", color = Color.White)
+                                            Text("Buscar Profissionais")
+                                        }
+                                    },
+                                    onClick = {
+                                        menuExpandido = false
+                                        exibindoEstudio = false
+                                        busca = ""
+                                        somenteUrgente = false
+                                    },
+                                    leadingIcon = { Text("👥") }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Indicações") },
-                                    onClick = { menuExpandido = false; onReferral() },
-                                    leadingIcon = { Text("🎁") }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Suporte") },
-                                    onClick = { menuExpandido = false; onSuporte() },
-                                    leadingIcon = { Text("🛡️") }
-                                )
-                                HorizontalDivider()
-                                DropdownMenuItem(
-                                    text = { Text("Sair", color = Urgente) },
-                                    onClick = { menuExpandido = false; onSair() },
-                                    leadingIcon = { Text("🚪") }
+                                    text = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(if (exibindoEstudio) "✓ " else "", color = Color.White)
+                                            Text("Buscar Produtos no Estúdio")
+                                        }
+                                    },
+                                    onClick = {
+                                        menuExpandido = false
+                                        exibindoEstudio = true
+                                        busca = ""
+                                    },
+                                    leadingIcon = { Text("🎨") }
                                 )
                             }
                         }
@@ -153,112 +204,136 @@ fun BuscaScreen(
                 )
 
                 Box(modifier = Modifier.fillMaxSize().background(SurfaceWarm)) {
-                    LazyColumn(
-                        state = scrollState,
-                        contentPadding = PaddingValues(bottom = 16.dp),
-                    ) {
-                        // Cabeçalho colapsável
-                        item {
-                            Column {
-                                // Versão expandida
-                                if (filtrosExpandidos) {
-                                    CabecalhoBuscaExpandido(
-                                        busca = busca,
-                                        onBuscaChange = { busca = it },
-                                        somenteUrgente = somenteUrgente,
-                                        onSomenteUrgenteChange = { somenteUrgente = it },
-                                        onVoltar = { } // o voltar já está no TopAppBar, este é ignorado
-                                    )
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(VerdeClaro)
-                                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                    ) {
-                                        listOf("✓ 10+ atendimentos", "✓ Zero negativos", "✓ Plano PMP ativo").forEach {
-                                            Text(it, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Verde)
-                                        }
-                                    }
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Text(
-                                            if (loadingDB) "Carregando..."
-                                            else "${resultado.size} profissional${if (resultado.size != 1) "is" else ""} encontrado${if (resultado.size != 1) "s" else ""}",
-                                            fontSize = 13.sp, color = InkMuted,
-                                        )
-                                        if ((busca.isNotEmpty() || somenteUrgente) && !loadingDB) {
-                                            TextButton(onClick = { busca = ""; somenteUrgente = false }) {
-                                                Text("Limpar", color = Verde, fontSize = 12.sp)
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    // Versão colapsada: apenas caixa de pesquisa e botão expandir
+                    if (exibindoEstudio) {
+                        LazyColumn(
+                            state = scrollState,
+                            contentPadding = PaddingValues(bottom = 16.dp),
+                        ) {
+                            item {
+                                Column {
                                     CabecalhoBuscaColapsado(
                                         busca = busca,
                                         onBuscaChange = { busca = it },
                                         onExpandir = { filtrosExpandidos = true },
-                                        onVoltar = { } // ignorado
+                                        onVoltar = { }
                                     )
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                            }
-                        }
-
-                        // Lista de profissionais ou loading/empty
-                        if (loadingDB) {
-                            item {
-                                Box(
-                                    modifier = Modifier.fillMaxWidth().padding(40.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        CircularProgressIndicator(color = DouradoMedio)
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Text(
-                                            "Carregando profissionais...",
-                                            fontSize = 13.sp,
-                                            color = InkMuted
-                                        )
-                                    }
-                                }
-                            }
-                        } else if (resultado.isEmpty()) {
-                            item {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth().padding(32.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center,
-                                ) {
-                                    Text("🔍", fontSize = 48.sp, textAlign = TextAlign.Center)
-                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Spacer(modifier = Modifier.height(8.dp))
                                     Text(
-                                        "Nenhum profissional encontrado",
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Ink
-                                    )
-                                    Text(
-                                        "Tente outros termos ou remova os filtros.",
+                                        if (loadingEstudio) "Carregando..."
+                                        else "${estúdioFiltrado.size} produto(s) encontrado(s)",
                                         fontSize = 13.sp,
                                         color = InkMuted,
-                                        modifier = Modifier.padding(top = 6.dp)
+                                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
                                     )
                                 }
                             }
-                        } else {
-                            items(resultado) { prof ->
-                                CardProfissional(
-                                    prof = prof,
-                                    onClick = { uiState = BuscaUiState.Perfil(prof) },
-                                    onEstudio = onEstudio,
-                                )
+                            if (loadingEstudio) {
+                                item {
+                                    Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(color = DouradoMedio)
+                                    }
+                                }
+                            } else if (estúdioFiltrado.isEmpty()) {
+                                item {
+                                    Column(modifier = Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("🎨", fontSize = 48.sp)
+                                        Text("Nenhum produto encontrado", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
+                                    }
+                                }
+                            } else {
+                                items(estúdioFiltrado) { item ->
+                                    CardEstudioPMP(
+                                        item = item,
+                                        onClick = { onEstudio(item.profissionalId) }
+                                    )
+                                }
+                                item { Spacer(modifier = Modifier.height(16.dp)) }
                             }
-                            item { Spacer(modifier = Modifier.height(16.dp)) }
+                        }
+                    } else {
+                        LazyColumn(
+                            state = scrollState,
+                            contentPadding = PaddingValues(bottom = 16.dp),
+                        ) {
+                            item {
+                                Column {
+                                    if (filtrosExpandidos) {
+                                        CabecalhoBuscaExpandido(
+                                            busca = busca,
+                                            onBuscaChange = { busca = it },
+                                            somenteUrgente = somenteUrgente,
+                                            onSomenteUrgenteChange = { somenteUrgente = it },
+                                            onVoltar = { }
+                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().background(VerdeClaro).padding(horizontal = 16.dp, vertical = 10.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                        ) {
+                                            listOf("✓ 10+ atendimentos", "✓ Zero negativos", "✓ Plano PMP ativo").forEach {
+                                                Text(it, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Verde)
+                                            }
+                                        }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Text(
+                                                if (loadingDB) "Carregando..."
+                                                else "${resultado.size} profissional(is) encontrado(s)",
+                                                fontSize = 13.sp, color = InkMuted,
+                                            )
+                                            if ((busca.isNotEmpty() || somenteUrgente) && !loadingDB) {
+                                                TextButton(onClick = { busca = ""; somenteUrgente = false }) {
+                                                    Text("Limpar", color = Verde, fontSize = 12.sp)
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        CabecalhoBuscaColapsado(
+                                            busca = busca,
+                                            onBuscaChange = { busca = it },
+                                            onExpandir = { filtrosExpandidos = true },
+                                            onVoltar = { }
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
+                            }
+
+                            if (loadingDB) {
+                                item {
+                                    Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            CircularProgressIndicator(color = DouradoMedio)
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Text("Carregando profissionais...", fontSize = 13.sp, color = InkMuted)
+                                        }
+                                    }
+                                }
+                            } else if (resultado.isEmpty()) {
+                                item {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center,
+                                    ) {
+                                        Text("🔍", fontSize = 48.sp, textAlign = TextAlign.Center)
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text("Nenhum profissional encontrado", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
+                                        Text("Tente outros termos ou remova os filtros.", fontSize = 13.sp, color = InkMuted, modifier = Modifier.padding(top = 6.dp))
+                                    }
+                                }
+                            } else {
+                                items(resultado) { prof ->
+                                    CardProfissional(
+                                        prof = prof,
+                                        onClick = { uiState = BuscaUiState.Perfil(prof) },
+                                        onEstudio = onEstudio,
+                                    )
+                                }
+                                item { Spacer(modifier = Modifier.height(16.dp)) }
+                            }
                         }
                     }
                 }
@@ -317,14 +392,14 @@ fun BuscaScreen(
     }
 }
 
-// ── CARD PROFISSIONAL ─────────────────────────────────
+// ── CARD PROFISSIONAL (mantido igual ao original) ────
 @Composable
 fun CardProfissional(prof: ProfissionalPMP, onClick: () -> Unit, onEstudio: ((String) -> Unit)? = null) {
     Card(
-        onClick   = onClick,
-        modifier  = Modifier.fillMaxWidth(),
-        shape     = RoundedCornerShape(14.dp),
-        colors    = CardDefaults.cardColors(containerColor = Surface),
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -379,9 +454,9 @@ fun CardProfissional(prof: ProfissionalPMP, onClick: () -> Unit, onEstudio: ((St
                     }
                 }
                 Button(
-                    onClick        = onClick,
-                    colors         = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
-                    shape          = RoundedCornerShape(8.dp),
+                    onClick = onClick,
+                    colors = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
+                    shape = RoundedCornerShape(8.dp),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Text("Ver perfil →", fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -392,9 +467,9 @@ fun CardProfissional(prof: ProfissionalPMP, onClick: () -> Unit, onEstudio: ((St
                 OutlinedButton(
                     onClick = { onEstudio(prof.supabaseId) },
                     modifier = Modifier.fillMaxWidth(),
-                    shape    = RoundedCornerShape(8.dp),
-                    colors   = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFB07D00)),
-                    border   = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFC49A2A)),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFB07D00)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFC49A2A)),
                 ) {
                     Text("🎨 Ver Estúdio", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
@@ -402,6 +477,47 @@ fun CardProfissional(prof: ProfissionalPMP, onClick: () -> Unit, onEstudio: ((St
         }
     }
 }
+
+// ── CARD DO ESTÚDIO (produto individual) ─────────────
+@Composable
+fun CardEstudioPMP(item: ItemEstudio, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(
+                model = item.capaUrl,
+                contentDescription = null,
+                modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)),
+                contentScale = ContentScale.Crop
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(item.titulo, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Ink)
+                Text(item.autorNome.ifEmpty { "Profissional PMP" }, fontSize = 12.sp, color = InkMuted)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("R$ %.2f".format(item.preco), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Verde)
+                    if (item.precoOriginal != null && item.precoOriginal > item.preco) {
+                        Text(
+                            " R$ %.2f".format(item.precoOriginal),
+                            fontSize = 12.sp,
+                            color = InkMuted,
+                            textDecoration = TextDecoration.LineThrough
+                        )
+                    }
+                }
+            }
+            IconButton(onClick = onClick) {
+                Text("→", fontSize = 20.sp, color = Verde)
+            }
+        }
+    }
+}
+
 
 // ── PERFIL PÚBLICO ────────────────────────────────────
 @Composable
@@ -418,7 +534,6 @@ fun PerfilPublicoScreen(
     var loadingEstudio by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
 
-    // Carregar dados reais
     LaunchedEffect(prof.supabaseId) {
         modalidades = AtendimentosRepository.buscarModalidades(prof.supabaseId)
         loadingModalidades = false
@@ -432,7 +547,6 @@ fun PerfilPublicoScreen(
         modifier = Modifier.fillMaxSize().background(SurfaceWarm),
         contentPadding = PaddingValues(bottom = 32.dp)
     ) {
-        // ── Capa + Header ──────────────────────────────────────────────
         item {
             Box(modifier = Modifier.fillMaxWidth().height(200.dp)) {
                 if (prof.capaUrl != null) {
@@ -450,10 +564,7 @@ fun PerfilPublicoScreen(
                 }
                 Box(
                     modifier = Modifier.fillMaxSize().background(
-                        Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            0.6f to Color.Black.copy(alpha = 0.5f)
-                        )
+                        Brush.verticalGradient(0f to Color.Transparent, 0.6f to Color.Black.copy(alpha = 0.5f))
                     )
                 )
                 TextButton(
@@ -464,8 +575,7 @@ fun PerfilPublicoScreen(
                 }
 
                 Row(
-                    modifier = Modifier.align(Alignment.BottomStart)
-                        .padding(start = 20.dp, bottom = 12.dp),
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
@@ -481,23 +591,13 @@ fun PerfilPublicoScreen(
                                 contentScale = ContentScale.Crop
                             )
                         } else {
-                            Text(
-                                prof.iniciais,
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
+                            Text(prof.iniciais, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                prof.nome,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
+                            Text(prof.nome, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             if (prof.verificado) {
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("✅", fontSize = 16.sp)
@@ -508,21 +608,15 @@ fun PerfilPublicoScreen(
                             }
                         }
                         Text(prof.area, fontSize = 13.sp, color = Color.White.copy(alpha = 0.85f))
-                        Text(
-                            "📍 ${prof.cidade}",
-                            fontSize = 12.sp,
-                            color = Color.White.copy(alpha = 0.7f)
-                        )
+                        Text("📍 ${prof.cidade}", fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f))
                     }
                 }
             }
         }
 
-        // ── Badges ─────────────────────────────────────────────────────
         item {
             Row(
-                modifier = Modifier.fillMaxWidth().background(Surface)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().background(Surface).padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (prof.verificado) BadgePerfil("✅ Verificado", VerdeClaro, Verde)
@@ -531,7 +625,6 @@ fun PerfilPublicoScreen(
             }
         }
 
-        // ── Métricas ───────────────────────────────────────────────────
         item {
             Row(modifier = Modifier.fillMaxWidth().background(Surface).padding(vertical = 4.dp)) {
                 listOf(
@@ -551,16 +644,9 @@ fun PerfilPublicoScreen(
             HorizontalDivider(color = SurfaceOff)
         }
 
-        // ── Sobre ──────────────────────────────────────────────────────
         item {
             Column(modifier = Modifier.background(Surface).padding(20.dp)) {
-                Text(
-                    "Sobre",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Ink,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
+                Text("Sobre", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink, modifier = Modifier.padding(bottom = 8.dp))
                 Text(prof.descricao, fontSize = 14.sp, color = InkSoft, lineHeight = 20.sp)
                 if (prof.conselho.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(10.dp))
@@ -573,12 +659,7 @@ fun PerfilPublicoScreen(
                             modifier = Modifier.background(AzulClaro, RoundedCornerShape(20.dp))
                                 .padding(horizontal = 12.dp, vertical = 5.dp)
                         ) {
-                            Text(
-                                esp,
-                                fontSize = 11.sp,
-                                color = Azul,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Text(esp, fontSize = 11.sp, color = Azul, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -586,146 +667,75 @@ fun PerfilPublicoScreen(
             HorizontalDivider(color = SurfaceOff)
         }
 
-        // ── Agendar consulta ───────────────────────────────────────────
         item {
             Column(modifier = Modifier.background(Surface).padding(20.dp)) {
-                Text(
-                    "Agendar consulta",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Ink,
-                    modifier = Modifier.padding(bottom = 14.dp)
-                )
-
+                Text("Agendar consulta", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink, modifier = Modifier.padding(bottom = 14.dp))
                 if (prof.valorUrgente != null) {
                     Card(
                         onClick = { onAgendar("urgente") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(containerColor = Urgente),
                         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
                     ) {
                         Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
+                            modifier = Modifier.fillMaxWidth().padding(24.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             Text("⚡", fontSize = 40.sp)
-                            Text(
-                                text = "ATENDIMENTO URGENTE",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 2.sp,
-                                color = Color.White,
-                                textAlign = TextAlign.Center,
-                            )
-                            Text(
-                                text = "Resposta em até 45 minutos",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Color.White.copy(alpha = 0.9f),
-                                textAlign = TextAlign.Center,
-                            )
+                            Text("ATENDIMENTO URGENTE", fontSize = 18.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp, color = Color.White, textAlign = TextAlign.Center)
+                            Text("Resposta em até 45 minutos", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.9f), textAlign = TextAlign.Center)
                             Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.Bottom,
-                            ) {
-                                Text(
-                                    text = "Valor",
-                                    fontSize = 13.sp,
-                                    color = Color.White.copy(alpha = 0.7f),
-                                )
-                                Text(
-                                    text = "R$ ${prof.valorUrgente}",
-                                    fontSize = 28.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                )
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
+                                Text("Valor", fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f))
+                                Text("R$ ${prof.valorUrgente}", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             }
                             Spacer(modifier = Modifier.height(8.dp))
                             Button(
                                 onClick = { onAgendar("urgente") },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color.White,
-                                    contentColor = Urgente,
-                                ),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Urgente),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Text(
-                                    "AGENDAR AGORA",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp
-                                )
+                                Text("AGENDAR AGORA", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             }
                         }
                     }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth()
-                        .background(VerdeClaro, RoundedCornerShape(8.dp)).padding(12.dp),
+                    modifier = Modifier.fillMaxWidth().background(VerdeClaro, RoundedCornerShape(8.dp)).padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("🔒", fontSize = 14.sp)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        "Sem cobranças antecipadas. Pague só após a consulta.",
-                        fontSize = 12.sp,
-                        color = Verde
-                    )
+                    Text("Sem cobranças antecipadas. Pague só após a consulta.", fontSize = 12.sp, color = Verde)
                 }
             }
         }
 
-        // ── Estúdio ────────────────────────────────────────────────────
         if (!loadingEstudio && onEstudio != null) {
             item {
                 Card(
                     onClick = { onEstudio(prof.supabaseId) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp)
-                        .padding(horizontal = 20.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).padding(horizontal = 20.dp),
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = Azul),
                     elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
                 ) {
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(28.dp),
+                        modifier = Modifier.fillMaxWidth().padding(28.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Text("🎨", fontSize = 44.sp)
-                        Text(
-                            text = "ESTÚDIO DIGITAL",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 1.5.sp,
-                            color = Color.White,
-                            textAlign = TextAlign.Center,
-                        )
-                        Text(
-                            text = "Cursos, materiais e produtos exclusivos",
-                            fontSize = 14.sp,
-                            color = Color.White.copy(alpha = 0.85f),
-                            textAlign = TextAlign.Center,
-                        )
+                        Text("ESTÚDIO DIGITAL", fontSize = 20.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp, color = Color.White, textAlign = TextAlign.Center)
+                        Text("Cursos, materiais e produtos exclusivos", fontSize = 14.sp, color = Color.White.copy(alpha = 0.85f), textAlign = TextAlign.Center)
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
                             onClick = { onEstudio(prof.supabaseId) },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.White,
-                                contentColor = Azul,
-                            ),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Azul),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
@@ -737,41 +747,24 @@ fun PerfilPublicoScreen(
             }
         }
 
-        // ── Modalidades de Atendimento ─────────────────────────────────
         if (!loadingModalidades) {
             item {
                 Column(modifier = Modifier.background(Surface).padding(20.dp)) {
-                    Text(
-                        "Modalidades de Atendimento",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Ink
-                    )
+                    Text("Modalidades de Atendimento", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                     Spacer(modifier = Modifier.height(12.dp))
                     if (modalidades.isEmpty()) {
-                        Text(
-                            "Nenhuma modalidade configurada.",
-                            fontSize = 13.sp,
-                            color = InkMuted
-                        )
+                        Text("Nenhuma modalidade configurada.", fontSize = 13.sp, color = InkMuted)
                     } else {
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
                             modalidades.forEach { mod ->
                                 Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { onAgendarModalidade(mod.id) },
+                                    modifier = Modifier.fillMaxWidth().clickable { onAgendarModalidade(mod.id) },
                                     shape = RoundedCornerShape(16.dp),
                                     colors = CardDefaults.cardColors(containerColor = Surface),
                                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                                 ) {
                                     Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(24.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(24.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.spacedBy(12.dp),
                                     ) {
@@ -826,18 +819,11 @@ fun PerfilPublicoScreen(
                                         Spacer(modifier = Modifier.height(8.dp))
                                         Button(
                                             onClick = { onAgendarModalidade(mod.id) },
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = Verde,
-                                                contentColor = Color.White,
-                                            ),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
                                             shape = RoundedCornerShape(10.dp),
                                             modifier = Modifier.fillMaxWidth(),
                                         ) {
-                                            Text(
-                                                "AGENDAR",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 14.sp
-                                            )
+                                            Text("AGENDAR", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                         }
                                     }
                                 }
@@ -888,7 +874,7 @@ fun OpcaoConsulta(
 }
 
 @Composable
-private fun CabecalhoBuscaExpandido(
+fun CabecalhoBuscaExpandido(
     busca: String,
     onBuscaChange: (String) -> Unit,
     somenteUrgente: Boolean,
@@ -945,7 +931,7 @@ private fun CabecalhoBuscaExpandido(
 }
 
 @Composable
-private fun CabecalhoBuscaColapsado(
+fun CabecalhoBuscaColapsado(
     busca: String,
     onBuscaChange: (String) -> Unit,
     onExpandir: () -> Unit,
@@ -992,7 +978,7 @@ fun AgendarScreen(
     onPagar:     () -> Unit = {},
     onIniciarChamadaUrgente: (String) -> Unit = {},
     etapaInicial: Int = 1,
-){
+) {
     val scope = rememberCoroutineScope()
 
     var nome     by remember { mutableStateOf("") }
@@ -1018,7 +1004,7 @@ fun AgendarScreen(
 
     if (sucesso) {
         Column(
-            modifier            = Modifier.fillMaxSize().background(SurfaceWarm).padding(32.dp),
+            modifier = Modifier.fillMaxSize().background(SurfaceWarm).padding(32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
@@ -1120,7 +1106,6 @@ fun AgendarScreen(
                                 currentUserId!!
                             }
 
-                            // ── FLUXO URGENTE: sem verificação de acesso e sem pagamento antecipado ──
                             if (tipo == "urgente") {
                                 loading = true
                                 val valor = prof.valorUrgente?.toDouble() ?: 0.0
@@ -1131,8 +1116,6 @@ fun AgendarScreen(
                                     hora = horaAtual,
                                     tipo = tipo,
                                     valor = valor,
-                                    // Indica que o pagamento será feito posteriormente (campo opcional)
-                                    // Será necessário ajustar a função criarAgendamento para aceitar um parâmetro "pagamento_pendente"
                                 )
                                 loading = false
                                 verificandoAcesso = false
@@ -1140,13 +1123,11 @@ fun AgendarScreen(
                                     consultaIdGerado = id
                                     onIniciarChamadaUrgente(id)
                                     return@launch
-
                                 } else {
                                     erro = "Erro ao iniciar chamada urgente. Tente novamente."
                                     verificandoAcesso = false
                                 }
                             } else {
-                                // ── FLUXO NORMAL: verificar acesso e pagamento antecipado ──
                                 val resultado = verificarAcessoAgendamento(uid, prof.supabaseId)
                                 verificandoAcesso = false
                                 if (!resultado.acesso) { resultadoAcesso = resultado; return@launch }

@@ -877,6 +877,39 @@ suspend fun getProfissionaisPMPAndroid(
         emptyList()
     }
 }
+suspend fun getProfissionaisPMPPublico(
+    somenteUrgente: Boolean = false,
+    busca: String = ""
+): List<ProfissionalComPerfil> {
+    return try {
+        val result = httpClient.get("$SUPABASE_URL/rest/v1/profissionais") {
+            header("apikey", SUPABASE_KEY)
+            // Aqui NÃO passamos Authorization (ou usamos a anon key padrão)
+            // para evitar restrições de RLS que exijam usuário logado.
+            header("Authorization", "Bearer $SUPABASE_KEY")
+            header("Accept", "application/json")
+            parameter("select", "*, perfis(nome,email,cidade,estado,foto_url,capa_url), verificado, is_pmp")
+            // Filtros idênticos aos usados para profissionais PMP
+            parameter("is_pmp",       "eq.true")
+            parameter("verificado",   "eq.true")
+            parameter("credibilidade", "gte.80")
+            parameter("order", "credibilidade.desc")
+            if (somenteUrgente) {
+                parameter("disponivel_urgente", "eq.true")
+            }
+        }.body<List<ProfissionalComPerfil>>()
+        if (busca.isEmpty()) result
+        else result.filter { p ->
+            val nome = p.perfis?.nome ?: ""
+            nome.contains(busca, ignoreCase = true) ||
+                    p.area.contains(busca, ignoreCase = true) ||
+                    (p.perfis?.cidade ?: "").contains(busca, ignoreCase = true)
+        }
+    } catch (e: Exception) {
+        AppLogger.erroRede("getProfissionaisPMPPublico", e, "busca=$busca")
+        emptyList()
+    }
+}
 
 // ── ESTÚDIO ───────────────────────────────────────────────────────────
 // ✅ Deserialização via DTO @Serializable em vez de Map<String, Any?>
@@ -917,6 +950,37 @@ suspend fun getEstudioProfissionalAndroid(profissionalId: String, filtroTipo: St
         }.body<List<ItemEstudioSupabase>>().map { it.toItemEstudio() }
     } catch (e: Exception) {
         AppLogger.erroRede("getEstudioProfissionalAndroid", e, "profId=$profissionalId filtro=$filtroTipo")
+        emptyList()
+    }
+}
+suspend fun getEstudioPMPPublico(
+    busca: String = ""
+): List<ItemEstudio> {
+    return try {
+        // Filtra apenas itens de profissionais com is_pmp = true e verificado
+        val url = buildString {
+            append("$SUPABASE_URL/rest/v1/estudio")
+            append("?select=*,profissionais!inner(is_pmp,verificado,credibilidade)")
+            append("&profissionais.is_pmp=eq.true")
+            append("&profissionais.verificado=eq.true")
+            append("&profissionais.credibilidade=gte.80")
+            append("&ativo=eq.true")
+            append("&order=destaque.desc,criado_em.desc")
+        }
+        val result = httpClient.get(url) {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer $SUPABASE_KEY")
+            header("Accept", "application/json")
+        }.body<List<ItemEstudioSupabase>>().map { it.toItemEstudio() }
+
+        if (busca.isEmpty()) result
+        else result.filter { item ->
+            item.titulo.contains(busca, ignoreCase = true) ||
+                    item.descricao.contains(busca, ignoreCase = true) ||
+                    item.autorNome.contains(busca, ignoreCase = true)
+        }
+    } catch (e: Exception) {
+        AppLogger.erroRede("getEstudioPMPPublico", e, "busca=$busca")
         emptyList()
     }
 }
