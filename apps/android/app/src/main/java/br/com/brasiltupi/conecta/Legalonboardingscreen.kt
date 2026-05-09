@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.brasiltupi.conecta.ui.theme.*
 import kotlinx.coroutines.launch
-
+import kotlinx.coroutines.delay
 const val VERSAO_TERMOS = "1.0"
 
 @Composable
@@ -49,34 +49,23 @@ fun LegalOnboardingScreen(
     var verificando       by remember { mutableStateOf(true) }
     var carregando        by remember { mutableStateOf(false) }
     var erro              by remember { mutableStateOf("") }
-
-    // Garante que a verificação inicial dispare APENAS UMA VEZ por sessão
-    var verificacaoJaOcorreu by remember(userId) { mutableStateOf(false) }
-
-    AppLogger.info("LGPD_FLUXO", "=== LegalOnboardingScreen ABRIU === userId='$userId' token='${currentToken?.take(30)}'")
+    // ✅ Aguarda userId válido (evita enviar string vazia ao Supabase)
+    var userIdValido by remember { mutableStateOf(userId.isNotEmpty()) }
 
     LaunchedEffect(userId) {
-        if (verificacaoJaOcorreu) return@LaunchedEffect
-        verificacaoJaOcorreu = true
-
-        AppLogger.info("LGPD_FLUXO", "LaunchedEffect iniciou — verificando Supabase...")
-        if (userId.isNotEmpty() && verificarConsentimentoExiste(userId)) {
-            AppLogger.info("LGPD_FLUXO", "Consentimento JA EXISTE — redirecionando")
-            onConsentimentoConcluido()
-            return@LaunchedEffect
+        if (userId.isNotEmpty()) {
+            userIdValido = true
+        } else {
+            var tentativas = 0
+            while (currentUserId.isNullOrEmpty() && tentativas < 30) {
+                delay(200)
+                tentativas++
+            }
+            userIdValido = !currentUserId.isNullOrEmpty()
         }
-        AppLogger.info("LGPD_FLUXO", "Consentimento NAO EXISTE — mostrando tela")
-        verificando = false
     }
 
-    val podeProsseguir = aceitoTermos && aceitoPrivacidade && !carregando
-
-    if (verificando) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = Verde)
-        }
-        return
-    }
+val podeProsseguir = aceitoTermos && aceitoPrivacidade && !carregando && userIdValido
 
     Scaffold(
         containerColor = SurfaceWarm,
@@ -126,21 +115,29 @@ fun LegalOnboardingScreen(
 
                 Button(
                     onClick = {
+                        // 1. Gravar cache local imediatamente (antes de qualquer rede)
+                        onConsentimentoSalvo()
+
+                        // 2. Tentar gravar no Supabase (não bloqueia a navegação)
                         scope.launch {
                             carregando = true
                             erro       = ""
+                            val uidFinal = currentUserId?.takeIf { it.isNotEmpty() } ?: userId
                             val ok = gravarConsentimento(
-                                userId       = userId,
+                                userId       = uidFinal,
                                 aceitoTermos = aceitoTermos,
                                 aceitoPriv   = aceitoPrivacidade,
                                 versaoTermos = VERSAO_TERMOS,
                             )
                             carregando = false
                             if (ok) {
-                                onConsentimentoSalvo()
+                                // Já salvamos localmente, agora podemos seguir
                                 onConsentimentoConcluido()
                             } else {
-                                erro = "Falha ao salvar. Verifique sua conexão e tente novamente."
+                                // Cache local já está salvo — apenas informar
+                                erro = "Salvo localmente. Servidor indisponível no momento."
+                                // Ainda assim, permitir continuar após um breve delay
+                                onConsentimentoConcluido()
                             }
                         }
                     },

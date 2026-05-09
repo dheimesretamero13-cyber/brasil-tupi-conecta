@@ -1,5 +1,9 @@
 package br.com.brasiltupi.conecta
 
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import br.com.brasiltupi.conecta.ConsentimentoCache
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -57,7 +61,6 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         UrgenciasRealtimeManager.parar()
-        httpClient.close()
     }
 }
 
@@ -69,6 +72,7 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
     )
     val navState by onboardingVm.navState.collectAsState()
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     LaunchedEffect(onboardingVm) { onVmReady(onboardingVm) }
 
@@ -169,30 +173,72 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
 
                 if (!lgpdVerificada) {
                     lgpdVerificada = true
-                    val uid = currentUserId
+                    if (ConsentimentoCache.isAceito(context) || onboardingVm.consentimentoExisteLocal()) {
+                        ConsentimentoCache.marcarAceito(context)
+                        var uid = currentUserId
+                        if (uid.isNullOrEmpty()) {
+                            var tentativas = 0
+                            while (currentUserId.isNullOrEmpty() && tentativas < 20) {
+                                delay(100)
+                                tentativas++
+                            }
+                            uid = currentUserId
+                        }
+                        if (uid.isNullOrEmpty()) {
+                            tela = "welcome"
+                            lgpdVerificada = false
+                            return@LaunchedEffect
+                        }
+                        // Obter perfil em thread de I/O para evitar bloqueios na UI
+                        val perfil = withContext(Dispatchers.IO) { getPerfilAndroid(uid) }
+                        if (perfil == null) {
+                            tela = "welcome"
+                            lgpdVerificada = false
+                            return@LaunchedEffect
+                        }
+                        if (perfil.tipo == "profissional_certificado" || perfil.tipo == "profissional_liberal") {
+                            onboardingVm.selecionarProfissional()
+                            tela = "dashboard-profissional"
+                            return@LaunchedEffect
+                        }
+                        tela = "dashboard-cliente"
+                        return@LaunchedEffect
+                    }
+                    var uid = currentUserId
+                    if (uid.isNullOrEmpty()) {
+                        var tentativas = 0
+                        while (currentUserId.isNullOrEmpty() && tentativas < 20) {
+                            delay(100)
+                            tentativas++
+                        }
+                        uid = currentUserId
+                    }
                     if (uid.isNullOrEmpty()) {
                         tela = "welcome"
+                            lgpdVerificada = false
                         return@LaunchedEffect
                     }
-
-                    // Cache local: se já aceitou, pula a tela
-                    if (onboardingVm.consentimentoExisteLocal()) {
-                        tela = "dashboard-cliente"
-                        return@LaunchedEffect
-                    }
-
-                    // Caso contrário, verifica no Supabase e, enquanto
-                    // aguarda, já mostra a tela de consentimento. O retorno
-                    // da verificação será usado na tela.
-                    val jaAceitou = verificarConsentimentoExiste(uid)
-                    if (!jaAceitou) {
-                        destinoAposLegal = "dashboard-cliente"
-                        tela = "legal-onboarding"
-                    } else {
-                        // Se o Supabase confirmar que já existe, salva
-                        // localmente e vai direto para o dashboard.
-                        onboardingVm.salvarConsentimentoLocal(true)
-                        tela = "dashboard-cliente"
+                    lifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                        val jaAceitou = verificarConsentimentoExiste(uid)
+                        val perfil = if (jaAceitou) getPerfilAndroid(uid) else null
+                        withContext(Dispatchers.Main) {
+                            if (jaAceitou) {
+                                ConsentimentoCache.marcarAceito(context)
+                                onboardingVm.salvarConsentimentoLocal(true)
+                                if (perfil == null) {
+                                    tela = "welcome"
+                                    lgpdVerificada = false
+                                } else if (perfil.tipo == "profissional_certificado" || perfil.tipo == "profissional_liberal") {
+                                    onboardingVm.selecionarProfissional()
+                                    tela = "dashboard-profissional"
+                                } else {
+                                    tela = "dashboard-cliente"
+                                }
+                            } else {
+                                destinoAposLegal = "dashboard-cliente"
+                                tela = "legal-onboarding"
+                            }
+                        }
                     }
                 } else {
                     if (tela.isEmpty()) tela = "dashboard-cliente"
@@ -220,26 +266,75 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
 
                 if (!lgpdVerificada) {
                     lgpdVerificada = true
-                    val uidProf = currentUserId
-                    if (uidProf.isNullOrEmpty()) {
-                        tela = "welcome"
-                        return@LaunchedEffect
-                    }
-
-                    if (onboardingVm.consentimentoExisteLocal()) {
-                        tela = "dashboard-profissional"
-                        return@LaunchedEffect
-                    }
-
-                    val jaAceitouProf = verificarConsentimentoExiste(uidProf)
-                    kycAprovadoProf = verificarKycAprovado(uidProf)
-                    if (!jaAceitouProf) {
-                        destinoAposLegal = "dashboard-profissional"
-                        tela = "legal-onboarding"
-                    } else {
-                        onboardingVm.salvarConsentimentoLocal(true)
+                    if (ConsentimentoCache.isAceito(context) || onboardingVm.consentimentoExisteLocal()) {
+                        ConsentimentoCache.marcarAceito(context)
+                        var uidProf = currentUserId
+                        if (uidProf.isNullOrEmpty()) {
+                            var tentativas = 0
+                            while (currentUserId.isNullOrEmpty() && tentativas < 20) {
+                                delay(100)
+                                tentativas++
+                            }
+                            uidProf = currentUserId
+                        }
+                        if (uidProf.isNullOrEmpty()) {
+                            tela = "welcome"
+                            lgpdVerificada = false
+                            return@LaunchedEffect
+                        }
+                        val perfil = withContext(Dispatchers.IO) { getPerfilAndroid(uidProf) }
+                        if (perfil == null) {
+                            tela = "welcome"
+                            lgpdVerificada = false
+                            return@LaunchedEffect
+                        }
+                        if (perfil.tipo != "profissional_certificado" && perfil.tipo != "profissional_liberal") {
+                            onboardingVm.selecionarCliente()
+                            tela = "dashboard-cliente"
+                            return@LaunchedEffect
+                        }
                         UrgenciasRealtimeManager.iniciar(profissionalId = uidProf, especialidade = null)
                         tela = "dashboard-profissional"
+                        return@LaunchedEffect
+                    }
+                    var uidProf = currentUserId
+                    if (uidProf.isNullOrEmpty()) {
+                        var tentativas = 0
+                        while (currentUserId.isNullOrEmpty() && tentativas < 20) {
+                            delay(100)
+                            tentativas++
+                        }
+                        uidProf = currentUserId
+                    }
+                    if (uidProf.isNullOrEmpty()) {
+                        tela = "welcome"
+                            lgpdVerificada = false
+                        return@LaunchedEffect
+                    }
+                    lifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                        val jaAceitouProf = verificarConsentimentoExiste(uidProf)
+                        val kycOk = verificarKycAprovado(uidProf)
+                        val perfil = if (jaAceitouProf) getPerfilAndroid(uidProf) else null
+                        withContext(Dispatchers.Main) {
+                            kycAprovadoProf = kycOk
+                            if (jaAceitouProf) {
+                                ConsentimentoCache.marcarAceito(context)
+                                onboardingVm.salvarConsentimentoLocal(true)
+                                if (perfil != null && perfil.tipo != "profissional_certificado" && perfil.tipo != "profissional_liberal") {
+                                    onboardingVm.selecionarCliente()
+                                    tela = "dashboard-cliente"
+                                } else if (perfil == null) {
+                                    tela = "welcome"
+                                    lgpdVerificada = false
+                                } else {
+                                    UrgenciasRealtimeManager.iniciar(profissionalId = uidProf, especialidade = null)
+                                    tela = "dashboard-profissional"
+                                }
+                            } else {
+                                destinoAposLegal = "dashboard-profissional"
+                                tela = "legal-onboarding"
+                            }
+                        }
                     }
                 } else {
                     if (tela.isEmpty()) tela = "dashboard-profissional"
@@ -349,12 +444,36 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
         "login" -> LoginScreen(
             onVoltar             = { tela = "welcome" },
             onEntrarProfissional = {
+                lgpdVerificada = false
                 destinoAposLegal = "dashboard-profissional"
-                tela = "legal-onboarding"
+                if (ConsentimentoCache.isAceito(context)) {
+                    tela = "dashboard-profissional"
+                } else {
+                    lifecycleOwner.lifecycleScope.launch {
+                        if (onboardingVm.consentimentoExisteLocal()) {
+                            ConsentimentoCache.marcarAceito(context)
+                            tela = "dashboard-profissional"
+                        } else {
+                            tela = "legal-onboarding"
+                        }
+                    }
+                }
             },
             onEntrarCliente      = {
+                lgpdVerificada = false
                 destinoAposLegal = "dashboard-cliente"
-                tela = "legal-onboarding"
+                if (ConsentimentoCache.isAceito(context)) {
+                    tela = "dashboard-cliente"
+                } else {
+                    lifecycleOwner.lifecycleScope.launch {
+                        if (onboardingVm.consentimentoExisteLocal()) {
+                            ConsentimentoCache.marcarAceito(context)
+                            tela = "dashboard-cliente"
+                        } else {
+                            tela = "legal-onboarding"
+                        }
+                    }
+                }
             },
             onCadastro           = { tela = "cadastro" },
         )
@@ -377,7 +496,7 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             var destino by remember { mutableStateOf("") }
             LaunchedEffect(currentUserId) {
                 val uid = currentUserId
-                    ?: run { tela = "welcome"; return@LaunchedEffect }
+                    ?: run { tela = "welcome"; lgpdVerificada = false; return@LaunchedEffect }
                 val perfil = getPerfilAndroid(uid)
                 destino = when {
                     perfil?.tipo == "profissional_certificado" ||
@@ -731,7 +850,9 @@ fun DashboardProfissionalComRealtime(
                 feedbackMsg = ""
             }
             Box(
-                modifier         = Modifier.fillMaxSize().padding(bottom = 28.dp),
+                modifier         = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 28.dp),
                 contentAlignment = Alignment.BottomCenter,
             ) {
                 Surface(
