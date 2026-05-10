@@ -32,6 +32,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.foundation.rememberScrollState
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.BorderStroke
+
 
 sealed class BuscaUiState {
     object Lista : BuscaUiState()
@@ -614,34 +616,174 @@ fun PerfilPublicoScreen(
             }
         }
 
+        // ── Badges de prestígio ─────────────────────────────────────
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth().background(Surface).padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Column(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (prof.verificado) BadgePerfil("✅ Verificado", VerdeClaro, Verde)
-                if (prof.pmp) BadgePerfil("🏆 PMP", Color(0xFFFDF3D8), Color(0xFFC49A2A))
-                if (prof.disponivelUrgente) BadgePerfil("⚡ Disponível agora", UrgenteClaro, Urgente)
+                // Badge de Certificação Profissional (sempre presente)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F4E6)),
+                    border = BorderStroke(1.dp, Color(0xFFC49A2A).copy(alpha = 0.6f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("🏅", fontSize = 24.sp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                "Certificação Profissional",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFA67F2A)
+                            )
+                            Text(
+                                "Este profissional possui certificação profissional verificada.",
+                                fontSize = 12.sp,
+                                color = Color(0xFFA67F2A).copy(alpha = 0.7f),
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                }
+
+                // Badge PMP (se aplicável)
+                if (prof.pmp) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)),
+                        border = BorderStroke(1.dp, Azul.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🏆", fontSize = 24.sp)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    "Programa de Maestria Profissional (PMP)",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Azul
+                                )
+                                Text(
+                                    "Selo de excelência com benefícios exclusivos.",
+                                    fontSize = 12.sp,
+                                    color = Azul.copy(alpha = 0.75f),
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Badge de Confiança Verificada (quando verificado)
+                if (prof.verificado) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
+                        border = BorderStroke(1.dp, DouradoMedio.copy(alpha = 0.7f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🛡️", fontSize = 24.sp)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    "Confiança Verificada",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Dourado
+                                )
+                                Text(
+                                    "Identidade e documentos verificados pela plataforma.",
+                                    fontSize = 12.sp,
+                                    color = Dourado.copy(alpha = 0.75f),
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Badge de urgente (se disponível)
+                if (prof.disponivelUrgente) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = UrgenteClaro),
+                        border = BorderStroke(1.dp, Urgente.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("⚡", fontSize = 24.sp)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    "Atendimento Urgente",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Urgente
+                                )
+                                Text(
+                                    "Disponível para consultas imediatas (resposta em até 45 min).",
+                                    fontSize = 12.sp,
+                                    color = Urgente.copy(alpha = 0.8f),
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
         item {
-            Row(modifier = Modifier.fillMaxWidth().background(Surface).padding(vertical = 4.dp)) {
-                listOf(
-                    "⭐ ${prof.avaliacao}" to "Avaliação",
-                    "${prof.atendimentos}" to "Atendimentos",
-                    "0" to "Negativos"
-                ).forEach { (num, label) ->
-                    Column(
-                        modifier = Modifier.weight(1f).padding(vertical = 16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(num, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink)
-                        Text(label, fontSize = 11.sp, color = InkMuted)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    listOf(
+                        Triple("⭐ ${prof.avaliacao}", "Avaliação", "⭐"),
+                        Triple("${prof.atendimentos}", "Atendimentos", "💼"),
+                        Triple("0", "Negativos", "🛡️")
+                    ).forEach { (num, label, icon) ->
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(icon, fontSize = 18.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(num, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
+                            Text(label, fontSize = 11.sp, color = InkMuted, textAlign = TextAlign.Center)
+                        }
                     }
                 }
             }
-            HorizontalDivider(color = SurfaceOff)
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(color = SurfaceOff, thickness = 0.5.dp)
         }
 
         item {

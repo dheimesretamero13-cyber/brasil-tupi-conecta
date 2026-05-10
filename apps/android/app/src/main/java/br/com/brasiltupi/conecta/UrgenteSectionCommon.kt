@@ -20,6 +20,8 @@ import br.com.brasiltupi.conecta.ui.theme.*
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Seção "Urgente" compartilhada entre Dashboard e Perfil Profissional.
@@ -106,6 +108,8 @@ fun AbaUrgenteCompartilhada(
     valorMinutoExtrapoladoAtual: Double? = null,      // NOVO: valor por minuto extra
     onSalvarValorUrgente: ((Double) -> Unit)? = null,
     onSalvarValorMinutoExtrapolado: ((Double) -> Unit)? = null,   // NOVO
+    mostrarRegrasFinanceiras: Boolean = false,
+    enableVerticalScroll: Boolean = true,
     modifier:          Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -123,11 +127,19 @@ fun AbaUrgenteCompartilhada(
     // ── verifica aceite dos termos ao iniciar ─────────────────────
     LaunchedEffect(userId) {
         if (userId.isEmpty()) { verificandoTermos = false; return@LaunchedEffect }
-        jaAceitouTermos  = verificarAceiteTermosUrgencia(userId)
-        val perfil = getMeuPerfilProfissional(userId)
-        isPmpUrgente = perfil?.is_pmp ?: false
-        verificadoUrgente = perfil?.verificado ?: false
-        verificandoTermos = false
+        try {
+            withContext(Dispatchers.IO) {
+                jaAceitouTermos = verificarAceiteTermosUrgencia(userId)
+                val perfil = getMeuPerfilProfissional(userId)
+                isPmpUrgente = perfil?.is_pmp ?: false
+                verificadoUrgente = perfil?.verificado ?: false
+            }
+        } catch (e: Exception) {
+            AppLogger.erroRede("AbaUrgenteCompartilhada", e, "userId=$userId")
+            // mantém os valores padrão (false) e não bloqueia a UI
+        } finally {
+            verificandoTermos = false
+        }
     }
 
     // ── métricas de histórico ─────────────────────────────────────
@@ -222,7 +234,10 @@ fun AbaUrgenteCompartilhada(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .then(
+                if (enableVerticalScroll) Modifier.verticalScroll(rememberScrollState())
+                else Modifier
+            )
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -389,6 +404,81 @@ fun AbaUrgenteCompartilhada(
                 }
             }
         }
+
+        // ── Regras Financeiras e Prazos (visível apenas no perfil) ──────
+        if (mostrarRegrasFinanceiras) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape    = RoundedCornerShape(12.dp),
+                colors   = CardDefaults.cardColors(containerColor = Surface),
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("Informações de Pagamento e Taxas", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(modifier = Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
+                        Text("💰", fontSize = 18.sp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("Taxa da plataforma", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Ink)
+                            Text(
+                                "A plataforma retém 30% do valor da chamada urgente. " +
+                                        "Profissionais com selo PMP verificado pagam apenas 10%.",
+                                fontSize = 12.sp,
+                                color = InkMuted,
+                                lineHeight = 17.sp,
+                            )
+                        }
+                    }
+                    HorizontalDivider(color = SurfaceOff)
+                    Row(modifier = Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
+                        Text("📅", fontSize = 18.sp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("Atualização do valor", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Ink)
+                            Text(
+                                "Você pode alterar o valor da chamada urgente somente 1 vez a cada 30 dias. " +
+                                        "Após a mudança, o novo valor ficará bloqueado por esse período.",
+                                fontSize = 12.sp,
+                                color = InkMuted,
+                                lineHeight = 17.sp,
+                            )
+                        }
+                    }
+                    HorizontalDivider(color = SurfaceOff)
+                    Row(modifier = Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
+                        Text("⏲️", fontSize = 18.sp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("Limite por minuto extra", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Ink)
+                            Text(
+                                "O valor cobrado por minuto adicional não pode ultrapassar R$ 6,00. " +
+                                        "Esse limite é fixo e busca proteger os clientes.",
+                                fontSize = 12.sp,
+                                color = InkMuted,
+                                lineHeight = 17.sp,
+                            )
+                        }
+                    }
+                    HorizontalDivider(color = SurfaceOff)
+                    Row(modifier = Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
+                        Text("✅", fontSize = 18.sp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("Liberação do pagamento", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Ink)
+                            Text(
+                                "O pagamento só é confirmado e liberado para você após 7 dias corridos, " +
+                                        "desde que não haja pedidos de reembolso, reclamações ou registros de negatividade direta. " +
+                                        "Toda ocorrência é avaliada pela plataforma.",
+                                fontSize = 12.sp,
+                                color = InkMuted,
+                                lineHeight = 17.sp,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         if (onSalvarValorUrgente != null && kycAprovado != false) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -403,11 +493,18 @@ fun AbaUrgenteCompartilhada(
                 var mensagemBloqueio by remember { mutableStateOf<String?>(null) }
                 LaunchedEffect(userId) {
                     if (userId.isNotEmpty()) {
-                        val status = verificarBloqueioValorMinuto(userId)
-                        podeEditar = !status.bloqueado
-                        mensagemBloqueio = if (status.bloqueado && status.proximaLiberacao != null) {
-                            "Alteração bloqueada até ${status.proximaLiberacao}. Você só pode alterar o valor uma vez a cada 30 dias."
-                        } else null
+                        try {
+                            val status = withContext(Dispatchers.IO) {
+                                verificarBloqueioValorMinuto(userId)
+                            }
+                            podeEditar = !status.bloqueado
+                            mensagemBloqueio = if (status.bloqueado && status.proximaLiberacao != null) {
+                                "Alteração bloqueada até ${status.proximaLiberacao}. Você só pode alterar o valor uma vez a cada 30 dias."
+                            } else null
+                        } catch (e: Exception) {
+                            AppLogger.erroRede("AbaUrgente-verificarBloqueio", e, "userId=$userId")
+                            // mantém os valores originais; a UI não quebra
+                        }
                     }
                 }
 
@@ -485,7 +582,9 @@ fun AbaUrgenteCompartilhada(
                             }
                             salvandoConf = true
                             scope.launch {
-                                val resultado = atualizarValorMinutoUrgente(userId, novoValorMinuto)
+                                val resultado = withContext(Dispatchers.IO) {
+                                    atualizarValorMinutoUrgente(userId, novoValorMinuto)
+                                }
                                 salvandoConf = false
                                 resultado.onSuccess {
                                     onSalvarValorUrgente(novoValor)

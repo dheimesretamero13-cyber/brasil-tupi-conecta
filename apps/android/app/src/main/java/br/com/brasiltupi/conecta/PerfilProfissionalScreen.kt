@@ -228,96 +228,241 @@ fun PerfilProfissionalScreen(
 
         Spacer(modifier = Modifier.height(40.dp))
 
-        // ── Nome, área, cidade e badges ───────────────────────────────────
-        Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-            Text(nomeReal, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink)
-            Text(areaReal, fontSize = 13.sp, color = InkMuted)
-            Text("📍 $cidadeReal", fontSize = 12.sp, color = InkMuted, modifier = Modifier.padding(top = 2.dp))
-            Spacer(modifier = Modifier.height(10.dp))
+        // ── Nome e área elegantes ────────────────────────────────────────
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = nomeReal,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Ink,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = areaReal,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = InkSoft,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Text("📍", fontSize = 14.sp)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = cidadeReal,
+                    fontSize = 13.sp,
+                    color = InkMuted,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(
-                    modifier = Modifier
-                        .background(Color(0xFFFDF3D8), RoundedCornerShape(20.dp))
-                        .padding(horizontal = 12.dp, vertical = 5.dp)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ── Badges de prestígio ──────────────────────────────────────────
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Badge de Certificação Profissional (sempre presente)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F4E6)),
+                border = BorderStroke(1.dp, Color(0xFFC49A2A).copy(alpha = 0.6f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        "Profissional Certificado",
-                        fontSize   = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color      = Color(0xFFC49A2A),
-                    )
-                }
-
-                if (isPMPReal) {
-                    Box(
-                        modifier = Modifier
-                            .background(DouradoClaro, RoundedCornerShape(20.dp))
-                            .padding(horizontal = 12.dp, vertical = 5.dp)
-                    ) {
-                        Text("🏆 PMP", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Dourado)
-                    }
-                }
-
-                when (kycStatus) {
-                    "approved" -> Box(
-                        modifier = Modifier
-                            .background(Color(0xFFE8F5E9), RoundedCornerShape(20.dp))
-                            .padding(horizontal = 12.dp, vertical = 5.dp)
-                    ) {
-                        Text("✅ Verificado", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
-                    }
-                    "pending" -> Box(
-                        modifier = Modifier
-                            .background(Color(0xFFFFF8E1), RoundedCornerShape(20.dp))
-                            .clickable { onKyc() }
-                            .padding(horizontal = 12.dp, vertical = 5.dp)
-                    ) {
-                        Text("⏳ Em análise", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF57F17))
-                    }
-                    "rejected", "not_submitted", "" -> Box(
-                        modifier = Modifier
-                            .background(SurfaceOff, RoundedCornerShape(20.dp))
-                            .clickable { onKyc() }
-                            .padding(horizontal = 12.dp, vertical = 5.dp)
-                    ) {
+                    Text("🏅", fontSize = 24.sp)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
                         Text(
-                            text       = if (kycStatus == "rejected") "❌ Doc. rejeitado" else "🔓 Verificar",
-                            fontSize   = 11.sp,
+                            "Certificação Profissional",
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
-                            color      = InkMuted,
+                            color = Color(0xFFA67F2A)
+                        )
+                        Text(
+                            "Este profissional possui certificação profissional verificada.",
+                            fontSize = 12.sp,
+                            color = Color(0xFFA67F2A).copy(alpha = 0.7f),
+                            lineHeight = 16.sp
                         )
                     }
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // ── Stats ─────────────────────────────────────────────────────────
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Surface)
-                .padding(vertical = 4.dp)
-        ) {
-            listOf(
-                "--"            to "Atendimentos",
-                "⭐ --"         to "Avaliação",
-                "$credReal/100" to "Credibilidade",
-            ).forEach { (num, label) ->
-                Column(
-                    modifier            = Modifier
-                        .weight(1f)
-                        .padding(vertical = 14.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+            // Badge PMP (se aplicável)
+            if (isPMPReal) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)),
+                    border = BorderStroke(1.dp, Azul.copy(alpha = 0.5f))
                 ) {
-                    Text(num, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
-                    Text(label, fontSize = 10.sp, color = InkMuted)
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("🏆", fontSize = 24.sp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                "Programa de Maestria Profissional (PMP)",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Azul
+                            )
+                            Text(
+                                "Selo de excelência com benefícios exclusivos.",
+                                fontSize = 12.sp,
+                                color = Azul.copy(alpha = 0.75f),
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Badge de Confiança Verificada (KYC aprovado)
+            if (kycStatus == "approved") {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
+                    border = BorderStroke(1.dp, DouradoMedio.copy(alpha = 0.7f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("🛡️", fontSize = 24.sp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                "Confiança Verificada",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Dourado
+                            )
+                            Text(
+                                "Identidade e documentos verificados pela plataforma.",
+                                fontSize = 12.sp,
+                                color = Dourado.copy(alpha = 0.75f),
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                }
+            } else if (kycStatus == "pending") {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
+                    border = BorderStroke(1.dp, Color(0xFFF57F17).copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("⏳", fontSize = 24.sp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                "Verificação em andamento",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFF57F17)
+                            )
+                            Text(
+                                "Seus documentos estão sendo analisados.",
+                                fontSize = 12.sp,
+                                color = Color(0xFFF57F17).copy(alpha = 0.75f),
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                }
+            } else if (kycStatus == "rejected" || kycStatus == "not_submitted" || kycStatus == "") {
+                Card(
+                    modifier = Modifier.fillMaxWidth()
+                        .clickable { onKyc() },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = SurfaceOff),
+                    border = BorderStroke(1.dp, InkMuted.copy(alpha = 0.3f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("🔓", fontSize = 24.sp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                if (kycStatus == "rejected") "Documento rejeitado" else "Verificação pendente",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = InkMuted
+                            )
+                            Text(
+                                "Toque para iniciar o processo de verificação.",
+                                fontSize = 12.sp,
+                                color = InkMuted,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
                 }
             }
         }
-        HorizontalDivider(color = SurfaceOff)
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ── Stats elegantes ──────────────────────────────────────────────
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 16.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                listOf(
+                    Triple("--", "Atendimentos", "📊"),
+                    Triple("⭐ --", "Avaliação", "⭐"),
+                    Triple("$credReal/100", "Credibilidade", "💎"),
+                ).forEach { (num, label, icon) ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(icon, fontSize = 18.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(num, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
+                        Text(label, fontSize = 11.sp, color = InkMuted, textAlign = TextAlign.Center)
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        HorizontalDivider(color = SurfaceOff, thickness = 0.5.dp)
 
         // ── Tabs ──────────────────────────────────────────────────────────
         Row(
@@ -407,6 +552,8 @@ fun PerfilProfissionalScreen(
                             // Em caso de erro, a mensagem já é exibida pelo UrgenteSectionCommon
                         }
                     },
+                    mostrarRegrasFinanceiras = true,
+                    enableVerticalScroll = false,
                     modifier = Modifier.fillMaxSize()
                 )
             }
