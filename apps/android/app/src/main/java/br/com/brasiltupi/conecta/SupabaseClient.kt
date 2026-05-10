@@ -1344,6 +1344,38 @@ data class PlanoInfo(
     val limiteProfs: Int = 0,
 )
 
+
+// ── MODELOS PMP ───────────────────────────────────────────────────────
+@Serializable
+data class ElegibilidadePmpResponse(
+    val elegivel: Boolean = false,
+    val credibilidade: Double = 0.0,
+    @SerialName("avaliacao_media") val avaliacaoMedia: Double = 0.0,
+    val verificado: Boolean = false,
+    @SerialName("is_pmp") val isPmp: Boolean = false,
+    @SerialName("assinatura_ativa") val assinaturaAtiva: Boolean = false,
+    @SerialName("pontos_faltantes") val pontosFaltantes: Double = 0.0
+)
+
+data class ElegibilidadePmp(
+    val elegivel: Boolean,
+    val credibilidade: Double,
+    val avaliacaoMedia: Double,
+    val verificado: Boolean,
+    val isPmp: Boolean,
+    val assinaturaAtiva: Boolean,
+    val pontosFaltantes: Double
+)
+
+@Serializable
+data class PlanoDisponivel(
+    val id: String = "",
+    val tipo: String = "",
+    val nome: String = "",
+    @SerialName("preco_mensal") val preco: Double = 0.0,
+    val duracao: Int = 0
+)
+
 // ── SALVAR DADOS PESSOAIS ─────────────────────────────────────────────
 suspend fun salvarDadosPerfilAndroid(userId: String, nome: String, telefone: String): Boolean {
     return try {
@@ -1848,6 +1880,87 @@ suspend fun solicitarReembolsoEstudio(purchaseId: String, motivo: String): Strin
         "erro_rede"
     }
 }
+
+// ── PMP: VERIFICAR ELEGIBILIDADE ─────────────────────────────────────
+suspend fun verificarElegibilidadePmp(profissionalId: String): ElegibilidadePmp {
+    return try {
+        val token = currentToken ?: SUPABASE_KEY
+        val response = httpClient.post("$SUPABASE_URL/rest/v1/rpc/verificar_elegibilidade_pmp") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer $token")
+            header("Content-Type", "application/json")
+            setBody(buildJsonObject { put("p_profissional_id", profissionalId) }.toString())
+        }
+        val dto = json.decodeFromString<ElegibilidadePmpResponse>(response.bodyAsText())
+        ElegibilidadePmp(
+            elegivel = dto.elegivel,
+            credibilidade = dto.credibilidade,
+            avaliacaoMedia = dto.avaliacaoMedia,
+            verificado = dto.verificado,
+            isPmp = dto.isPmp,
+            assinaturaAtiva = dto.assinaturaAtiva,
+            pontosFaltantes = dto.pontosFaltantes
+        )
+    } catch (e: Exception) {
+        AppLogger.erroRede("verificarElegibilidadePmp", e, "profId=$profissionalId")
+        ElegibilidadePmp(false, 0.0, 0.0, false, false, false, 999.0)
+    }
+}
+
+// ── PMP: BUSCAR PLANOS ───────────────────────────────────────────────
+suspend fun buscarPlanosPmp(): List<PlanoDisponivel> {
+    return try {
+        // Busca o plano PMP (tipo = 'profissional', nome = 'pmp')
+        httpClient.get("$SUPABASE_URL/rest/v1/planos") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Accept", "application/json")
+            parameter("tipo", "eq.profissional")
+            parameter("nome", "eq.pmp")
+            parameter("select", "id,tipo,nome,preco_mensal,limite_profs")
+        }.body<List<PlanoDisponivel>>()
+    } catch (e: Exception) {
+        AppLogger.erroRede("buscarPlanosPmp", e, "buscar planos PMP")
+        emptyList()
+    }
+}
+
+// ── PMP: VERIFICAR SE JÁ VIU ALERTA ──────────────────────────────────
+suspend fun jaViuAlertaPmp(profissionalId: String): Boolean {
+    return try {
+        val response = httpClient.get("$SUPABASE_URL/rest/v1/profissionais") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Accept", "application/json")
+            parameter("select", "viu_alerta_pmp")
+            parameter("id", "eq.$profissionalId")
+        }
+        val lista = json.decodeFromString<List<Map<String, JsonElement>>>(response.bodyAsText())
+        lista.firstOrNull()?.get("viu_alerta_pmp")?.jsonPrimitive?.boolean ?: false
+    } catch (e: Exception) {
+        AppLogger.erroRede("jaViuAlertaPmp", e, "profId=$profissionalId")
+        false
+    }
+}
+
+// ── PMP: MARCAR ALERTA COMO VISTO ────────────────────────────────────
+suspend fun marcarAlertaPmpVisto(profissionalId: String): Boolean {
+    return try {
+        val response = httpClient.patch("$SUPABASE_URL/rest/v1/profissionais") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
+            header("Content-Type", "application/json")
+            header("Prefer", "return=minimal")
+            parameter("id", "eq.$profissionalId")
+            setBody(buildJsonObject { put("viu_alerta_pmp", true) }.toString())
+        }
+        response.status.value in 200..299
+    } catch (e: Exception) {
+        AppLogger.erroRede("marcarAlertaPmpVisto", e, "profId=$profissionalId")
+        false
+    }
+}
+
 suspend fun atualizarValorMinutoUrgente(profissionalId: String, novoValor: Double): Result<Unit> {
     return try {
         val token = currentToken ?: return Result.failure(Exception("Token ausente"))

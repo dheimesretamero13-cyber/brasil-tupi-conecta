@@ -39,15 +39,15 @@ fun AbaFinanceiroDash(isPmp: Boolean = false) {
         factory = FinanceiroViewModelFactory(isPmp = isPmp)
     )
 
-    val uiState            by vm.uiState.collectAsState()
+    val uiState by vm.uiState.collectAsState()
     val mostrarDialogSaque by vm.mostrarDialogSaque.collectAsState()
-    val saldoDisponivel    by vm.saldoDisponivelSaque.collectAsState()
+    val saldoDisponivel by vm.saldoDisponivelSaque.collectAsState()
 
     val animacaoValores = remember { Animatable(0f) }
     LaunchedEffect(uiState) {
         if (uiState is FinanceiroUiState.Sucesso) {
             animacaoValores.animateTo(
-                targetValue   = 1f,
+                targetValue = 1f,
                 animationSpec = tween(durationMillis = 600, easing = EaseOutCubic),
             )
         }
@@ -64,7 +64,7 @@ fun AbaFinanceiroDash(isPmp: Boolean = false) {
 
             is FinanceiroUiState.Carregando -> {
                 Box(
-                    modifier         = Modifier.fillMaxWidth().height(300.dp),
+                    modifier = Modifier.fillMaxWidth().height(300.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(
@@ -80,19 +80,24 @@ fun AbaFinanceiroDash(isPmp: Boolean = false) {
             is FinanceiroUiState.Erro -> {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape    = RoundedCornerShape(12.dp),
-                    colors   = CardDefaults.cardColors(containerColor = Color(0xFFFDE8E8)),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFDE8E8)),
                 ) {
                     Column(
-                        modifier            = Modifier.padding(20.dp).fillMaxWidth(),
+                        modifier = Modifier.padding(20.dp).fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Text("⚠️", fontSize = 28.sp)
-                        Text(estado.mensagem, fontSize = 14.sp, color = Urgente, textAlign = TextAlign.Center)
+                        Text(
+                            estado.mensagem,
+                            fontSize = 14.sp,
+                            color = Urgente,
+                            textAlign = TextAlign.Center
+                        )
                         Button(
                             onClick = { vm.carregarDados() },
-                            colors  = ButtonDefaults.buttonColors(containerColor = Verde),
+                            colors = ButtonDefaults.buttonColors(containerColor = Verde),
                         ) {
                             Text("Tentar novamente", color = Color.White)
                         }
@@ -101,29 +106,31 @@ fun AbaFinanceiroDash(isPmp: Boolean = false) {
             }
 
             is FinanceiroUiState.Sucesso -> {
-                val resumo     = estado.resumo
+                val resumo = estado.resumo
                 val transacoes = estado.transacoes
-                val grafico    = estado.grafico
+                val grafico = estado.grafico
 
-                val taxaReais  = resumo.totalBruto * (resumo.taxaPct / 100.0)
-                val fator      = animacaoValores.value
+                val taxaReais = resumo.totalBruto * (resumo.taxaPct / 100.0)
+                val fator = animacaoValores.value
 
                 // ── CARD PRINCIPAL — Valor Líquido ────────────────────────
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape    = RoundedCornerShape(16.dp),
-                    colors   = CardDefaults.cardColors(containerColor = Azul),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Azul),
                     elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
                 ) {
                     Column(modifier = Modifier.padding(24.dp)) {
-                        Text("Saldo líquido disponível", fontSize = 13.sp,
-                            color = Color.White.copy(alpha = 0.75f))
+                        Text(
+                            "Saldo líquido disponível", fontSize = 13.sp,
+                            color = Color.White.copy(alpha = 0.75f)
+                        )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             formatarMoeda(resumo.totalLiquido * fator),
-                            fontSize   = 32.sp,
+                            fontSize = 32.sp,
                             fontWeight = FontWeight.Black,
-                            color      = Color.White,
+                            color = Color.White,
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         HorizontalDivider(color = Color.White.copy(alpha = 0.2f))
@@ -132,8 +139,11 @@ fun AbaFinanceiroDash(isPmp: Boolean = false) {
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
-                            MiniMetrica("Bruto",    formatarMoeda(resumo.totalBruto * fator))
-                            MiniMetrica("Taxa ${resumo.taxaPct.toInt()}%", "- ${formatarMoeda(taxaReais * fator)}")
+                            MiniMetrica("Bruto", formatarMoeda(resumo.totalBruto * fator))
+                            MiniMetrica(
+                                "Taxa ${resumo.taxaPct.toInt()}%",
+                                "- ${formatarMoeda(taxaReais * fator)}"
+                            )
                             MiniMetrica("Pendente", formatarMoeda(resumo.totalPendente * fator))
                         }
                     }
@@ -141,29 +151,29 @@ fun AbaFinanceiroDash(isPmp: Boolean = false) {
 
                 // ── 3 CARDS DE MÉTRICAS ───────────────────────────────────
                 Row(
-                    modifier              = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     MetricaCard(
                         modifier = Modifier.weight(1f),
-                        icone    = "💵",
-                        numero   = formatarMoeda(resumo.totalBruto),
-                        label    = "Total bruto",
-                        cor      = Verde,
+                        icone = "💵",
+                        numero = formatarMoeda(resumo.totalBruto),
+                        label = "Total bruto",
+                        cor = Verde,
                     )
                     MetricaCard(
                         modifier = Modifier.weight(1f),
-                        icone    = "📊",
-                        numero   = "${resumo.taxaPct.toInt()}%",
-                        label    = "Taxa plataforma",
-                        cor      = Azul,
+                        icone = "📊",
+                        numero = "${resumo.taxaPct.toInt()}%",
+                        label = "Taxa plataforma",
+                        cor = Azul,
                     )
                     MetricaCard(
                         modifier = Modifier.weight(1f),
-                        icone    = "✅",
-                        numero   = "${transacoes.count { it.status == "approved" }}",
-                        label    = "Aprovados",
-                        cor      = Verde,
+                        icone = "✅",
+                        numero = "${transacoes.count { it.status == "approved" }}",
+                        label = "Aprovados",
+                        cor = Verde,
                     )
                 }
 
@@ -171,19 +181,19 @@ fun AbaFinanceiroDash(isPmp: Boolean = false) {
                 if (grafico.isNotEmpty()) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape    = RoundedCornerShape(12.dp),
-                        colors   = CardDefaults.cardColors(containerColor = Surface),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Surface),
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
                             Text(
                                 "Evolução dos últimos ${grafico.size} dias",
-                                fontSize   = 15.sp,
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
-                                color      = Ink,
+                                color = Ink,
                             )
                             Spacer(modifier = Modifier.height(16.dp))
                             GraficoBarras(
-                                pontos   = grafico,
+                                pontos = grafico,
                                 corBarra = Verde,
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -196,25 +206,25 @@ fun AbaFinanceiroDash(isPmp: Boolean = false) {
                 // ── LISTA DE TRANSAÇÕES ───────────────────────────────────
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape    = RoundedCornerShape(12.dp),
-                    colors   = CardDefaults.cardColors(containerColor = Surface),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Surface),
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Row(
-                            modifier              = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment     = Alignment.CenterVertically,
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
                                 "Transações recentes",
-                                fontSize   = 15.sp,
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
-                                color      = Ink,
+                                color = Ink,
                             )
                             Text(
                                 "${transacoes.size} registros",
                                 fontSize = 11.sp,
-                                color    = InkMuted,
+                                color = InkMuted,
                             )
                         }
                         Spacer(modifier = Modifier.height(12.dp))
@@ -222,10 +232,10 @@ fun AbaFinanceiroDash(isPmp: Boolean = false) {
                         if (transacoes.isEmpty()) {
                             Text(
                                 "Nenhuma transação ainda",
-                                fontSize  = 13.sp,
-                                color     = InkMuted,
+                                fontSize = 13.sp,
+                                color = InkMuted,
                                 textAlign = TextAlign.Center,
-                                modifier  = Modifier.fillMaxWidth().padding(vertical = 20.dp),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp),
                             )
                         } else {
                             transacoes.forEach { t ->
@@ -238,19 +248,19 @@ fun AbaFinanceiroDash(isPmp: Boolean = false) {
 
                 // ── BOTÃO SOLICITAR SAQUE ─────────────────────────────────
                 Button(
-                    onClick  = { vm.solicitarSaque() },
+                    onClick = { vm.solicitarSaque() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
-                    shape  = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFFC49A2A),  // Dourado
-                        contentColor   = Color.White,
+                        contentColor = Color.White,
                     ),
                 ) {
                     Text(
                         "💳  Solicitar Saque",
-                        fontSize   = 15.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                     )
                 }
@@ -261,31 +271,45 @@ fun AbaFinanceiroDash(isPmp: Boolean = false) {
     }
 
     // ── DIALOG DE SAQUE ───────────────────────────────────────────────────
+    // ── DIALOG DE SAQUE ───────────────────────────────────────────────────
     if (mostrarDialogSaque) {
         AlertDialog(
             onDismissRequest = { vm.dispensarDialogSaque() },
             title = { Text("Saldo disponível para saque", fontWeight = FontWeight.Bold) },
-            text  = {
-                Text(
-                    if (saldoDisponivel > 0.0)
-                        "Você tem ${formatarMoeda(saldoDisponivel)} disponível para saque.\n\n" +
-                                "O valor corresponde a transações aprovadas há mais de 15 dias.\n\n" +
-                                "A transferência será processada em até 2 dias úteis."
-                    else
-                        "Nenhum saldo disponível para saque no momento.\n\n" +
-                                "Os valores só ficam disponíveis 15 dias após a aprovação da venda.",
-                    textAlign  = TextAlign.Center,
-                    lineHeight = 20.sp,
-                )
+            text = {
+                if (saldoDisponivel == 0.0 && mostrarDialogSaque) {
+                    // Estado de carregamento inicial (enquanto a consulta roda)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = Verde
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Calculando saldo disponível...", fontSize = 13.sp, color = InkMuted)
+                    }
+                } else {
+                    Text(
+                        if (saldoDisponivel > 0.0)
+                            "Você tem ${formatarMoeda(saldoDisponivel)} disponível para saque.\n\n" +
+                                    "O valor corresponde a transações aprovadas há mais de 15 dias.\n\n" +
+                                    "A transferência será processada em até 2 dias úteis."
+                        else
+                            "Nenhum saldo disponível para saque no momento.\n\n" +
+                                    "Os valores só ficam disponíveis 15 dias após a aprovação da venda.",
+                        textAlign = TextAlign.Center,
+                        lineHeight = 20.sp
+                    )
+                }
             },
             confirmButton = {
                 Button(
                     onClick = { vm.dispensarDialogSaque() },
-                    colors  = ButtonDefaults.buttonColors(containerColor = Verde),
+                    colors = ButtonDefaults.buttonColors(containerColor = Verde),
                 ) {
                     Text("Entendi", color = Color.White)
                 }
-            },
+            }
         )
     }
 }

@@ -1,6 +1,5 @@
 package br.com.brasiltupi.conecta
 
-
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -16,7 +15,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import br.com.brasiltupi.conecta.ui.theme.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -28,20 +26,25 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import kotlinx.serialization.json.Json
-// ── TELA PRINCIPAL ────────────────────────────────────
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardProfissionalScreen(
     onSair:                  () -> Unit,
-    onEstudio:               (() -> Unit)?                                                       = null,
-    onPerfil:                (() -> Unit)?                                                       = null,
-    onRelatorios:            (() -> Unit)?                                                       = null,
-    onModalidades:           (() -> Unit)?                                                       = null,
-    onKyc:                   (() -> Unit)?                                                       = null,
-    onIniciarChamadaRegular: ((consultaId: String) -> Unit)? = null,    onReferral:              (() -> Unit)?                                                       = null,
+    onEstudio:               (() -> Unit)? = null,
+    onPerfil:                (() -> Unit)? = null,
+    onRelatorios:            (() -> Unit)? = null,
+    onModalidades:           (() -> Unit)? = null,
+    onKyc:                   (() -> Unit)? = null,
+    onIniciarChamadaRegular: ((consultaId: String) -> Unit)? = null,
+    onReferral:              (() -> Unit)? = null,
     onDisputa:               (() -> Unit)? = null,
+    onIniciarPagamentoPmp:   ((String) -> Unit)? = null,
     onKycStatusChanged:      ((Boolean) -> Unit)? = null,
-    ) {
+) {
     var abaSelecionada by remember { mutableStateOf("visao") }
     var menuExpandido  by remember { mutableStateOf(false) }
 
@@ -84,8 +87,18 @@ fun DashboardProfissionalScreen(
 
         carregando = false
     }
+    var mostrarAlertaPmp by remember { mutableStateOf(false) }
 
-    // Abas primárias
+    LaunchedEffect(credibilidade, kycAprovado, isPmp) {
+        if (credibilidade >= 80 && kycAprovado && !isPmp) {
+            val uid = currentUserId ?: return@LaunchedEffect
+            val jaViu = jaViuAlertaPmp(uid)
+            if (!jaViu) {
+                mostrarAlertaPmp = true
+            }
+        }
+    }
+
     val abasPrimarias = listOf(
         Triple("visao",        "Visão Geral", "🏠"),
         Triple("atendimentos", "Consultas",   "📋"),
@@ -94,7 +107,6 @@ fun DashboardProfissionalScreen(
         Triple("estudio",      "Estúdio",     "🎓"),
     )
 
-    // Menu ⋮ — rótulo "Verificação da Conta" em vez de "Documentos KYC"
     val menuItens = listOf(
         Triple("financeiro",    "Financeiro",        "💰"),
         Triple("credibilidade", "Credibilidade",     "⭐"),
@@ -206,40 +218,49 @@ fun DashboardProfissionalScreen(
                         ),
                     )
                 }
+                NavigationBarItem(
+                    selected = abaSelecionada == "meu-pmp",
+                    onClick  = { abaSelecionada = "meu-pmp" },
+                    icon     = { Text("🏆", fontSize = if (abaSelecionada == "meu-pmp") 22.sp else 20.sp) },
+                    label    = { Text("Meu PMP", fontSize = 10.sp, fontWeight = if (abaSelecionada == "meu-pmp") FontWeight.Bold else FontWeight.Normal) },
+                    colors   = NavigationBarItemDefaults.colors(
+                        selectedIconColor   = Azul,
+                        selectedTextColor   = Azul,
+                        unselectedIconColor = InkMuted,
+                        unselectedTextColor = InkMuted,
+                        indicatorColor      = Dourado.copy(alpha = 0.10f),
+                    ),
+                )
             }
         },
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             when (abaSelecionada) {
-                "visao"         -> {
-                    AbaVisaoGeralDash(
-                        nomeUsuario       = nomeUsuario,
-                        credibilidade     = credibilidade,
-                        consultas          = consultas,
-                        carregando         = carregando,
-                        disponivelUrgente  = disponivelUrgente,
-                        onRelatorios       = onRelatorios,
-                        resumoSemanas      = resumoSemanas,
-                        resumoGanhoMes     = resumoGanhoMes,
-                        resumoNotaMedia    = resumoNotaMedia,
-                        totalCreditos      = totalCreditos,
-                        onReferral         = onReferral,
-                        onKyc              = onKyc,
-                        kycAprovado        = kycAprovado,
-                        isPmp              = isPmp,
-                        onDisponibilidadeUrgenteChanged = { nova -> disponivelUrgente = nova },
-                    )
-                }
-                "atendimentos"  -> {
-                    AbaAtendimentosDash(
-                        consultas               = consultas,
-                        carregando              = carregando,
-                        onIniciarChamadaRegular = onIniciarChamadaRegular,
-                    )
-                }
+                "visao"         -> AbaVisaoGeralDash(
+                    nomeUsuario       = nomeUsuario,
+                    credibilidade     = credibilidade,
+                    consultas          = consultas,
+                    carregando         = carregando,
+                    disponivelUrgente  = disponivelUrgente,
+                    onRelatorios       = onRelatorios,
+                    resumoSemanas      = resumoSemanas,
+                    resumoGanhoMes     = resumoGanhoMes,
+                    resumoNotaMedia    = resumoNotaMedia,
+                    totalCreditos      = totalCreditos,
+                    onReferral         = onReferral,
+                    onKyc              = onKyc,
+                    kycAprovado        = kycAprovado,
+                    isPmp              = isPmp,
+                    onDisponibilidadeUrgenteChanged = { nova -> disponivelUrgente = nova },
+                )
+                "atendimentos"  -> AbaAtendimentosDash(
+                    consultas               = consultas,
+                    carregando              = carregando,
+                    onIniciarChamadaRegular = onIniciarChamadaRegular,
+                )
                 "urgente"       -> {
                     var valorUrgente by remember { mutableStateOf<Double?>(null) }
-                    var valorMinutoExtrapolado by remember { mutableStateOf<Double?>(null) }   // NOVO
+                    var valorMinutoExtrapolado by remember { mutableStateOf<Double?>(null) }
                     var carregandoValor by remember { mutableStateOf(true) }
                     var perfilProfissional by remember { mutableStateOf<ProfissionalComPerfil?>(null) }
 
@@ -248,15 +269,12 @@ fun DashboardProfissionalScreen(
                         val perfil = getMeuPerfilProfissional(uid)
                         perfilProfissional = perfil
                         valorUrgente = perfil?.valor_urgente?.toDouble()
-                        valorMinutoExtrapolado = perfil?.valorMinutoExtrapolado   // NOVO
+                        valorMinutoExtrapolado = perfil?.valorMinutoExtrapolado
                         carregandoValor = false
                     }
 
                     if (carregandoValor) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(color = Verde)
                         }
                     } else {
@@ -268,26 +286,14 @@ fun DashboardProfissionalScreen(
                             onKyc = onKyc,
                             mostrarGuiaChamada = true,
                             valorUrgenteAtual = valorUrgente,
-                            valorMinutoExtrapoladoAtual = valorMinutoExtrapolado,   // NOVO
-                            onSalvarValorUrgente = { novoValorDouble ->
-                                valorUrgente = novoValorDouble
-                            },
-                            onSalvarValorMinutoExtrapolado = { novoValorMinuto ->
-                                valorMinutoExtrapolado = novoValorMinuto
-                            },
+                            valorMinutoExtrapoladoAtual = valorMinutoExtrapolado,
+                            onSalvarValorUrgente = { novoValorDouble -> valorUrgente = novoValorDouble },
+                            onSalvarValorMinutoExtrapolado = { novoValorMinuto -> valorMinutoExtrapolado = novoValorMinuto },
                         )
                     }
                 }
-
-                "financeiro"    -> {
-                    AbaFinanceiroDash(isPmp = isPmp)
-                }
-                "credibilidade" -> {
-                    AbaCredibilidadeDash(
-                        credibilidade = credibilidade,
-                        isPmp         = isPmp,
-                    )
-                }
+                "financeiro"    -> AbaFinanceiroDash(isPmp = isPmp)
+                "credibilidade" -> AbaCredibilidadeDash(credibilidade = credibilidade, isPmp = isPmp)
                 "relatorios"    -> {
                     if (onRelatorios != null) { LaunchedEffect(Unit) { onRelatorios() } }
                     else Box(Modifier.fillMaxSize(), Alignment.Center) { Text("Relatórios indisponíveis", color = InkMuted) }
@@ -296,6 +302,50 @@ fun DashboardProfissionalScreen(
                     if (onPerfil != null) { LaunchedEffect(Unit) { onPerfil() } }
                     else AbaPerfilProfissional()
                 }
+                "meu-pmp" -> AbaMeuPmp(
+                    profissionalId = currentUserId ?: "",
+                    onIniciarPagamento = { planoTipo ->
+                        onIniciarPagamentoPmp?.invoke(planoTipo)
+                    }
+                )
+            }
+            if (mostrarAlertaPmp) {
+                AlertDialog(
+                    onDismissRequest = { mostrarAlertaPmp = false },
+                    icon = { Text("🏆", fontSize = 48.sp) },
+                    title = { Text("Parabéns! Você atingiu a Maestria!", fontWeight = FontWeight.Bold, color = Azul) },
+                    text = {
+                        Column {
+                            Text("Você está elegível para o Programa de Maestria Profissional (PMP)!")
+                            Spacer(Modifier.height(12.dp))
+                            Text("✅ Credibilidade ≥ 80")
+                            Text("✅ Avaliação ≥ 4.0")
+                            Text("✅ Perfil verificado")
+                            Spacer(Modifier.height(12.dp))
+                            Text("Benefícios de se tornar PMP:", fontWeight = FontWeight.Bold)
+                            Text("📈 Destaque na plataforma (inclusive para visitantes)")
+                            Text("💰 Taxa reduzida: 10% (normal: 30%)")
+                            Text("🛡️ Selo de confiança e credibilidade")
+                            Text("⭐ Reconhecimento como Mestre Profissional")
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                mostrarAlertaPmp = false
+                                scope.launch { marcarAlertaPmpVisto(currentUserId ?: "") }
+                                abaSelecionada = "meu-pmp"
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Dourado)
+                        ) { Text("Ver Planos PMP", color = Color.White) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = {
+                            mostrarAlertaPmp = false
+                            scope.launch { marcarAlertaPmpVisto(currentUserId ?: "") }
+                        }) { Text("Depois", color = InkMuted) }
+                    }
+                )
             }
         }
     }
@@ -995,6 +1045,303 @@ fun AbaPerfilProfissional() {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text("Para editar seu perfil completo, acesse a tela de Perfil.", fontSize = 12.sp, color = InkMuted)
             }
+        }
+    }
+
+}
+
+@Composable
+fun AbaMeuPmp(
+    profissionalId: String,
+    onIniciarPagamento: (String) -> Unit = {}
+) {
+    var carregando by remember { mutableStateOf(true) }
+    var erro by remember { mutableStateOf<String?>(null) }
+    var elegibilidade by remember { mutableStateOf<ElegibilidadePmp?>(null) }
+    var planos by remember { mutableStateOf<List<PlanoDisponivel>>(emptyList()) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(profissionalId) {
+        try {
+            elegibilidade = verificarElegibilidadePmp(profissionalId)
+            planos = buscarPlanosPmp()
+        } catch (e: Exception) {
+            erro = "Erro ao carregar informações do PMP"
+        } finally {
+            carregando = false
+        }
+    }
+
+    if (carregando) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = Dourado)
+        }
+        return
+    }
+
+    if (erro != null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("❌", fontSize = 48.sp)
+                Spacer(Modifier.height(16.dp))
+                Text(erro!!, color = Ink)
+                Spacer(Modifier.height(16.dp))
+                OutlinedButton(onClick = {
+                    carregando = true; erro = null
+                    scope.launch {
+                        elegibilidade = verificarElegibilidadePmp(profissionalId)
+                        planos = buscarPlanosPmp()
+                        carregando = false
+                    }
+                }) { Text("Tentar novamente") }
+            }
+        }
+        return
+    }
+
+    val e = elegibilidade ?: return
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item { CardPmpStatus(e) }
+
+        if (e.isPmp && e.assinaturaAtiva) {
+            item { CardPmpAtivo() }
+        }
+
+        if (e.elegivel && !e.assinaturaAtiva) {
+            item { CardElegivelPmp(planos, onIniciarPagamento) }
+        }
+
+        if (!e.elegivel && !e.isPmp) {
+            item { CardNaoElegivelPmp(e) }
+        }
+
+        item { CardBeneficiosPmp() }
+        item { CardFaqPmp() }
+    }
+}
+
+@Composable
+fun CardPmpStatus(e: ElegibilidadePmp) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = if (e.isPmp) DouradoClaro else Surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(text = if (e.isPmp) "🏆" else "🎯", fontSize = 48.sp)
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = if (e.isPmp) "Programa de Maestria Profissional ATIVO" else "Programa de Maestria Profissional",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = if (e.isPmp) Azul else Ink,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(16.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                MetricaPmp("Credibilidade", "${e.credibilidade.toInt()}/100")
+                MetricaPmp("Avaliação", "★ ${"%.1f".format(e.avaliacaoMedia)}")
+            }
+            if (!e.isPmp) {
+                Spacer(Modifier.height(12.dp))
+                LinearProgressIndicator(
+                    progress = { (e.credibilidade / 100.0).toFloat().coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                    color = if (e.credibilidade >= 80) Dourado else Azul,
+                    trackColor = SurfaceOff,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "${e.credibilidade.toInt()}% do necessário para PMP (mínimo 80%)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = InkMuted
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun MetricaPmp(label: String, valor: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(valor, fontWeight = FontWeight.Bold, color = Ink)
+        Text(label, style = MaterialTheme.typography.bodySmall, color = InkMuted)
+    }
+}
+
+@Composable
+fun CardElegivelPmp(planos: List<PlanoDisponivel>, onIniciarPagamento: (String) -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = AzulClaro),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text("🎉 Parabéns! Você está elegível ao PMP", fontWeight = FontWeight.Bold, color = Azul, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(12.dp))
+            Text("Você atingiu os requisitos para se tornar um Mestre Profissional. Escolha seu plano e desbloqueie todos os benefícios.", color = Ink, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(16.dp))
+
+            planos.forEach { plano ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    colors = CardDefaults.cardColors(containerColor = Surface)
+                ) {
+                    Row(
+                        Modifier.padding(16.dp).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(plano.nome, fontWeight = FontWeight.Bold, color = Ink)
+                            Text(
+                                when (plano.tipo) {
+                                    "pmp_mensal" -> "Cobrança mensal"
+                                    "pmp_anual" -> "Cobrança anual"
+                                    "pmp_semestral" -> "Cobrança semestral"
+                                    else -> ""
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = InkMuted
+                            )
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(formatarMoeda(plano.preco), fontWeight = FontWeight.Bold, color = Azul)
+                            Spacer(Modifier.height(4.dp))
+                            Button(
+                                onClick = { onIniciarPagamento(plano.tipo) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Dourado)
+                            ) {
+                                Text("Contratar", color = Color.White)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CardNaoElegivelPmp(e: ElegibilidadePmp) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = SurfaceWarm)
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text("📋 Requisitos para o PMP", fontWeight = FontWeight.Bold, color = Ink, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(12.dp))
+            RequisitoItem("Credibilidade ≥ 80 pontos", e.credibilidade >= 80)
+            RequisitoItem("Avaliação média ≥ 4.0 estrelas", e.avaliacaoMedia >= 4.0)
+            RequisitoItem("Perfil verificado (KYC aprovado)", e.verificado)
+            if (e.pontosFaltantes > 0 && e.pontosFaltantes < 999) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Faltam aproximadamente ${e.pontosFaltantes.toInt()} pontos de credibilidade para você se tornar elegível.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Ink
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun RequisitoItem(descricao: String, atendido: Boolean) {
+    Row(
+        Modifier.padding(vertical = 4.dp).fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = if (atendido) "✅" else "⏳", fontSize = 18.sp)
+        Spacer(Modifier.width(8.dp))
+        Text(text = descricao, color = if (atendido) Verde else InkMuted, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+fun CardPmpAtivo() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = DouradoClaro)
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text("🏆 PMP ATIVO", fontWeight = FontWeight.Bold, color = Azul)
+            Spacer(Modifier.height(8.dp))
+            Text("Você já é um Mestre Profissional. Aproveite:", color = Ink)
+            Spacer(Modifier.height(8.dp))
+            Text("✅ Taxa reduzida da plataforma (10%)", color = Ink)
+            Text("✅ Destaque nas buscas com selo PMP", color = Ink)
+            Text("✅ Prioridade em resultados de busca", color = Ink)
+            Text("✅ Acesso antecipado a novas funcionalidades", color = Ink)
+        }
+    }
+}
+
+@Composable
+fun CardBeneficiosPmp() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Surface)
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text("🏆 Benefícios do PMP", fontWeight = FontWeight.Bold, color = Ink)
+            Spacer(Modifier.height(12.dp))
+            BeneficioItem("📈", "Destaque na plataforma", "Seu perfil aparece em destaque nas buscas, inclusive para visitantes sem login.")
+            BeneficioItem("💰", "Taxa reduzida", "Pague apenas 10% de taxa da plataforma (não-PMP pagam 30%).")
+            BeneficioItem("🛡️", "Selo de confiança", "O selo PMP transmite segurança e credibilidade, aumentando a confiança dos clientes.")
+            BeneficioItem("⭐", "Reconhecimento", "O PMP é o ápice da maestria profissional. Somente os melhores conquistam esse selo.")
+        }
+    }
+}
+
+@Composable
+fun BeneficioItem(emoji: String, titulo: String, descricao: String) {
+    Row(Modifier.padding(vertical = 6.dp).fillMaxWidth()) {
+        Text(emoji, fontSize = 24.sp)
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text(titulo, fontWeight = FontWeight.Bold, color = Ink)
+            Text(descricao, style = MaterialTheme.typography.bodySmall, color = InkMuted)
+        }
+    }
+}
+
+@Composable
+fun CardFaqPmp() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Surface)
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text("❓ Perguntas Frequentes", fontWeight = FontWeight.Bold, color = Ink)
+            Spacer(Modifier.height(12.dp))
+            FaqItem("Como me torno PMP?", "Mantenha sua credibilidade acima de 80 pontos, avaliação média ≥ 4.0 estrelas e tenha seu perfil verificado. Depois, escolha um plano.")
+            FaqItem("O que acontece se minha credibilidade cair?", "Se cair abaixo de 80 pontos, seu selo PMP será revogado e você precisará recuperar a pontuação. A assinatura permanece ativa pelo período contratado.")
+            FaqItem("Posso cancelar a qualquer momento?", "Sim. O cancelamento entra em vigor ao final do período contratado. Não há reembolso proporcional.")
+        }
+    }
+}
+
+@Composable
+fun FaqItem(pergunta: String, resposta: String) {
+    var expandido by remember { mutableStateOf(false) }
+    Column(Modifier.padding(vertical = 4.dp).fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().clickable { expandido = !expandido },
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(pergunta, fontWeight = FontWeight.Bold, color = Ink, modifier = Modifier.weight(1f))
+            Text(if (expandido) "▲" else "▼", color = InkMuted)
+        }
+        if (expandido) {
+            Text(resposta, color = InkMuted, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

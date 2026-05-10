@@ -72,7 +72,9 @@ fun PagamentoScreen(
     urgenciaId:      String,
     onConfirmado:    () -> Unit,
     onVoltar:        () -> Unit,
-    onboardingVm:    OnboardingViewModel? = null,   // PA-05 — guard first_payment
+    onboardingVm:    OnboardingViewModel? = null,
+    isEstudio:       Boolean = false,
+    isPmp:           Boolean = false,
 ) {
     val context        = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -98,7 +100,11 @@ fun PagamentoScreen(
                 urgenciaId = urgenciaId,
                 detalhe    = "Estado Idle — criando preferencia",
             )
-            PagamentoRepository.criarPreferencia(urgenciaId)
+            when {
+                isPmp -> { /* não faz nada — a preferência PMP já foi criada externamente */ }
+                isEstudio -> PagamentoRepository.criarPreferenciaEstudio(urgenciaId)
+                else -> PagamentoRepository.criarPreferencia(urgenciaId)
+            }
         }
     }
 
@@ -108,12 +114,14 @@ fun PagamentoScreen(
 
             is PagamentoState.CheckoutAberto -> {
                 AppLogger.infoPagamento(
-                    etapa      = "webview_carregando",
+                    etapa = "webview_carregando",
                     urgenciaId = urgenciaId,
-                    detalhe    = "init_point=${estado.initPoint.take(60)}",
+                    detalhe = "init_point=${estado.initPoint.take(60)}",
                 )
                 webViewRef?.loadUrl(estado.initPoint)
-                PagamentoRepository.notificarCheckoutAberto(urgenciaId)
+                if (!isEstudio) {
+                    PagamentoRepository.notificarCheckoutAberto(urgenciaId)
+                }
             }
 
             is PagamentoState.Confirmado -> {
@@ -332,10 +340,24 @@ fun PagamentoScreen(
                 Button(
                     onClick = {
                         mostrarDialogCancelado = false
-                        if (initPointParaRetry.isNotEmpty()) {
-                            PagamentoRepository.tentarNovamente(urgenciaId, initPointParaRetry)
-                        } else {
-                            PagamentoRepository.criarPreferencia(urgenciaId)
+                        when {
+                            isPmp -> {
+                                // Recriar preferência PMP com o tipo original
+                                PagamentoRepository.criarPreferenciaPmp(
+                                    profissionalId = currentUserId ?: "",
+                                    planoTipo = urgenciaId  // urgenciaId contém o planoTipo ("pmp_mensal" etc)
+                                )
+                            }
+                            isEstudio -> {
+                                PagamentoRepository.criarPreferenciaEstudio(urgenciaId)
+                            }
+                            else -> {
+                                if (initPointParaRetry.isNotEmpty()) {
+                                    PagamentoRepository.tentarNovamente(urgenciaId, initPointParaRetry)
+                                } else {
+                                    PagamentoRepository.criarPreferencia(urgenciaId)
+                                }
+                            }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Verde),
@@ -398,7 +420,20 @@ fun PagamentoScreen(
                 Button(
                     onClick = {
                         mostrarDialogErro = false
-                        PagamentoRepository.criarPreferencia(urgenciaId)
+                        when {
+                            isPmp -> {
+                                PagamentoRepository.criarPreferenciaPmp(
+                                    profissionalId = currentUserId ?: "",
+                                    planoTipo = urgenciaId
+                                )
+                            }
+                            isEstudio -> {
+                                PagamentoRepository.criarPreferenciaEstudio(urgenciaId)
+                            }
+                            else -> {
+                                PagamentoRepository.criarPreferencia(urgenciaId)
+                            }
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Verde),
                 ) {

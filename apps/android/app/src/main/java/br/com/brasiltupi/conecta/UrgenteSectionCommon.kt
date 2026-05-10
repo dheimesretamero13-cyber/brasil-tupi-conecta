@@ -466,7 +466,7 @@ fun AbaUrgenteCompartilhada(
                         Column {
                             Text("Liberação do pagamento", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Ink)
                             Text(
-                                "O pagamento só é confirmado e liberado para você após 7 dias corridos, " +
+                                "O pagamento só é confirmado e liberado para você após 15 dias corridos, " +
                                         "desde que não haja pedidos de reembolso, reclamações ou registros de negatividade direta. " +
                                         "Toda ocorrência é avaliada pela plataforma.",
                                 fontSize = 12.sp,

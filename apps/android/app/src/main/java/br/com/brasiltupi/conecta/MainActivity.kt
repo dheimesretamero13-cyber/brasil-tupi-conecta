@@ -77,6 +77,7 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
     LaunchedEffect(onboardingVm) { onVmReady(onboardingVm) }
 
     var itemIdParaPagamento by remember { mutableStateOf("") }
+    var planoPmpSelecionado      by remember { mutableStateOf("") }
     var tela                      by remember { mutableStateOf("") }
     var lgpdVerificada            by remember { mutableStateOf(false) }
     var estudioProfId             by remember { mutableStateOf("") }
@@ -166,8 +167,20 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
                 }
                 val pendentePagamento = verificarPagamentoPendente()
                 if (pendentePagamento != null) {
-                    urgenciaIdPagamento = pendentePagamento
-                    tela = "pagamento"
+                    when (pendentePagamento.tipo) {
+                        "estudio" -> {
+                            itemIdParaPagamento = pendentePagamento.id
+                            tela = "pagamento-estudio"
+                        }
+                        "agendamento_regular" -> {
+                            agendamentoRegularIdPagamento = pendentePagamento.id
+                            tela = "pagamento-regular"
+                        }
+                        else -> { // "urgencia" ou fallback
+                            urgenciaIdPagamento = pendentePagamento.id
+                            tela = "pagamento"
+                        }
+                    }
                     return@LaunchedEffect
                 }
 
@@ -423,10 +436,11 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             },
             onPularForced = { tela = "dashboard-cliente" },
         )
-        "pagamento-estudio" -> PagamentoEstudioScreen(
-            itemId = itemIdParaPagamento,
+        "pagamento-estudio" -> PagamentoScreen(
+            urgenciaId = itemIdParaPagamento,   // usaremos urgenciaId como itemId (param overflow)
             onConfirmado = { tela = "biblioteca" },
-            onVoltar = { tela = "dashboard-cliente" }
+            onVoltar = { tela = "dashboard-cliente" },
+            isEstudio = true   // novo parâmetro para ativar fluxo de estúdio
         )
 
         "pagamento" -> PagamentoScreen(
@@ -434,6 +448,22 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
             onConfirmado = { tela = "dashboard-cliente" },
             onVoltar     = { tela = "dashboard-cliente" },
         )
+
+        "pagamento-pmp" -> {
+            // Dispara a criação da preferência PMP e abre o checkout normalmente
+            LaunchedEffect(planoPmpSelecionado) {
+                PagamentoRepository.criarPreferenciaPmp(
+                    profissionalId = currentUserId ?: "",
+                    planoTipo = planoPmpSelecionado
+                )
+            }
+            PagamentoScreen(
+                urgenciaId   = planoPmpSelecionado, // reutilizado como identificador
+                isPmp        = true,
+                onConfirmado = { tela = "dashboard-profissional" },
+                onVoltar     = { tela = "dashboard-profissional" }
+            )
+        }
 
         "welcome" -> WelcomeScreen(
             onEntrar   = { tela = "login" },
@@ -541,6 +571,10 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
                 agendamentoRegularIdAtivo = agendamentoRegularId
                 StreamVideoRepository.solicitarTokenRegular(agendamentoRegularId) // nova função
                 tela = "sala-chamada-regular"
+            },
+            onIniciarPagamentoPmp = { planoTipo ->
+                planoPmpSelecionado = planoTipo
+                tela = "pagamento-pmp"
             }
         )
 
@@ -750,7 +784,7 @@ fun AppNavigation(onVmReady: (OnboardingViewModel) -> Unit = {}) {
     }
 }
 
-private suspend fun verificarPagamentoPendente(): String? =
+private suspend fun verificarPagamentoPendente(): PendenciaPagamento? =
     PagamentoRepository.verificarPendencia()
 
 @Composable
@@ -764,6 +798,7 @@ fun DashboardProfissionalComRealtime(
     onIniciarChamada: (urgenciaId: String) -> Unit = {},
     onReferral: () -> Unit = {},
     onDisputa: () -> Unit = {},
+    onIniciarPagamentoPmp: ((String) -> Unit)? = null,
     onKycStatusChanged: ((Boolean) -> Unit)? = null,
     onIniciarChamadaRegular: (agendamentoRegularId: String) -> Unit = {},
 ) {
@@ -838,6 +873,7 @@ fun DashboardProfissionalComRealtime(
             onDisputa  = onDisputa,
             onKycStatusChanged = onKycStatusChanged,
             onIniciarChamadaRegular = onIniciarChamadaRegular,
+            onIniciarPagamentoPmp = onIniciarPagamentoPmp,
         )
         when (statusRealtime) {
             StatusRealtime.INSTAVEL -> BannerRealtimeInstavel(offline = false)

@@ -49,6 +49,9 @@ private val WS_URL = LOCAL_URL
 // Edge Functions — URLs construídas dinamicamente
 private val EDGE_URL = "$LOCAL_URL/functions/v1/criar-preferencia-pagamento"
 private val EDGE_URL_REGULAR = "$LOCAL_URL/functions/v1/criar-preferencia-regular"
+private val EDGE_URL_ESTUDIO = "$LOCAL_URL/functions/v1/criar-preferencia-estudio"
+
+private val EDGE_URL_PMP = "$LOCAL_URL/functions/v1/criar-preferencia-pmp"
 
 private const val TAG = "PagamentoRepository"
 
@@ -58,6 +61,10 @@ private const val POLLING_INTERVAL_MS         = 5_000L
 
 private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
 
+data class PendenciaPagamento(
+    val tipo: String,  // "urgencia", "agendamento_regular", "estudio"
+    val id: String
+)
 // ═══════════════════════════════════════════════════════════════════════════
 // OBJETO REPOSITÓRIO
 // ═══════════════════════════════════════════════════════════════════════════
@@ -138,7 +145,7 @@ object PagamentoRepository {
                         _state.emit(PagamentoState.CheckoutAberto(
                             initPoint    = preferencia.initPoint,
                             preferenceId = preferencia.preferenceId,
-                            descricao    = preferencia.descricao,
+                            descricao    = preferencia.descricao ?: "",
                             valor        = preferencia.valor,
                             urgenciaId   = urgenciaId,
                         ))
@@ -154,7 +161,7 @@ object PagamentoRepository {
                             _state.emit(PagamentoState.CheckoutAberto(
                                 initPoint    = preferencia.initPoint,
                                 preferenceId = preferencia.preferenceId,
-                                descricao    = preferencia.descricao,
+                                descricao    = preferencia.descricao ?: "",
                                 valor        = preferencia.valor,
                                 urgenciaId   = urgenciaId,
                             ))
@@ -507,7 +514,7 @@ object PagamentoRepository {
      * Chamada ao abrir o app para redirecionar para PagamentoScreen.
      * Retorna o urgencia_id pendente ou null se não houver.
      */
-    suspend fun verificarPendencia(): String? {
+    suspend fun verificarPendencia(): PendenciaPagamento? {
         val uid   = currentUserId ?: return null
         val token = currentToken  ?: LOCAL_KEY
         return try {
@@ -515,7 +522,7 @@ object PagamentoRepository {
                 "$LOCAL_URL/rest/v1/payments" +
                         "?client_id=eq.$uid" +
                         "&status=eq.pending" +
-                        "&select=urgencia_id" +
+                        "&select=id,urgencia_id,agendamento_regular_id,estudio_item_id" +
                         "&order=criado_em.desc&limit=1"
             ) {
                 header("apikey",        LOCAL_KEY)
@@ -523,14 +530,29 @@ object PagamentoRepository {
                 header("Accept",        "application/json")
             }
             if (response.status.value !in 200..299) return null
-            val lista = jsonParser.decodeFromString<List<Payment>>(response.bodyAsText())
-            lista.firstOrNull()?.urgenciaId.also { id ->
-                if (id != null) AppLogger.infoPagamento(
-                    etapa      = "pagamento_pendente_encontrado",
-                    urgenciaId = id,
-                    detalhe    = "Redirecionando ao abrir app",
-                )
+
+            val body = response.bodyAsText()
+            val lista = jsonParser.decodeFromString<List<Payment>>(body)
+            val pendente = lista.firstOrNull() ?: return null
+
+            val tipo = when {
+                !pendente.estudioItemId.isNullOrBlank() -> "estudio"
+                !pendente.urgenciaId.isNullOrBlank()   -> "urgencia"
+                !pendente.agendamentoRegularId.isNullOrBlank() -> "agendamento_regular"
+                else -> return null
             }
+            val id = when (tipo) {
+                "estudio" -> pendente.estudioItemId!!
+                "urgencia" -> pendente.urgenciaId!!
+                "agendamento_regular" -> pendente.agendamentoRegularId!!
+                else -> return null
+            }
+            AppLogger.infoPagamento(
+                etapa      = "pagamento_pendente_encontrado",
+                urgenciaId = id,
+                detalhe    = "tipo=$tipo",
+            )
+            PendenciaPagamento(tipo, id)
         } catch (e: Exception) {
             AppLogger.aviso(TAG, "Falha ao verificar pagamento pendente: ${e.message}")
             null
@@ -584,7 +606,7 @@ object PagamentoRepository {
                         _state.emit(PagamentoState.CheckoutAberto(
                             initPoint            = preferencia.initPoint,
                             preferenceId         = preferencia.preferenceId,
-                            descricao            = preferencia.descricao,
+                            descricao            = preferencia.descricao ?: "",
                             valor                = preferencia.valor,
                             urgenciaId           = "",
                             agendamentoRegularId = agendamentoRegularId,
@@ -612,6 +634,409 @@ object PagamentoRepository {
                 ))
             }
         }
+    }
+    /**
+     * Cria preferência de pagamento para produto do Estúdio.
+     * Chama a Edge Function criar-preferencia-estudio.
+     *
+     * @param itemId UUID do produto na tabela estudio
+     */
+    fun criarPreferenciaEstudio(itemId: String) {
+        scope.launch {
+            _state.emit(PagamentoState.CriandoPreferencia(itemId))
+
+            val uid = currentUserId ?: run {
+                AppLogger.erroAuth("criar_preferencia_estudio", mensagemExtra = "token Supabase ausente")
+                _state.emit(PagamentoState.Erro(
+                    motivo = "Sessão inválida. Faça login novamente.",
+                    tipo   = TipoErroPagamento.PREFERENCIA_NEGADA,
+                ))
+                return@launch
+            }
+
+            val token = currentToken ?: LOCAL_KEY
+            try {
+                val response = httpClient.post(EDGE_URL_ESTUDIO) {
+                    header("Authorization", "Bearer $token")
+                    header("apikey", LOCAL_KEY)
+                    header("Idempotency-Key", "estudio_${itemId}_${uid}")
+                    contentType(ContentType.Application.Json)
+                    setBody(buildJsonObject { put("itemId", itemId) }.toString())
+                }
+
+                val corpo = response.bodyAsText()
+                AppLogger.info(TAG, "Edge Function estudio HTTP ${response.status.value}")
+
+                when (response.status.value) {
+                    200 -> {
+                        val preferencia = jsonParser.decodeFromString<PreferenciaResponse>(corpo)
+                        _state.emit(PagamentoState.CheckoutAberto(
+                            initPoint    = preferencia.initPoint,
+                            preferenceId = preferencia.preferenceId,
+                            descricao    = preferencia.descricao ?: "",
+                            valor        = preferencia.valor,
+                            urgenciaId   = "",
+                            agendamentoRegularId = "",
+                            productId    = itemId,
+                        ))
+                        iniciarEscutaRealtimeEstudio(itemId, uid)
+                    }
+                    401, 403 -> {
+                        AppLogger.erroAuth("criar_preferencia_estudio", mensagemExtra = "HTTP ${response.status.value}")
+                        _state.emit(PagamentoState.Erro(
+                            motivo = "Acesso não autorizado a este produto.",
+                            tipo   = TipoErroPagamento.PREFERENCIA_NEGADA,
+                        ))
+                    }
+                    409 -> {
+                        AppLogger.aviso(TAG, "Produto já comprado: $itemId")
+                        _state.emit(PagamentoState.Erro(
+                            motivo = "Você já possui este produto.",
+                            tipo   = TipoErroPagamento.PREFERENCIA_NEGADA,
+                        ))
+                    }
+                    else -> {
+                        AppLogger.erroPagamento(
+                            etapa = "preferencia_estudio",
+                            urgenciaId = itemId,
+                            httpStatus = response.status.value,
+                            corpo = corpo,
+                        )
+                        _state.emit(PagamentoState.Erro(
+                            motivo = "Erro ao iniciar pagamento (${response.status.value}).",
+                            tipo   = TipoErroPagamento.REDE,
+                        ))
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.erroRede(EDGE_URL_ESTUDIO, e, "item=$itemId")
+                _state.emit(PagamentoState.Erro(
+                    motivo = "Falha de rede ao preparar pagamento.",
+                    tipo   = TipoErroPagamento.REDE,
+                ))
+            }
+        }
+    }
+    /**
+     * Cria preferência de pagamento para o plano PMP.
+     * Chama a Edge Function criar-preferencia-pmp.
+     *
+     * @param profissionalId UUID do profissional logado
+     * @param planoTipo       "pmp_mensal", "pmp_anual" ou "pmp_semestral"
+     */
+    fun criarPreferenciaPmp(profissionalId: String, planoTipo: String) {
+        scope.launch {
+            _state.emit(PagamentoState.CriandoPreferencia(profissionalId))
+
+            val uid = currentUserId ?: run {
+                AppLogger.erroAuth("criar_preferencia_pmp", mensagemExtra = "token Supabase ausente")
+                _state.emit(PagamentoState.Erro(
+                    motivo = "Sessão inválida. Faça login novamente.",
+                    tipo   = TipoErroPagamento.PREFERENCIA_NEGADA,
+                ))
+                return@launch
+            }
+
+            val token = currentToken ?: LOCAL_KEY
+            try {
+                val response = httpClient.post(EDGE_URL_PMP) {
+                    header("Authorization", "Bearer $token")
+                    header("apikey", LOCAL_KEY)
+                    header("Idempotency-Key", "pmp_${profissionalId}_${planoTipo}")
+                    contentType(ContentType.Application.Json)
+                    setBody(buildJsonObject {
+                        put("profissional_id", profissionalId)
+                        put("plano_tipo", planoTipo)
+                    }.toString())
+                }
+
+                val corpo = response.bodyAsText()
+                AppLogger.info(TAG, "Edge Function PMP HTTP ${response.status.value}")
+
+                when (response.status.value) {
+                    200 -> {
+                        val preferencia = jsonParser.decodeFromString<PreferenciaResponse>(corpo)
+                        _state.emit(PagamentoState.CheckoutAberto(
+                            initPoint    = preferencia.initPoint,
+                            preferenceId = preferencia.preferenceId,
+                            descricao    = preferencia.descricao ?: "",
+                            valor        = preferencia.valor,
+                            urgenciaId   = "",
+                            agendamentoRegularId = "",
+                            productId    = "",
+                        ))
+                        iniciarEscutaRealtimePmp(profissionalId, planoTipo)
+                    }
+                    401, 403 -> {
+                        AppLogger.erroAuth("criar_preferencia_pmp", mensagemExtra = "HTTP ${response.status.value}")
+                        _state.emit(PagamentoState.Erro(
+                            motivo = "Acesso não autorizado ao plano PMP.",
+                            tipo   = TipoErroPagamento.PREFERENCIA_NEGADA,
+                        ))
+                    }
+                    409 -> {
+                        AppLogger.aviso(TAG, "Plano PMP já possui preferência ativa: $profissionalId / $planoTipo")
+                        _state.emit(PagamentoState.Erro(
+                            motivo = "Você já possui uma preferência de pagamento ativa para este plano.",
+                            tipo   = TipoErroPagamento.IDEMPOTENCIA,
+                        ))
+                    }
+                    else -> {
+                        AppLogger.erroPagamento(
+                            etapa = "preferencia_pmp",
+                            urgenciaId = profissionalId,
+                            httpStatus = response.status.value,
+                            corpo = corpo,
+                        )
+                        _state.emit(PagamentoState.Erro(
+                            motivo = "Erro ao iniciar pagamento (${response.status.value}).",
+                            tipo   = TipoErroPagamento.REDE,
+                        ))
+                    }
+                }
+            } catch (e: java.net.UnknownHostException) {
+                AppLogger.erroRede(EDGE_URL_PMP, e, "prof=$profissionalId plano=$planoTipo")
+                _state.emit(PagamentoState.Erro(
+                    motivo = "Sem conexão com a internet.",
+                    tipo   = TipoErroPagamento.REDE,
+                ))
+            } catch (e: Exception) {
+                AppLogger.erroRede(EDGE_URL_PMP, e, "prof=$profissionalId plano=$planoTipo")
+                _state.emit(PagamentoState.Erro(
+                    motivo = "Falha de rede ao preparar pagamento.",
+                    tipo   = TipoErroPagamento.REDE,
+                ))
+            }
+        }
+    }
+    private fun iniciarEscutaRealtimeEstudio(itemId: String, clientId: String) {
+        realtimeJob?.cancel()
+        realtimeJob = scope.launch {
+            var client: HttpClient? = null
+            try {
+                client = createWebSocketClient()
+                val token = currentToken ?: LOCAL_KEY
+                client.webSocket(
+                    urlString = "$WS_URL?apikey=$LOCAL_KEY&vsn=1.0.0",
+                    request = { header("Authorization", "Bearer $token") },
+                ) {
+                    send(Frame.Text(buildJoinPaymentsEstudio(itemId, clientId)))
+                    AppLogger.info(TAG, "Realtime estudio escutando: itemId=$itemId client=$clientId")
+
+                    for (frame in incoming) {
+                        if (frame !is Frame.Text) continue
+                        val texto = frame.readText()
+                        val confirmado = processarFramePaymentEstudio(texto, itemId, clientId)
+                        if (confirmado) break
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLogger.aviso(TAG, "Realtime estudio falhou: ${e.message}")
+            } finally {
+                client?.close()
+            }
+        }
+    }
+    private fun iniciarEscutaRealtimePmp(profissionalId: String, planoTipo: String) {
+        realtimeJob?.cancel()
+        realtimeJob = scope.launch {
+            var client: HttpClient? = null
+            try {
+                client = createWebSocketClient()
+                val token = currentToken ?: LOCAL_KEY
+                client.webSocket(
+                    urlString = "$WS_URL?apikey=$LOCAL_KEY&vsn=1.0.0",
+                    request = { header("Authorization", "Bearer $token") },
+                ) {
+                    send(Frame.Text(buildJoinPaymentsPmp(profissionalId, planoTipo)))
+                    AppLogger.info(TAG, "Realtime PMP escutando: prof=$profissionalId plano=$planoTipo")
+
+                    for (frame in incoming) {
+                        if (frame !is Frame.Text) continue
+                        val texto = frame.readText()
+                        val confirmado = processarFramePaymentPmp(texto, profissionalId)
+                        if (confirmado) break
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLogger.aviso(TAG, "Realtime PMP falhou: ${e.message}")
+            } finally {
+                client?.close()
+            }
+        }
+    }
+
+    private fun buildJoinPaymentsPmp(profissionalId: String, planoTipo: String): String {
+        val filter = "professional_id=eq.$profissionalId"
+        val topic = "realtime:payments:$filter"
+        return buildJsonObject {
+            put("event", "phx_join")
+            put("topic", topic)
+            putJsonObject("payload") {
+                putJsonObject("config") {
+                    putJsonObject("broadcast") { put("self", false) }
+                    putJsonArray("postgres_changes") {
+                        addJsonObject {
+                            put("event", "INSERT")
+                            put("schema", "public")
+                            put("table", "payments")
+                            put("filter", filter)
+                        }
+                        addJsonObject {
+                            put("event", "UPDATE")
+                            put("schema", "public")
+                            put("table", "payments")
+                            put("filter", filter)
+                        }
+                    }
+                }
+            }
+            put("ref", "pmp_${profissionalId}_$planoTipo")
+        }.toString()
+    }
+
+    private suspend fun processarFramePaymentPmp(texto: String, profissionalId: String): Boolean {
+        return try {
+            val obj = jsonParser.parseToJsonElement(texto).jsonObject
+            val event = obj["event"]?.jsonPrimitive?.content ?: return false
+            if (event != "postgres_changes") return false
+
+            val record = obj["payload"]?.jsonObject
+                ?.get("data")?.jsonObject
+                ?.get("record")?.jsonObject ?: return false
+
+            val status = record["status"]?.jsonPrimitive?.content ?: return false
+            val valor = record["valor"]?.jsonPrimitive?.doubleOrNull ?: 0.0
+
+            AppLogger.infoPagamento(
+                etapa = "realtime_pmp",
+                urgenciaId = profissionalId,
+                detalhe = "status=$status valor=$valor",
+            )
+
+            if (status == "approved") {
+                realtimeJob?.cancel()
+                pollingJob?.cancel()
+                _state.emit(PagamentoState.Confirmado(
+                    urgenciaId = "",
+                    agendamentoRegularId = "",
+                    valor = valor,
+                ))
+                AppLogger.infoPagamento(
+                    etapa = "pmp_confirmado",
+                    urgenciaId = profissionalId,
+                    detalhe = "Realtime confirmou aprovacao do plano PMP",
+                )
+                return true
+            } else if (status == "rejected") {
+                realtimeJob?.cancel()
+                pollingJob?.cancel()
+                _state.emit(PagamentoState.Erro(
+                    motivo = "Pagamento recusado. Tente novamente.",
+                    tipo = TipoErroPagamento.DESCONHECIDO,
+                ))
+                return true
+            }
+            return false
+        } catch (_: Exception) { false }
+    }
+
+    private fun buildJoinPaymentsEstudio(itemId: String, clientId: String): String {
+        val filter = "estudio_item_id=eq.$itemId&client_id=eq.$clientId"
+        return buildJsonObject {
+            put("event", "phx_join")
+            put("topic", "realtime:payments:$filter")
+            putJsonObject("payload") {
+                putJsonObject("config") {
+                    putJsonObject("broadcast") { put("self", false) }
+                    putJsonArray("postgres_changes") {
+                        addJsonObject {
+                            put("event", "INSERT")
+                            put("schema", "public")
+                            put("table", "payments")
+                            put("filter", filter)
+                        }
+                        addJsonObject {
+                            put("event", "UPDATE")
+                            put("schema", "public")
+                            put("table", "payments")
+                            put("filter", filter)
+                        }
+                    }
+                }
+            }
+            put("ref", "estudio_${itemId}_$clientId")
+        }.toString()
+    }
+
+    private suspend fun processarFramePaymentEstudio(
+        texto: String,
+        itemId: String,
+        clientId: String,
+    ): Boolean {
+        return try {
+            val obj = jsonParser.parseToJsonElement(texto).jsonObject
+            val event = obj["event"]?.jsonPrimitive?.content ?: return false
+            if (event != "postgres_changes") return false
+
+            val record = obj["payload"]?.jsonObject
+                ?.get("data")?.jsonObject
+                ?.get("record")?.jsonObject ?: return false
+
+            val status = record["status"]?.jsonPrimitive?.content ?: return false
+            val paymentId = record["id"]?.jsonPrimitive?.content ?: return false
+            val valor = record["valor"]?.jsonPrimitive?.doubleOrNull ?: 0.0
+
+            AppLogger.infoPagamento(
+                etapa = "realtime_estudio",
+                urgenciaId = itemId,
+                detalhe = "status=$status valor=$valor paymentId=$paymentId",
+            )
+
+            if (status == "approved") {
+                realtimeJob?.cancel()
+                pollingJob?.cancel()
+
+                // Registrar compra via RPC atômica
+                try {
+                    val token = currentToken ?: LOCAL_KEY
+                    httpClient.post("$LOCAL_URL/rest/v1/rpc/registrar_compra") {
+                        header("apikey", LOCAL_KEY)
+                        header("Authorization", "Bearer $token")
+                        contentType(ContentType.Application.Json)
+                        setBody(buildJsonObject { put("p_payment_id", paymentId) }.toString())
+                    }
+                    AppLogger.info(TAG, "Compra registrada com sucesso para item=$itemId")
+                } catch (e: Exception) {
+                    AppLogger.erroRpc(
+                        urgenciaId = paymentId,
+                        httpStatus = 0,
+                        corpoResposta = "Falha ao registrar compra: ${e.message}",
+                    )
+                    // Ainda emite confirmado para não travar o usuário — o backend pode ter registrado
+                }
+
+                _state.emit(PagamentoState.Confirmado(
+                    urgenciaId = "",
+                    agendamentoRegularId = "",
+                    valor = valor,
+                ))
+                return true
+            } else if (status == "rejected") {
+                realtimeJob?.cancel()
+                pollingJob?.cancel()
+                _state.emit(PagamentoState.Erro(
+                    motivo = "Pagamento recusado. Tente novamente.",
+                    tipo = TipoErroPagamento.DESCONHECIDO,
+                ))
+                return true
+            }
+            return false
+        } catch (_: Exception) { false }
     }
 
     // ── REALTIME PARA ATENDIMENTOS REGULARES ──────────────────────────────

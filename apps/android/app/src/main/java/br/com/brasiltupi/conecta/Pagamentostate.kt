@@ -42,7 +42,7 @@ data class PreferenciaResponse(
     @SerialName("preference_id")   val preferenceId:   String,  // ID da preferência no MP
     @SerialName("payment_id")      val paymentId:      String? = null, // preenchido após aprovação
     val valor:                     Double,                       // apenas para exibição
-    val descricao:                 String,                       // ex: "Consulta urgente — 25min"
+    val descricao:                 String? = null,                       // ex: "Consulta urgente — 25min"
 )
 
 // ── Pagamento na tabela `payments` — observado via Realtime ───────────────
@@ -55,6 +55,7 @@ data class Payment(
     val valor:       Double,
     @SerialName("mp_payment_id") val mpPaymentId: String? = null,
     @SerialName("criado_em")    val criadoEm:    String? = null,
+    @SerialName("estudio_item_id") val estudioItemId: String? = null,
 )
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -82,6 +83,7 @@ sealed class PagamentoState {
         val valor:                Double,
         val urgenciaId:           String = "",
         val agendamentoRegularId: String = "",
+        val productId: String = "",
     ) : PagamentoState()
 
     data class Processando(
