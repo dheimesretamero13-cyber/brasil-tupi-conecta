@@ -100,7 +100,7 @@ fun DashboardProfissionalScreen(
     }
 
     val abasPrimarias = listOf(
-        Triple("visao",        "Visão Geral", "🏠"),
+        Triple("visao",        "Geral", "🏠"),
         Triple("atendimentos", "Consultas",   "📋"),
         Triple("regular",      "Regular",     "📅"),
         Triple("urgente",      "Urgente",     "⚡"),
@@ -293,7 +293,7 @@ fun DashboardProfissionalScreen(
                     }
                 }
                 "financeiro"    -> AbaFinanceiroDash(isPmp = isPmp)
-                "credibilidade" -> AbaCredibilidadeDash(credibilidade = credibilidade, isPmp = isPmp)
+                "credibilidade" -> AbaCredibilidadeDash(credibilidade = credibilidade, isPmp = isPmp, onNavigateToMeuPmp = { abaSelecionada = "meu-pmp" })
                 "relatorios"    -> {
                     if (onRelatorios != null) { LaunchedEffect(Unit) { onRelatorios() } }
                     else Box(Modifier.fillMaxSize(), Alignment.Center) { Text("Relatórios indisponíveis", color = InkMuted) }
@@ -929,7 +929,7 @@ fun AbaAtendimentosDash(
 // ABA CREDIBILIDADE — CORRIGIDA
 // ════════════════════════════════════════════════════════════════
 @Composable
-fun AbaCredibilidadeDash(credibilidade: Int = 0, isPmp: Boolean = false) {
+fun AbaCredibilidadeDash(credibilidade: Int = 0, isPmp: Boolean = false, onNavigateToMeuPmp: () -> Unit = {}) {
     val mediaEstrelas = credibilidade / 20.0
     val pontosFaltantes = (80 - credibilidade).coerceAtLeast(0)
 
@@ -998,7 +998,7 @@ fun AbaCredibilidadeDash(credibilidade: Int = 0, isPmp: Boolean = false) {
                 LinearProgressIndicator(progress = { (credibilidade / 100f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(8.dp), color = DouradoMedio, trackColor = SurfaceOff)
                 Text("$credibilidade/100", fontSize = 12.sp, color = InkMuted, modifier = Modifier.padding(top = 6.dp, bottom = 14.dp))
                 Button(
-                    onClick  = { /* TODO: solicitar PMP quando elegível */ },
+                    onClick  = { if (credibilidade >= 80) onNavigateToMeuPmp() },
                     modifier = Modifier.fillMaxWidth().height(46.dp),
                     enabled  = credibilidade >= 80,
                     colors   = ButtonDefaults.buttonColors(containerColor = Azul, contentColor = Color.White, disabledContainerColor = SurfaceOff, disabledContentColor = InkMuted),
