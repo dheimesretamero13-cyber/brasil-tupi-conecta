@@ -28,6 +28,7 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
 import br.com.brasiltupi.conecta.AbaUrgenteCompartilhada
 import br.com.brasiltupi.conecta.AbaMeuPmp
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 
 @Composable
 fun PerfilProfissionalScreen(
@@ -57,6 +58,10 @@ fun PerfilProfissionalScreen(
     val context = LocalContext.current
     var valorUrgenteAtual by remember { mutableStateOf<Double?>(null) }
     var valorMinutoExtrapoladoAtual by remember { mutableStateOf<Double?>(null) }
+    var membroDesde by remember { mutableStateOf("--") }
+    var tipoConta by remember { mutableStateOf("Profissional") }
+    var totalAtendimentos by remember { mutableIntStateOf(0) }
+    var avaliacaoMedia by remember { mutableDoubleStateOf(0.0) }
 
     LaunchedEffect(userId) {
         if (userId.isEmpty()) { carregando = false; return@LaunchedEffect }
@@ -88,6 +93,13 @@ fun PerfilProfissionalScreen(
                 val docs = buscarKycDocumentos(userId)
                 kycStatus = docs.firstOrNull()?.status ?: "not_submitted"
                 consultasUrgente = buscarConsultasProfissional(userId)
+                // TODO: Substituir "--" pelo campo real de data de criação quando disponível
+                membroDesde = "--"
+                tipoConta = if (meu?.is_pmp == true) "Profissional Certificado" else "Profissional Liberal"
+                val concluidas = consultasUrgente.filter { it.status in listOf("concluida", "concluido") }
+                totalAtendimentos = concluidas.size
+                val notas = concluidas.map { it.avaliacao }.filter { it > 0 }
+                avaliacaoMedia = if (notas.isNotEmpty()) notas.average() else 0.0
             } catch (_: Exception) { }
         } finally {
             carregando = false
@@ -219,8 +231,16 @@ fun PerfilProfissionalScreen(
                                     .background(Azul, RoundedCornerShape(50)),
                                 contentAlignment = Alignment.Center,
                             ) {
+                                val iniciais = if (nomeReal.isNotBlank()) {
+                                    nomeReal.split(" ")
+                                        .filter { it.isNotEmpty() }
+                                        .map { it.first() }
+                                        .joinToString("")
+                                        .take(2)
+                                } else "?"
+
                                 Text(
-                                    nomeReal.split(" ").map { it[0] }.joinToString("").take(2),
+                                    text = iniciais.ifEmpty { "?" },
                                     fontSize = 22.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White,
@@ -513,12 +533,18 @@ fun PerfilProfissionalScreen(
                     userId = userId,
                     telefoneReal = telefoneReal,
                     onCandidatarPmp = { mostrarMeuPmp = true },
+                    membroDesde = membroDesde,
+                    tipoConta = tipoConta,
+                    totalAtendimentos = totalAtendimentos,
+                    avaliacaoMedia = avaliacaoMedia,
                 )
                 "seguranca" -> AbaSegurancaProfissional(
                     email = emailReal,
                     telefone = telefoneReal,
                     userId = userId,
                     onContaExcluida = onContaExcluida,
+                    onEmailAtualizado = { emailReal = it },
+                    onTelefoneAtualizado = { telefoneReal = it },
                 )
                 "urgente" -> {
                     val scopeUrgente = rememberCoroutineScope()
@@ -580,6 +606,10 @@ private fun AbaPerfilProfissional(
     userId: String = "",
     telefoneReal: String = "",
     onCandidatarPmp: () -> Unit = {},
+    membroDesde: String = "--",
+    tipoConta: String = "Profissional",
+    totalAtendimentos: Int = 0,
+    avaliacaoMedia: Double = 0.0,
 ) {
     var editando by remember { mutableStateOf(false) }
     var nome by remember { mutableStateOf(nomeInicial) }
@@ -651,7 +681,7 @@ private fun AbaPerfilProfissional(
                         "Nome" to nome,
                         "Área" to areaInicial,
                         "Cidade" to cidade,
-                        "Membro desde" to "--",
+                        "Membro desde" to membroDesde,
                     ).forEach { (label, valor) ->
                         Row(
                             modifier = Modifier
@@ -681,10 +711,10 @@ private fun AbaPerfilProfissional(
                 Text("Dados profissionais", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(12.dp))
                 listOf(
-                    "Tipo de conta" to "Profissional",
+                    "Tipo de conta" to tipoConta,
                     "Conselho" to conselho,
-                    "Atendimentos" to "--",
-                    "Avaliação média" to "⭐ --",
+                    "Atendimentos" to totalAtendimentos.toString(),
+                    "Avaliação média" to if (avaliacaoMedia > 0) "⭐ %.1f".format(avaliacaoMedia) else "⭐ --",
                 ).forEach { (label, valor) ->
                     Row(
                         modifier = Modifier
@@ -773,6 +803,9 @@ private fun AbaSegurancaProfissional(
     telefone: String = "",
     userId: String = "",
     onContaExcluida: () -> Unit = {},
+    onEmailAtualizado: (String) -> Unit = {},
+    onTelefoneAtualizado: (String) -> Unit = {},
+    onSenhaAlterada: () -> Unit = {},
 ) {
     val isDonoDoPerfilAtual = remember(userId) {
         userId.isNotEmpty() && userId == AuthRepository.userId
@@ -783,6 +816,10 @@ private fun AbaSegurancaProfissional(
     var excluindo by remember { mutableStateOf(false) }
     var erroExclusao by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    var mostrarDialogEmail by remember { mutableStateOf(false) }
+    var mostrarDialogSenha by remember { mutableStateOf(false) }
+    var mostrarDialogTelefone by remember { mutableStateOf(false) }
+    var mostrarDialog2FA by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -798,29 +835,74 @@ private fun AbaSegurancaProfissional(
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Segurança da conta", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(modifier = Modifier.height(12.dp))
-                listOf(
-                    Triple("E-mail", email, "Alterar"),
-                    Triple("Senha", "••••••••••", "Alterar"),
-                    Triple("Telefone", telefone, "Alterar"),
-                    Triple("Autenticação 2FA", "Desativado", "Ativar"),
-                ).forEach { (label, valor, acao) ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column {
-                            Text(label, fontSize = 12.sp, color = InkMuted)
-                            Text(valor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
-                        }
-                        TextButton(onClick = {}) {
-                            Text(acao, color = Verde, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        }
+                // E-mail
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column {
+                        Text("E-mail", fontSize = 12.sp, color = InkMuted)
+                        Text(email, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
                     }
-                    HorizontalDivider(color = SurfaceOff)
+                    TextButton(onClick = { mostrarDialogEmail = true }) {
+                        Text("Alterar", color = Verde, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
+                HorizontalDivider(color = SurfaceOff)
+                // Senha
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column {
+                        Text("Senha", fontSize = 12.sp, color = InkMuted)
+                        Text("••••••••••", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+                    }
+                    TextButton(onClick = { mostrarDialogSenha = true }) {
+                        Text("Alterar", color = Verde, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                HorizontalDivider(color = SurfaceOff)
+                // Telefone
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column {
+                        Text("Telefone", fontSize = 12.sp, color = InkMuted)
+                        Text(telefone, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+                    }
+                    TextButton(onClick = { mostrarDialogTelefone = true }) {
+                        Text("Alterar", color = Verde, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                HorizontalDivider(color = SurfaceOff)
+                // Autenticação 2FA
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column {
+                        Text("Autenticação 2FA", fontSize = 12.sp, color = InkMuted)
+                        Text("Desativado", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+                    }
+                    TextButton(onClick = { mostrarDialog2FA = true }) {
+                        Text("Ativar", color = Verde, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                HorizontalDivider(color = SurfaceOff)
             }
         }
 
@@ -1019,6 +1101,192 @@ private fun AbaSegurancaProfissional(
                 }
             },
             containerColor = Surface,
+        )
+    }
+
+    // Diálogos de alteração (dentro de AbaSegurancaProfissional)
+    if (mostrarDialogEmail) {
+        var novoEmail by remember { mutableStateOf(email) }
+        AlertDialog(
+            onDismissRequest = { mostrarDialogEmail = false },
+            title = { Text("Alterar e-mail") },
+            text = {
+                OutlinedTextField(
+                    value = novoEmail,
+                    onValueChange = { novoEmail = it },
+                    label = { Text("Novo e-mail") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                var emailErro by remember { mutableStateOf<String?>(null) }
+                var emailSalvando by remember { mutableStateOf(false) }
+                Button(onClick = {
+                    emailSalvando = true
+                    emailErro = null
+                    scope.launch {
+                        val result = updateUserEmail(novoEmail)
+                        if (result.success) {
+                            onEmailAtualizado(novoEmail)
+                            mostrarDialogEmail = false
+                        } else {
+                            emailErro = result.errorMessage ?: "Falha ao atualizar e‑mail."
+                        }
+                        emailSalvando = false
+                    }
+                }, enabled = !emailSalvando) {
+                    if (emailSalvando) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                    else Text("Salvar")
+                }
+                if (emailErro != null) {
+                    Text(emailErro!!, color = Urgente, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                }
+            },
+            dismissButton = { TextButton(onClick = { mostrarDialogEmail = false }) { Text("Cancelar") } }
+        )
+    }
+
+    if (mostrarDialogSenha) {
+        var novaSenha by remember { mutableStateOf("") }
+        var confirmarSenha by remember { mutableStateOf("") }
+        var senhaErro by remember { mutableStateOf<String?>(null) }
+        var senhaSalvando by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { mostrarDialogSenha = false },
+            title = { Text("Alterar senha") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = novaSenha,
+                        onValueChange = { novaSenha = it },
+                        label = { Text("Nova senha") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = confirmarSenha,
+                        onValueChange = { confirmarSenha = it },
+                        label = { Text("Confirmar senha") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (senhaErro != null) {
+                        Text(
+                            text = senhaErro!!,
+                            color = Urgente,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (novaSenha != confirmarSenha) {
+                            senhaErro = "As senhas não coincidem."
+                            return@Button
+                        }
+                        if (novaSenha.length < 6) {
+                            senhaErro = "A senha deve ter no mínimo 6 caracteres."
+                            return@Button
+                        }
+                        senhaSalvando = true
+                        senhaErro = null
+                        scope.launch {
+                            val ok = updateUserPassword(novaSenha)
+                            if (ok) {
+                                signOutAndroid()
+                                mostrarDialogSenha = false
+                                onSenhaAlterada()
+                            } else {
+                                senhaErro = "Falha ao alterar senha. Tente novamente."
+                            }
+                            senhaSalvando = false
+                        }
+                    },
+                    enabled = !senhaSalvando
+                ) {
+                    if (senhaSalvando) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text("Salvar")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { mostrarDialogSenha = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    if (mostrarDialogTelefone) {
+        var novoTelefone by remember { mutableStateOf(telefone) }
+        AlertDialog(
+            onDismissRequest = { mostrarDialogTelefone = false },
+            title = { Text("Alterar telefone") },
+            text = {
+                OutlinedTextField(
+                    value = novoTelefone,
+                    onValueChange = { novoTelefone = it },
+                    label = { Text("Novo telefone") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                var telefoneErro by remember { mutableStateOf<String?>(null) }
+                var telefoneSalvando by remember { mutableStateOf(false) }
+                Button(onClick = {
+                    telefoneSalvando = true
+                    telefoneErro = null
+                    scope.launch {
+                        val ok = updateUserPhone(userId, novoTelefone)
+                        if (ok) {
+                            onTelefoneAtualizado(novoTelefone)
+                            mostrarDialogTelefone = false
+                        } else {
+                            telefoneErro = "Falha ao atualizar telefone. Verifique sua conexão."
+                        }
+                        telefoneSalvando = false
+                    }
+                }, enabled = !telefoneSalvando) {
+                    if (telefoneSalvando) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                    else Text("Salvar")
+                }
+                if (telefoneErro != null) {
+                    Text(telefoneErro!!, color = Urgente, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                }
+            },
+            dismissButton = { TextButton(onClick = { mostrarDialogTelefone = false }) { Text("Cancelar") } }
+        )
+    }
+
+    if (mostrarDialog2FA) {
+        AlertDialog(
+            onDismissRequest = { mostrarDialog2FA = false },
+            title = { Text("Autenticação em duas etapas") },
+            text = { Text("Deseja ativar a autenticação de dois fatores? Você receberá instruções por e-mail.") },
+            confirmButton = {
+                Button(onClick = {
+                    scope.launch {
+                        // TODO: chamar API para iniciar ativação 2FA
+                        mostrarDialog2FA = false
+                    }
+                }) { Text("Ativar") }
+            },
+            dismissButton = { TextButton(onClick = { mostrarDialog2FA = false }) { Text("Cancelar") } }
         )
     }
 }

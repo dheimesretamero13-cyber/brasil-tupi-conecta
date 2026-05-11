@@ -67,8 +67,13 @@ fun DashboardProfissionalScreen(
         val perfil = getPerfilAndroid(uid)
         if (perfil != null) {
             nomeUsuario = perfil.nome
-            iniciais    = perfil.nome.split(" ").map { it[0] }.joinToString("").take(2).uppercase()
-        }
+            iniciais = perfil.nome.split(" ")
+                .filter { it.isNotEmpty() }
+                .map { it.first() }
+                .joinToString("")
+                .take(2)
+                .uppercase()
+                .ifEmpty { "?" }        }
         val meuPerfil = getMeuPerfilProfissional(uid)
         if (meuPerfil != null) {
             credibilidade = meuPerfil.credibilidade
@@ -548,7 +553,7 @@ fun AbaVisaoGeralDash(
                     comAvaliacao.forEach { c ->
                         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(modifier = Modifier.size(36.dp).background(AzulClaro, RoundedCornerShape(50)), contentAlignment = Alignment.Center) {
-                                Text(c.nomeCliente.split(" ").map { it[0] }.joinToString("").take(2), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Azul)
+                                Text(c.nomeCliente.split(" ").filter { it.isNotEmpty() }.map { it.first() }.joinToString("").take(2).ifEmpty { "?" }, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Azul)
                             }
                             Spacer(modifier = Modifier.width(10.dp))
                             Column(modifier = Modifier.weight(1f)) {
@@ -807,7 +812,7 @@ fun AbaAtendimentosDash(
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Text(
-                                        nomeExib.split(" ").mapNotNull { it.firstOrNull()?.toString() }.joinToString("").take(2).uppercase(),
+                                        nomeExib.split(" ").filter { it.isNotEmpty() }.map { it.first().toString() }.joinToString("").take(2).uppercase().ifEmpty { "?" },
                                         fontSize = 14.sp, fontWeight = FontWeight.Bold, color = corTexto,
                                     )
                                 }
@@ -891,7 +896,7 @@ fun AbaAtendimentosDash(
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(modifier = Modifier.size(40.dp).background(AzulClaro, RoundedCornerShape(50)), contentAlignment = Alignment.Center) {
-                                    Text(c.nomeCliente.split(" ").map { it[0] }.joinToString("").take(2), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Azul)
+                                    Text(c.nomeCliente.split(" ").filter { it.isNotEmpty() }.map { it.first() }.joinToString("").take(2).ifEmpty { "?" }, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Azul)
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column {

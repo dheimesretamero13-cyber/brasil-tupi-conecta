@@ -698,7 +698,71 @@ private suspend fun inserirPerfil(perfil: PerfilUsuario) {
         AppLogger.erroRede("inserirPerfil", e, "userId=${perfil.id}")
     }
 }
+// ── ALTERAÇÃO DE CREDENCIAIS (EMAIL, SENHA, TELEFONE) ─────────────────
 
+data class UpdateResult(val success: Boolean, val errorMessage: String? = null)
+
+suspend fun updateUserEmail(newEmail: String): UpdateResult {
+    val token = currentToken ?: return UpdateResult(false, "Usuário não autenticado")
+    return try {
+        val response = httpClient.put("$SUPABASE_URL/auth/v1/user") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer $token")
+            header("Content-Type", "application/json")
+            setBody(JsonObject(mapOf("email" to JsonPrimitive(newEmail))))
+        }
+        if (response.status.value == 200) {
+            UpdateResult(true)
+        } else {
+            val errorBody = response.bodyAsText()
+            AppLogger.erro("updateEmail", "HTTP ${response.status.value}: $errorBody")
+            val msg = try {
+                val errorJson = Json.parseToJsonElement(errorBody).jsonObject
+                errorJson["msg"]?.jsonPrimitive?.content ?: errorJson["message"]?.jsonPrimitive?.content ?: "Erro desconhecido"
+            } catch (e: Exception) {
+                "Erro desconhecido (HTTP ${response.status.value})"
+            }
+            UpdateResult(false, msg)
+        }
+    } catch (e: Exception) {
+        AppLogger.erroRede("updateEmail", e)
+        UpdateResult(false, "Falha de conexão")
+    }
+}
+
+suspend fun updateUserPassword(newPassword: String): Boolean {
+    val token = currentToken ?: return false
+    return try {
+        val response = httpClient.put("$SUPABASE_URL/auth/v1/user") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer $token")
+            header("Content-Type", "application/json")
+            setBody(JsonObject(mapOf("password" to JsonPrimitive(newPassword))))
+        }
+        response.status.value == 200
+    } catch (e: Exception) {
+        AppLogger.erroRede("updatePassword", e)
+        false
+    }
+}
+
+suspend fun updateUserPhone(userId: String, newPhone: String): Boolean {
+    val token = currentToken ?: return false
+    return try {
+        val response = httpClient.patch("$SUPABASE_URL/rest/v1/perfis") {
+            header("apikey", SUPABASE_KEY)
+            header("Authorization", "Bearer $token")
+            header("Content-Type", "application/json")
+            header("Prefer", "return=minimal")
+            parameter("id", "eq.$userId")
+            setBody(JsonObject(mapOf("telefone" to JsonPrimitive(newPhone))))
+        }
+        response.status.value in 200..204
+    } catch (e: Exception) {
+        AppLogger.erroRede("updatePhone", e)
+        false
+    }
+}
 // ── CONSULTAS DO CLIENTE ──────────────────────────────────────────────
 suspend fun buscarConsultasCliente(userId: String): List<ConsultaCliente> {
     return try {
