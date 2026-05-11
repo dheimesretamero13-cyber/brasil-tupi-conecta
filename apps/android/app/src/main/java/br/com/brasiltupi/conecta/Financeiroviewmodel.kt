@@ -52,6 +52,13 @@ data class PontoGrafico(val dia: String, val valor: Double)
 @Serializable
 data class ResumoFinanceiroRequest(@SerialName("p_prof_id") val profId: String)
 
+// NOVO: DTO para informações de bloqueio de saque
+data class BloqueioSaqueInfo(
+    val bloqueado: Boolean = false,
+    val totalPendente: Double = 0.0,
+    val totalVencido30d: Double = 0.0,
+    val mensagem: String = "",
+)
 // ═══════════════════════ UI State ═══════════════════════
 
 sealed class FinanceiroUiState {
@@ -77,6 +84,9 @@ class FinanceiroViewModel(private val isPmp: Boolean) : ViewModel() {
 
     private val _saldoDisponivelSaque = MutableStateFlow(0.0)
     val saldoDisponivelSaque: StateFlow<Double> = _saldoDisponivelSaque.asStateFlow()
+
+    private val _bloqueioSaque = MutableStateFlow<BloqueioSaqueInfo?>(null)
+    val bloqueioSaque: StateFlow<BloqueioSaqueInfo?> = _bloqueioSaque.asStateFlow()
 
     init {
         carregarDados()
@@ -300,8 +310,32 @@ class FinanceiroViewModel(private val isPmp: Boolean) : ViewModel() {
                 if (response.status.value in 200..299) {
                     // Usa DTO ValorResponse para evitar Map<String, Double>
                     val valores = jsonParser.decodeFromString<List<ValorResponse>>(response.bodyAsText())
-                    val total = valores.sumOf { it.valor }
-                    _saldoDisponivelSaque.emit(total)
+                    val totalBruto = valores.sumOf { it.valor }
+
+                    // NOVO: Verificar débitos e bloqueio de saque via RPC
+                    val debitos = AtendimentosRepository.verificarDebitosProfissional(uid)
+                    val saldoLiquido = totalBruto - debitos.totalPendente
+
+                    _saldoDisponivelSaque.emit(saldoLiquido.coerceAtLeast(0.0))
+
+                    // Emitir estado de bloqueio para a UI
+                    _bloqueioSaque.emit(BloqueioSaqueInfo(
+                        bloqueado = debitos.bloqueadoSaque,
+                        totalPendente = debitos.totalPendente,
+                        totalVencido30d = debitos.totalVencido30d,
+                        mensagem = when {
+                            debitos.bloqueadoSaque && debitos.totalVencido30d > 0 ->
+                                "Saque bloqueado: você tem R$ ${"%.2f".format(debitos.totalVencido30d)} em débitos vencidos há mais de 30 dias. Regularize para liberar o saque."
+                            debitos.totalPendente > 0 ->
+                                "Você tem R$ ${"%.2f".format(debitos.totalPendente)} em débitos pendentes. Após 30 dias, o saque será bloqueado."
+                            else -> ""
+                        }
+                    ))
+
+                    // Se houver débitos vencidos ou saque bloqueado, emitir estado para UI exibir
+                    if (debitos.bloqueadoSaque) {
+                        AppLogger.aviso(TAG, "Saque bloqueado para prof=$uid — débitos pendentes: ${debitos.totalPendente}, vencidos: ${debitos.totalVencido30d}")
+                    }
                 } else {
                     AppLogger.erro(TAG, "Falha ao consultar saldo disponível: HTTP ${response.status.value}")
                     _saldoDisponivelSaque.emit(0.0)

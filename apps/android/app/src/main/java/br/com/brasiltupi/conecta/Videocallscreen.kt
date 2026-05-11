@@ -97,6 +97,8 @@ fun VideoCallScreen(
     var prolongamentoAutorizado by remember { mutableStateOf(false) }
     var valorMinutoExtra by remember { mutableStateOf<Double?>(null) }
     var cronometroAtivo by remember { mutableStateOf(false) }
+    var sessaoAtualId   by remember { mutableStateOf<String?>(null) }
+    var duracaoChamada  by remember { mutableIntStateOf(0) }
 
     // ── Launcher de permissões ────────────────────────────────────────────
     val permissaoLauncher = rememberLauncherForActivityResult(
@@ -171,6 +173,17 @@ fun VideoCallScreen(
                         AnalyticsTracker.firstCall(urgenciaId)
                     }
                 }
+                // NOVO: Registrar sessão de chamada no banco (apenas agendamentos regulares)
+                if (agendamentoRegularId.isNotEmpty() && sessaoAtualId == null) {
+                    scope.launch {
+                        sessaoAtualId = AtendimentosRepository.registrarSessaoChamada(
+                            agendamentoId   = agendamentoRegularId,
+                            status          = "profissional_conectou",
+                        )
+                        AppLogger.info(TAG_SCREEN, "Sessão registrada: $sessaoAtualId")
+                    }
+                }
+                // Iniciar cronômetro da chamada urgente
 
                 // Iniciar cronômetro da chamada urgente
                 if (isUrgente && !cronometroAtivo) {
@@ -225,6 +238,9 @@ fun VideoCallScreen(
                         streamVideo = streamVideo,
                         activeCall  = activeCall,
                         callId      = (callState as? VideoCallState.EmChamada)?.callId ?: urgenciaId,
+                        agendamentoRegularId = agendamentoRegularId,
+                        sessaoAtualId        = sessaoAtualId,
+                        duracaoChamada       = duracaoChamada,
                     )
                 }
             }
@@ -237,7 +253,10 @@ fun VideoCallScreen(
                     streamVideo = streamVideo,
                     activeCall  = activeCall,
                     callId      = (callState as? VideoCallState.EmChamada)?.callId ?: urgenciaId,
-                )
+                    agendamentoRegularId = agendamentoRegularId,
+                    sessaoAtualId        = sessaoAtualId,
+                    duracaoChamada       = duracaoChamada,
+                    )
             }
         }
     }
@@ -279,7 +298,10 @@ fun VideoCallScreen(
                                         streamVideo = streamVideo,
                                         activeCall  = call,
                                         callId      = estado.callId,
-                                    )
+                                        agendamentoRegularId = agendamentoRegularId,
+                                        sessaoAtualId        = sessaoAtualId,
+                                        duracaoChamada       = duracaoChamada,
+                                        )
                                 }
                             } else {
                                 DefaultOnCallActionHandler.onCallAction(call, action)
@@ -408,8 +430,7 @@ fun VideoCallScreen(
                     TextButton(onClick = {
                         dialogoProlongamentoCliente = false
                         scope.launch {
-                            encerrarChamadaSeguro(streamVideo, activeCall, urgenciaId)
-                        }
+                            encerrarChamadaSeguro(streamVideo, activeCall, callIdParaToken, agendamentoRegularId, sessaoAtualId, duracaoChamada)                        }
                     }) {
                         Text("Encerrar chamada")
                     }
@@ -456,8 +477,7 @@ fun VideoCallScreen(
                             } catch (e: Exception) {
                                 AppLogger.aviso(TAG_SCREEN, "Falha ao recusar prolongamento: ${e.message}")
                             }
-                            encerrarChamadaSeguro(streamVideo, activeCall, urgenciaId)
-                        }
+                            encerrarChamadaSeguro(streamVideo, activeCall, callIdParaToken, agendamentoRegularId, sessaoAtualId, duracaoChamada)                        }
                     }) {
                         Text("Recusar")
                     }
@@ -552,9 +572,12 @@ private suspend fun inicializarEEntrar(
 // ═══════════════════════════════════════════════════════════════════════════
 
 private suspend fun encerrarChamadaSeguro(
-    streamVideo: StreamVideo?,
-    activeCall:  Call?,
-    callId:      String,
+    streamVideo:          StreamVideo?,
+    activeCall:           Call?,
+    callId:               String,
+    agendamentoRegularId: String = "",
+    sessaoAtualId:        String? = null,
+    duracaoChamada:       Int = 0,
 ) {
     try {
         activeCall?.leave()
@@ -571,6 +594,21 @@ private suspend fun encerrarChamadaSeguro(
     }
 
     StreamVideoRepository.notificarChamadaEncerrada(callId)
+
+
+    if (agendamentoRegularId.isNotEmpty() && sessaoAtualId != null) {
+        try {
+            AtendimentosRepository.registrarSessaoChamada(
+                agendamentoId = agendamentoRegularId,
+                status = "concluida",
+                duracaoSegundos = duracaoChamada,
+                sessaoId = sessaoAtualId,
+            )
+            AppLogger.info(TAG_SCREEN, "Sessão concluída: $sessaoAtualId")
+        } catch (e: Exception) {
+            AppLogger.aviso(TAG_SCREEN, "Falha ao registrar conclusão da sessão: ${e.message}")
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

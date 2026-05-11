@@ -42,6 +42,7 @@ fun AbaFinanceiroDash(isPmp: Boolean = false) {
     val uiState by vm.uiState.collectAsState()
     val mostrarDialogSaque by vm.mostrarDialogSaque.collectAsState()
     val saldoDisponivel by vm.saldoDisponivelSaque.collectAsState()
+    val bloqueioSaqueInfo by vm.bloqueioSaque.collectAsState()
 
     val animacaoValores = remember { Animatable(0f) }
     LaunchedEffect(uiState) {
@@ -277,7 +278,7 @@ fun AbaFinanceiroDash(isPmp: Boolean = false) {
             onDismissRequest = { vm.dispensarDialogSaque() },
             title = { Text("Saldo disponível para saque", fontWeight = FontWeight.Bold) },
             text = {
-                if (saldoDisponivel == 0.0 && mostrarDialogSaque) {
+                if (saldoDisponivel == 0.0 && bloqueioSaqueInfo == null && mostrarDialogSaque) {
                     // Estado de carregamento inicial (enquanto a consulta roda)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(
@@ -289,17 +290,46 @@ fun AbaFinanceiroDash(isPmp: Boolean = false) {
                         Text("Calculando saldo disponível...", fontSize = 13.sp, color = InkMuted)
                     }
                 } else {
-                    Text(
-                        if (saldoDisponivel > 0.0)
-                            "Você tem ${formatarMoeda(saldoDisponivel)} disponível para saque.\n\n" +
-                                    "O valor corresponde a transações aprovadas há mais de 15 dias.\n\n" +
-                                    "A transferência será processada em até 2 dias úteis."
-                        else
-                            "Nenhum saldo disponível para saque no momento.\n\n" +
-                                    "Os valores só ficam disponíveis 15 dias após a aprovação da venda.",
-                        textAlign = TextAlign.Center,
-                        lineHeight = 20.sp
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // Mensagem de bloqueio (se houver)
+                        if (bloqueioSaqueInfo != null && bloqueioSaqueInfo!!.mensagem.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        if (bloqueioSaqueInfo!!.bloqueado) UrgenteClaro else Color(0xFFFFF8E1),
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.Top,
+                            ) {
+                                Text(
+                                    if (bloqueioSaqueInfo!!.bloqueado) "🚫" else "⚠️",
+                                    fontSize = 14.sp
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    bloqueioSaqueInfo!!.mensagem,
+                                    fontSize = 12.sp,
+                                    color = if (bloqueioSaqueInfo!!.bloqueado) Urgente else Color(0xFF7A5C00),
+                                    lineHeight = 17.sp
+                                )
+                            }
+                        }
+
+                        // Saldo disponível
+                        Text(
+                            if (saldoDisponivel > 0.0)
+                                "Você tem ${formatarMoeda(saldoDisponivel)} disponível para saque.\n\n" +
+                                        "O valor corresponde a transações aprovadas há mais de 15 dias.\n\n" +
+                                        "A transferência será processada em até 2 dias úteis."
+                            else
+                                "Nenhum saldo disponível para saque no momento.\n\n" +
+                                        "Os valores só ficam disponíveis 15 dias após a aprovação da venda.",
+                            textAlign = TextAlign.Center,
+                            lineHeight = 20.sp
+                        )
+                    }
                 }
             },
             confirmButton = {

@@ -162,6 +162,12 @@ private data class CancelarAgendamentoRegularRequest(
     @SerialName("cancelado_em")  val canceladoEm:         String,
     @SerialName("taxa_cancelamento") val taxaCancelamento: Double,
 )
+@Serializable
+data class VerificarDebitosResult(
+    @SerialName("total_pendente")    val totalPendente:   Double = 0.0,
+    @SerialName("total_vencido_30d") val totalVencido30d: Double = 0.0,
+    @SerialName("bloqueado_saque")   val bloqueadoSaque:  Boolean = false,
+)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // REPOSITÓRIO
@@ -615,5 +621,92 @@ object AtendimentosRepository {
         "mensal"  -> "Pacote mensal"
         "urgente" -> "Urgente"
         else      -> tipo
+    }
+    // ── 9. REGISTRAR SESSÃO DE CHAMADA ────────────────────────────────────
+
+    suspend fun registrarSessaoChamada(
+        agendamentoId:   String,
+        status:          String,
+        duracaoSegundos: Int? = null,
+        sessaoId:        String? = null,
+    ): String? {
+        return try {
+            val token = AuthRepository.token ?: ATEND_KEY
+            val response = httpClient.post("$ATEND_URL/rest/v1/rpc/registrar_sessao_chamada") {
+                header("apikey",        ATEND_KEY)
+                header("Authorization", "Bearer $token")
+                header("Content-Type",  "application/json")
+                setBody(buildJsonObject {
+                    put("p_agendamento_id", agendamentoId)
+                    put("p_status", status)
+                    duracaoSegundos?.let { put("p_duracao_segundos", it) }
+                    sessaoId?.let { put("p_sessao_id", it) }
+                }.toString())
+            }
+            if (response.status.value in 200..299) {
+                val json = kotlinx.serialization.json.Json.parseToJsonElement(response.bodyAsText()).jsonObject
+                json["sessao_id"]?.jsonPrimitive?.content
+            } else {
+                AppLogger.erro(TAG, "registrarSessaoChamada HTTP ${response.status.value}")
+                null
+            }
+        } catch (e: Exception) {
+            AppLogger.erroRede("registrar_sessao_chamada", e, "agendamento=$agendamentoId")
+            null
+        }
+    }
+
+    // ── 10. VERIFICAR DÉBITOS E BLOQUEIO DE SAQUE ─────────────────────────
+
+    suspend fun verificarDebitosProfissional(profissionalId: String): VerificarDebitosResult {
+        return try {
+            val token = AuthRepository.token ?: ATEND_KEY
+            val response = httpClient.post("$ATEND_URL/rest/v1/rpc/verificar_debitos_profissional") {
+                header("apikey",        ATEND_KEY)
+                header("Authorization", "Bearer $token")
+                header("Content-Type",  "application/json")
+                setBody("{\"p_profissional_id\":\"$profissionalId\"}")
+            }
+            if (response.status.value in 200..299) {
+                kotlinx.serialization.json.Json.decodeFromString<VerificarDebitosResult>(
+                    response.bodyAsText()
+                )
+            } else {
+                VerificarDebitosResult()
+            }
+        } catch (e: Exception) {
+            AppLogger.erroRede("verificar_debitos_profissional", e, "prof=$profissionalId")
+            VerificarDebitosResult()
+        }
+    }
+
+    // ── 11. VALIDAR SOBREPOSIÇÃO DE HORÁRIO ───────────────────────────────
+
+    suspend fun validarSobreposicaoHorario(
+        profissionalId: String,
+        diaSemana:      String,
+        horaInicio:     String,
+        horaFim:        String,
+        excluirId:      String? = null,
+    ): Boolean {
+        return try {
+            val token = AuthRepository.token ?: ATEND_KEY
+            val response = httpClient.post("$ATEND_URL/rest/v1/rpc/validar_sobreposicao_horario") {
+                header("apikey",        ATEND_KEY)
+                header("Authorization", "Bearer $token")
+                header("Content-Type",  "application/json")
+                setBody(buildJsonObject {
+                    put("p_profissional_id", profissionalId)
+                    put("p_dia_semana", diaSemana)
+                    put("p_hora_inicio", horaInicio)
+                    put("p_hora_fim", horaFim)
+                    excluirId?.let { put("p_excluir_id", it) }
+                }.toString())
+            }
+            response.status.value in 200..299 && response.bodyAsText().trim() == "true"
+        } catch (e: Exception) {
+            AppLogger.erroRede("validar_sobreposicao_horario", e)
+            true  // em caso de erro de rede, não bloquear (trigger fará validação final)
+        }
     }
 }

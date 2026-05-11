@@ -40,6 +40,15 @@ data class ConsultaCliente(
     val avaliacao:      Int,
     val valor:          String,
 )
+@Serializable
+data class SessaoAgendamento(
+    val id:             String = "",
+    val agendamentoId:  String = "",
+    val status:         String = "",  // "iniciada", "concluida", etc.
+    val iniciadaEm:     String? = null,
+    val encerradaEm:    String? = null,
+    val duracaoSegundos: Int? = null,
+)
 
 // ── TELA PRINCIPAL ────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
@@ -57,6 +66,7 @@ fun DashboardClienteScreen(
     onDisputa:     ((String) -> Unit)?         = null,
     // ── Fase 3.4: Busca Avançada do Estúdio ──────────
     onBuscaEstudio: (() -> Unit)?              = null,
+    onIniciarChamadaRegular: ((String) -> Unit)?         = null,
 ) {
     var abaSelecionada by remember { mutableStateOf("visao") }
     var menuExpandido  by remember { mutableStateOf(false) }
@@ -69,7 +79,10 @@ fun DashboardClienteScreen(
     var ultimoCursoNome     by remember { mutableStateOf("") }
     var ultimoCursoProgresso by remember { mutableStateOf(0f) }
 
+    val scope = rememberCoroutineScope()
     val userId = remember { currentUserId }
+
+    var agendamentosRegulares by remember { mutableStateOf<List<AgendamentoRegular>>(emptyList()) }
 
     LaunchedEffect(userId) {
         if (userId == null) return@LaunchedEffect
@@ -77,6 +90,7 @@ fun DashboardClienteScreen(
         val perfilDeferred    = async { getPerfilAndroid(userId) }
         val bibliotecaDeferred = async { buscarUltimoCursoEmAndamento(userId) }
         consultas = consultasDeferred.await()
+        agendamentosRegulares = AtendimentosRepository.buscarAgendamentosCliente(userId)
         val perfil = perfilDeferred.await()
         if (perfil != null) {
             nomeUsuario = perfil.nome
@@ -109,7 +123,6 @@ fun DashboardClienteScreen(
         Triple("sair",       "Sair",        "🚪"),
     )
 
-    val scope = rememberCoroutineScope()
 
     Scaffold(
         containerColor = SurfaceWarm,
@@ -249,8 +262,11 @@ fun DashboardClienteScreen(
                         },
                         onChat    = onChat,
                         onSuporte = onSuporte,
-                        // Fase 4.3: disputa formal separada do suporte
                         onDisputa = onDisputa,
+                        agendamentosRegulares  = agendamentosRegulares,
+                        onLigarRegular         = { agendamentoId ->
+                            onIniciarChamadaRegular?.invoke(agendamentoId)
+                        },
                     )
                     "busca" -> AbaBuscaCliente(
                         onAgendarRegular     = onAgendar,
@@ -677,8 +693,9 @@ fun AbaConsultasCliente(
     onConsultaAvaliada: (consultaId: String, nota: Int) -> Unit = { _, _ -> },
     onChat:             ((String, String) -> Unit)? = null,
     onSuporte:          ((String?) -> Unit)? = null,
-    // Fase 4.3: disputa formal, separada do suporte genérico
     onDisputa:          ((String) -> Unit)? = null,
+    agendamentosRegulares:   List<AgendamentoRegular> = emptyList(),
+    onLigarRegular:          ((String) -> Unit)? = null,
 ) {
     var filtro              by remember { mutableStateOf("todas") }
     var avaliarConsulta     by remember { mutableStateOf<ConsultaCliente?>(null) }
@@ -828,6 +845,24 @@ fun AbaConsultasCliente(
                         }
                     }
                 }
+            }
+        }
+        // ── NOVO: Agendamentos Regulares ──────────────────────────────────
+        if (agendamentosRegulares.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                "Agendamentos regulares",
+                fontSize   = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color      = InkMuted,
+            )
+            agendamentosRegulares.forEach { ag ->
+                CardAgendamentoRegularCliente(
+                    agendamento = ag,
+                    sessoes     = emptyList<SessaoAgendamento>(),  // TODO: buscar sessoes do banco
+                    onLigar     = onLigarRegular,
+                    onSuporte   = onSuporte,
+                )
             }
         }
 
@@ -1459,6 +1494,149 @@ private fun EmptyBusca(titulo: String, subtitulo: String) {
             Text("😕", fontSize = 36.sp)
             Text(titulo,    fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Ink)
             Text(subtitulo, fontSize = 13.sp, color = InkMuted)
+        }
+    }
+}
+// ═══════════════════════════════════════════════════════════════════════════
+// CARD DE AGENDAMENTO REGULAR (CLIENTE)
+// Exibe detalhes do agendamento, status e badges das sessões de videochamada
+// ═══════════════════════════════════════════════════════════════════════════
+
+@Composable
+fun CardAgendamentoRegularCliente(
+    agendamento: AgendamentoRegular,
+    sessoes:     List<SessaoAgendamento>,  // se vazia, ainda não iniciou
+    onLigar:     ((String) -> Unit)? = null,
+    onSuporte:   ((String) -> Unit)? = null,
+) {
+    val statusLabel = when (agendamento.status) {
+        "pendente"  -> "Aguardando pagamento" to Color(0xFFF57F17)
+        "confirmado" -> "Confirmado" to Verde
+        "pago"      -> "Pago" to Azul
+        "cancelado_cliente" -> "Cancelado por você" to Urgente
+        "cancelado_profissional" -> "Cancelado" to Urgente
+        "no_show_profissional" -> "Profissional não compareceu" to Urgente
+        "concluido" -> "Concluído" to Verde
+        else        -> agendamento.status to InkMuted
+    }
+
+    val sessoesConcluidas = sessoes.count { it.status == "concluida" }
+    val sessoesTotais = sessoes.size
+
+    Card(
+        modifier  = Modifier.fillMaxWidth(),
+        shape     = RoundedCornerShape(12.dp),
+        colors    = CardDefaults.cardColors(containerColor = Surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Cabeçalho: título da modalidade + status
+            Row(
+                modifier              = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                Text(
+                    agendamento.tituloModalidade ?: "Atendimento",
+                    fontSize   = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color      = Ink,
+                    modifier   = Modifier.weight(1f),
+                )
+                Box(
+                    modifier = Modifier
+                        .background(statusLabel.second.copy(alpha = 0.12f), RoundedCornerShape(20.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(statusLabel.first, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = statusLabel.second)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Data e horário
+            Text(
+                "${agendamento.dataAgendada}  ${agendamento.horaInicio} – ${agendamento.horaFim}",
+                fontSize = 13.sp,
+                color    = InkMuted,
+            )
+
+            // Badges de sessões de videochamada
+            if (sessoes.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text("Sessões de videochamada:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = InkMuted)
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    sessoes.forEach { sessao ->
+                        val (emojiSessao, corSessao) = when (sessao.status) {
+                            "concluida"                  -> "✅" to Verde
+                            "profissional_conectou"      -> "📞" to Azul
+                            "cliente_conectou"           -> "📞" to Azul
+                            "iniciada"                   -> "🔄" to Color(0xFFF57F17)
+                            "cliente_nao_atendeu"        -> "📵" to Urgente
+                            "profissional_nao_compareceu" -> "🚫" to Urgente
+                            else                          -> "⏳" to InkMuted
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .background(corSessao.copy(alpha = 0.15f), RoundedCornerShape(6.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(emojiSessao, fontSize = 14.sp)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "$sessoesConcluidas de $sessoesTotais sessões concluídas",
+                    fontSize = 11.sp,
+                    color    = InkMuted,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            HorizontalDivider(color = SurfaceOff)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Ações
+            Row(
+                modifier              = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "R$ ${"%.2f".format(agendamento.valorCobrado)}",
+                    fontSize   = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color      = Verde,
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Botão de suporte sempre visível
+                    if (onSuporte != null) {
+                        TextButton(
+                            onClick  = { onSuporte(agendamento.id) },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            Text("⚠️ Suporte", fontSize = 11.sp, color = InkMuted)
+                        }
+                    }
+
+                    // Botão Ligar: visível quando confirmado/pago e tem sessão pendente
+                    val podeLigar = agendamento.status in listOf("confirmado", "pago") &&
+                            sessoes.none { it.status in listOf("iniciada", "profissional_conectou", "concluida") }
+                    if (podeLigar && onLigar != null) {
+                        Button(
+                            onClick  = { onLigar(agendamento.id) },
+                            colors   = ButtonDefaults.buttonColors(containerColor = Verde),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                        ) {
+                            Text("📞 Ligar agora", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
         }
     }
 }

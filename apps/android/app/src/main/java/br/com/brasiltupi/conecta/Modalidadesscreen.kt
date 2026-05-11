@@ -12,6 +12,7 @@ package br.com.brasiltupi.conecta
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -31,6 +32,9 @@ import androidx.compose.ui.window.Dialog
 import br.com.brasiltupi.conecta.ui.theme.*
 import kotlinx.coroutines.launch
 import androidx.compose.ui.text.style.TextAlign
+import android.app.TimePickerDialog
+import androidx.compose.ui.platform.LocalContext
+
 
 @Composable
 fun ModalidadesScreen(
@@ -1133,11 +1137,13 @@ private fun AbaHorarios(
         Spacer(modifier = Modifier.height(16.dp))
     }
 
-    if (mostrarFormNovo) {
+ if (mostrarFormNovo) {
         DialogHorario(
             modalidades = modalidades,
             disponibilidadeEdicao = disponibilidadeEditando,
-            onSalvar = { dia, modalidadeId, horaInicio, horaFim ->
+            disponibilidade = disponibilidade,
+            userId = userId,
+            onSalvar = {dia, modalidadeId, horaInicio, horaFim ->
                 val ok = if (disponibilidadeEditando != null) {
                     AtendimentosRepository.atualizarDisponibilidade(
                         id = disponibilidadeEditando!!.id,
@@ -1172,6 +1178,8 @@ private fun AbaHorarios(
 private fun DialogHorario(
     modalidades:            List<ModalidadeAtendimento>,
     disponibilidadeEdicao:  DisponibilidadeRegular? = null,
+    disponibilidade:        List<DisponibilidadeRegular> = emptyList(),
+    userId:                 String = "",
     onSalvar:               suspend (dia: String, modalidadeId: String, horaInicio: String, horaFim: String) -> Boolean,
     onDismiss:              () -> Unit,
     onDelete:               (suspend () -> Unit)? = null,
@@ -1256,25 +1264,147 @@ private fun DialogHorario(
                     }
                 }
 
+                // ── NOVO: Seletores de hora estilo despertador (TimePicker) ──
+                var mostrarTimePickerInicio by remember { mutableStateOf(false) }
+                var mostrarTimePickerFim    by remember { mutableStateOf(false) }
+
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value         = horaInicio,
-                        onValueChange = { horaInicio = it },
-                        label         = { Text("Início") },
-                        placeholder   = { Text("09:00") },
-                        singleLine    = true,
-                        modifier      = Modifier.weight(1f),
-                        colors        = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde),
+                    OutlinedButton(
+                        onClick = { mostrarTimePickerInicio = true },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            if (horaInicio.isNotBlank()) horaInicio else "Início",
+                            color = if (horaInicio.isNotBlank()) Ink else InkMuted,
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = { mostrarTimePickerFim = true },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            if (horaFim.isNotBlank()) horaFim else "Fim",
+                            color = if (horaFim.isNotBlank()) Ink else InkMuted,
+                        )
+                    }
+                }
+
+                // ── Diálogo para selecionar hora de início ────────────────
+                // ── Seletores nativos (TimePickerDialog do Android) ────────
+                if (mostrarTimePickerInicio) {
+                    val context = LocalContext.current
+                    LaunchedEffect(mostrarTimePickerInicio) {
+                        val cal = java.util.Calendar.getInstance()
+                        cal.set(java.util.Calendar.HOUR_OF_DAY, horaInicio.substringBefore(":").toIntOrNull() ?: 9)
+                        cal.set(java.util.Calendar.MINUTE, horaInicio.substringAfter(":").toIntOrNull() ?: 0)
+                        val dialog = android.app.TimePickerDialog(
+                            context,
+                            { _, hour, minute ->
+                                horaInicio = "%02d:%02d".format(hour, minute)
+                            },
+                            cal.get(java.util.Calendar.HOUR_OF_DAY),
+                            cal.get(java.util.Calendar.MINUTE),
+                            true // formato 24h
+                        )
+                        dialog.setOnDismissListener { mostrarTimePickerInicio = false }
+                        dialog.show()
+                    }
+                }
+
+                if (mostrarTimePickerFim) {
+                    val context = LocalContext.current
+                    LaunchedEffect(mostrarTimePickerFim) {
+                        val cal = java.util.Calendar.getInstance()
+                        cal.set(java.util.Calendar.HOUR_OF_DAY, horaFim.substringBefore(":").toIntOrNull() ?: 10)
+                        cal.set(java.util.Calendar.MINUTE, horaFim.substringAfter(":").toIntOrNull() ?: 0)
+                        val dialog = android.app.TimePickerDialog(
+                            context,
+                            { _, hour, minute ->
+                                horaFim = "%02d:%02d".format(hour, minute)
+                            },
+                            cal.get(java.util.Calendar.HOUR_OF_DAY),
+                            cal.get(java.util.Calendar.MINUTE),
+                            true
+                        )
+                        dialog.setOnDismissListener { mostrarTimePickerFim = false }
+                        dialog.show()
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                HorizontalDivider(color = SurfaceOff)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // ── NOVO: Visualizar horários já ocupados neste dia ────────
+                var mostrarOcupados by remember { mutableStateOf(false) }
+
+                TextButton(
+                    onClick = { mostrarOcupados = !mostrarOcupados },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        if (mostrarOcupados) "▲ Ocultar horários ocupados" else "▼ Ver horários já cadastrados neste dia",
+                        fontSize = 11.sp,
+                        color = Azul,
                     )
-                    OutlinedTextField(
-                        value         = horaFim,
-                        onValueChange = { horaFim = it },
-                        label         = { Text("Fim") },
-                        placeholder   = { Text("10:00") },
-                        singleLine    = true,
-                        modifier      = Modifier.weight(1f),
-                        colors        = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde),
-                    )
+                }
+
+                if (mostrarOcupados) {
+                    val slotsDoDia = disponibilidade.filter {
+                        it.diaSemana == diaSelecionado &&
+                        (disponibilidadeEdicao == null || it.id != disponibilidadeEdicao.id)
+                    }
+                    if (slotsDoDia.isEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(VerdeClaro, RoundedCornerShape(6.dp))
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("✅", fontSize = 14.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Nenhum horário cadastrado neste dia. Todos os horários estão livres.",
+                                fontSize = 11.sp,
+                                color = Verde,
+                            )
+                        }
+                    } else {
+                        Text(
+                            "${slotsDoDia.size} horário(s) já cadastrado(s) em ${AtendimentosRepository.diaSemanaLabel(diaSelecionado)}:",
+                            fontSize = 11.sp,
+                            color = InkMuted,
+                        )
+                        slotsDoDia.sortedBy { it.horaInicio }.forEach { slot ->
+                            val modalidadeNome = modalidades.find { it.id == slot.modalidadeId }?.titulo
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFFFF3E0), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text("📌", fontSize = 12.sp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        "${slot.horaInicio} – ${slot.horaFim}",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFFE65100),
+                                    )
+                                    if (modalidadeNome != null) {
+                                        Text(modalidadeNome, fontSize = 10.sp, color = InkMuted)
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider(color = SurfaceOff)
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
 
                 if (erro != null) {
@@ -1305,8 +1435,20 @@ private fun DialogHorario(
                             salvando = true
                             erro = null
                             scope.launch {
+                                // Validar sobreposição antes de salvar
+                                val conflito = AtendimentosRepository.validarSobreposicaoHorario(
+                                    profissionalId = userId,
+                                    diaSemana      = diaSelecionado,
+                                    horaInicio     = horaInicio,
+                                    horaFim        = horaFim,
+                                    excluirId      = disponibilidadeEdicao?.id,
+                                )
+                                if (conflito) {
+                                    salvando = false
+                                    erro = "Já existe um horário neste dia que se sobrepõe a este intervalo (${horaInicio}–${horaFim}). Escolha outro horário."
+                                    return@launch
+                                }
                                 val ok = onSalvar(diaSelecionado, modalidadeId, horaInicio, horaFim)
-                                salvando = false
                                 if (ok) {
                                     onDismiss()
                                 } else {
@@ -1349,4 +1491,5 @@ private fun DialogHorario(
             }
         }
     }
+
 }
