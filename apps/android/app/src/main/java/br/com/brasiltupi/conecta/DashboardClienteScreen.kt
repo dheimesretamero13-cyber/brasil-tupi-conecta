@@ -94,7 +94,7 @@ fun DashboardClienteScreen(
         val perfil = perfilDeferred.await()
         if (perfil != null) {
             nomeUsuario = perfil.nome
-            iniciais    = perfil.nome.split(" ").map { it[0] }.joinToString("").take(2).uppercase()
+            iniciais    = perfil.nome.split(" ").filter { it.isNotEmpty() }.map { it[0] }.joinToString("").take(2).uppercase()
         }
         val ultimoCurso = bibliotecaDeferred.await()
         if (ultimoCurso != null) {
@@ -464,7 +464,7 @@ fun AbaVisaoGeralCliente(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    c.profissional.split(" ").map { it[0] }.joinToString("").take(2),
+                                    c.profissional.split(" ").filter { it.isNotEmpty() }.map { it[0] }.joinToString("").take(2),
                                     fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Urgente,
                                 )
                             }
@@ -738,7 +738,7 @@ fun AbaConsultasCliente(
                             modifier         = Modifier.size(44.dp).background(AzulClaro, RoundedCornerShape(50)),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(c.profissional.split(" ").map { it[0] }.joinToString("").take(2), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Azul)
+                            Text(c.profissional.split(" ").filter { it.isNotEmpty() }.map { it[0] }.joinToString("").take(2), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Azul)
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {

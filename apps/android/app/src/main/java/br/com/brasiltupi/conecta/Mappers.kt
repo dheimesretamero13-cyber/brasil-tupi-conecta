@@ -5,8 +5,7 @@ fun ProfissionalComPerfil.toProfissionalPMP(): ProfissionalPMP {
     return ProfissionalPMP(
         id                = this.id.hashCode(),
         supabaseId        = this.id,
-        iniciais          = nomeProf.split(" ").map { it[0] }.joinToString("").take(2).uppercase(),
-        nome              = nomeProf,
+        iniciais          = nomeProf.split(" ").filter { it.isNotEmpty() }.map { it[0] }.joinToString("").take(2).uppercase(),        nome              = nomeProf,
         area              = this.area,
         cidade            = buildCidade(this.perfis?.cidade, this.perfis?.estado),
         avaliacao         = this.avaliacao_media ?: 0.0,

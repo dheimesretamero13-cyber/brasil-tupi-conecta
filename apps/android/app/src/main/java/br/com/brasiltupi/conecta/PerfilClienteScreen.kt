@@ -84,7 +84,7 @@ fun PerfilClienteScreen(
     }
 
     val iniciais = if (nomeReal.isNotEmpty())
-        nomeReal.split(" ").map { it[0] }.joinToString("").take(2)
+        nomeReal.split(" ").filter { it.isNotEmpty() }.map { it[0] }.joinToString("").take(2)
     else "..."
 
     Column(

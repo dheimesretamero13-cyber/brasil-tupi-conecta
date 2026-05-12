@@ -183,7 +183,14 @@ fun EstudioDashboardScreen(
 
     LaunchedEffect(userId) {
         val perfil = getPerfilAndroid(userId)
-        nomeUsuario = perfil?.nome?.split(" ")?.map { it[0] }?.joinToString("")?.take(2)?.uppercase() ?: "EU"
+        nomeUsuario = perfil?.nome
+            ?.split(" ")
+            ?.filter { it.isNotEmpty() }
+            ?.map { it[0] }
+            ?.joinToString("")
+            ?.take(2)
+            ?.uppercase()
+            ?: "EU"
     }
 
     fun resetForm() {

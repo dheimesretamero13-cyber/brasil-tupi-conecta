@@ -67,13 +67,15 @@ fun DashboardProfissionalScreen(
         val perfil = getPerfilAndroid(uid)
         if (perfil != null) {
             nomeUsuario = perfil.nome
-            iniciais = perfil.nome.split(" ")
+            iniciais = perfil.nome
+                .split(" ")
                 .filter { it.isNotEmpty() }
                 .map { it.first() }
                 .joinToString("")
                 .take(2)
                 .uppercase()
-                .ifEmpty { "?" }        }
+                .ifEmpty { "?" }
+        }
         val meuPerfil = getMeuPerfilProfissional(uid)
         if (meuPerfil != null) {
             credibilidade = meuPerfil.credibilidade

@@ -109,7 +109,7 @@ fun ChatScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    outroNome.split(" ").map { it[0] }.joinToString("").take(2).uppercase(),
+                    outroNome.split(" ").filter { it.isNotEmpty() }.map { it[0] }.joinToString("").take(2).uppercase(),
                     fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White
                 )
             }
