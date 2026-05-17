@@ -19,13 +19,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.brasiltupi.conecta.ui.theme.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import android.webkit.MimeTypeMap
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import java.util.UUID
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import androidx.compose.ui.res.painterResource
 
 data class ConteudoItem(
     val id: String = "",
@@ -65,6 +72,15 @@ private data class FormState(
     val suporteIncluido: Boolean = false,
     val linkAcessoDigital: String = "",
 )
+sealed class EstudioSalvandoState {
+    object Idle : EstudioSalvandoState()
+    data class FazendoUploadCapa(val progresso: Float) : EstudioSalvandoState()
+    data class FazendoUploadArquivo(val progresso: Float) : EstudioSalvandoState()
+    object SalvandoMetadados : EstudioSalvandoState()
+    data class SalvandoConteudos(val atual: Int, val total: Int) : EstudioSalvandoState()
+    object Sucesso : EstudioSalvandoState()
+    data class Erro(val mensagem: String, val etapa: String) : EstudioSalvandoState()
+}
 
 @Composable
 fun EstudioDashboardScreen(
@@ -156,6 +172,7 @@ fun EstudioDashboardScreen(
     var itemParaExcluir by remember { mutableStateOf<ItemEstudio?>(null) }
     var itemParaEditar by remember { mutableStateOf<ItemEstudio?>(null) }
     var excluindo by remember { mutableStateOf(false) }
+    var salvandoState by remember { mutableStateOf<EstudioSalvandoState>(EstudioSalvandoState.Idle) }
 
     LaunchedEffect(userId) {
         val perfil = getMeuPerfilProfissional(userId)
@@ -203,27 +220,46 @@ fun EstudioDashboardScreen(
         tipoCriando = null
     }
 
-    suspend fun uploadCapa(userId: String, uri: Uri, fallback: String): String {
-        val bytes = context.contentResolver.openInputStream(uri)?.readBytes() ?: return fallback
-        val ext = when {
-            uri.toString().contains(".png") -> "png"
-            uri.toString().contains(".webp") -> "webp"
-            else -> "jpg"
+    suspend fun uploadCapa(userId: String, uri: Uri, fallback: String): String? {
+        return withContext(Dispatchers.IO) {
+            val bytes = context.contentResolver.openInputStream(uri)?.readBytes() ?: return@withContext null
+            val rawMime = context.contentResolver.getType(uri)
+            val mimeType = when (rawMime) {
+                "image/jpg", "image/jpeg" -> "image/jpeg"
+                "image/png" -> "image/png"
+                "image/webp" -> "image/webp"
+                else -> "image/jpeg"
+            }
+            val ext = when (mimeType) {
+                "image/jpeg" -> "jpg"
+                "image/png" -> "png"
+                "image/webp" -> "webp"
+                else -> "jpg"
+            }
+            val path = "$userId/${UUID.randomUUID()}.$ext"
+            uploadArquivoEstudio(
+                bytes = bytes,
+                mimeType = mimeType,
+                caminho = path,
+                bucket = "estudio-capas",
+                returnPublicUrl = true
+            )
         }
-        val path = "$userId/${java.util.UUID.randomUUID()}.$ext"
-        return uploadArquivoEstudio(bytes, "image/$ext", path) ?: fallback
+    }
+    suspend fun uploadVideo(userId: String, uri: Uri, fallback: String): String? {
+        return withContext(Dispatchers.IO) {
+            val bytes = context.contentResolver.openInputStream(uri)?.readBytes() ?: return@withContext null
+            val path = "$userId/${UUID.randomUUID()}.mp4"
+            uploadArquivoEstudio(bytes, "video/mp4", path)
+        }
     }
 
-    suspend fun uploadVideo(userId: String, uri: Uri, fallback: String): String {
-        val bytes = context.contentResolver.openInputStream(uri)?.readBytes() ?: return fallback
-        val path = "$userId/${java.util.UUID.randomUUID()}.mp4"
-        return uploadArquivoEstudio(bytes, "video/mp4", path) ?: fallback
-    }
-
-    suspend fun uploadPdf(userId: String, uri: Uri, fallback: String): String {
-        val bytes = context.contentResolver.openInputStream(uri)?.readBytes() ?: return fallback
-        val path = "$userId/${java.util.UUID.randomUUID()}.pdf"
-        return uploadArquivoEstudio(bytes, "application/pdf", path) ?: fallback
+    suspend fun uploadPdf(userId: String, uri: Uri, fallback: String): String? {
+        return withContext(Dispatchers.IO) {
+            val bytes = context.contentResolver.openInputStream(uri)?.readBytes() ?: return@withContext null
+            val path = "$userId/${UUID.randomUUID()}.pdf"
+            uploadArquivoEstudio(bytes, "application/pdf", path)
+        }
     }
 
     suspend fun salvarConteudos(estudioId: String) {
@@ -249,13 +285,13 @@ fun EstudioDashboardScreen(
                 when (conteudo.tipo) {
                     "video" -> uploadVideo(userId, conteudo.uploadUri, conteudo.storagePath ?: "")
                     "pdf" -> uploadPdf(userId, conteudo.uploadUri, conteudo.storagePath ?: "")
-                    else -> uploadArquivoEstudio(
-                        context.contentResolver.openInputStream(conteudo.uploadUri)?.readBytes() ?: byteArrayOf(),
-                        "application/octet-stream",
-                        "${userId}/${UUID.randomUUID()}"
-                    ) ?: conteudo.storagePath
+                    else -> withContext(Dispatchers.IO) {
+                        val bytes = context.contentResolver.openInputStream(conteudo.uploadUri)?.readBytes() ?: return@withContext null
+                        uploadArquivoEstudio(bytes, "application/octet-stream", "${userId}/${UUID.randomUUID()}")
+                    }
                 }
             } else conteudo.storagePath
+            if (uploadedPath == null && conteudo.uploadUri != null) continue // pula conteúdo cujo upload falhou
             inserirConteudoEstudio(
                 ConteudoEstudioRequest(
                     estudioId = estudioId,
@@ -445,14 +481,31 @@ fun EstudioDashboardScreen(
                         ) {
                             Column(modifier = Modifier.padding(14.dp)) {
                                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+
+                                    // ── THUMBNAIL: imagem real ou emoji fallback ──────────────
                                     Box(
                                         modifier = Modifier
                                             .size(56.dp)
-                                            .background(Color(0xFFF0F4FF), RoundedCornerShape(10.dp)),
+                                            .background(Color(0xFFF0F4FF), RoundedCornerShape(10.dp))
+                                            .clip(RoundedCornerShape(10.dp)),        // ← clip antes do AsyncImage
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text(TipoEstudio.fromId(item.tipo)?.icon ?: "📦", fontSize = 26.sp)
+                                        if (!item.capaUrl.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = item.capaUrl,
+                                                contentDescription = "Capa de ${item.titulo}",
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop,
+                                                // fallback e erro mostram o emoji enquanto carrega ou se falhar
+                                                error   = painterResource(android.R.drawable.ic_menu_gallery),
+                                                placeholder = null,
+                                            )
+                                        } else {
+                                            Text(TipoEstudio.fromId(item.tipo)?.icon ?: "📦", fontSize = 26.sp)
+                                        }
                                     }
+                                    // ─────────────────────────────────────────────────────────
+
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
@@ -552,49 +605,72 @@ fun EstudioDashboardScreen(
                     val editando = itemParaEditar
                     scope.launch {
                         try {
-                            var capaPath = form.capaUrl
-                            capaUri?.let { capaPath = uploadCapa(userId, it, capaPath) }
-                            val ok = if (editando == null) {
-                                criarItemEstudioAndroid(
+                            salvandoState = EstudioSalvandoState.FazendoUploadCapa(0f)
+                            var capaPath: String? = form.capaUrl
+                            if (capaUri != null) {
+                                capaPath = uploadCapa(userId, capaUri!!, capaPath ?: "")
+                                if (capaPath == null) {
+                                    toast = "❌ Erro ao fazer upload da capa."
+                                    salvandoState = EstudioSalvandoState.Idle
+                                    return@launch
+                                }
+                            }
+                            salvandoState = EstudioSalvandoState.SalvandoMetadados
+                            val ok: Boolean
+                            val estudioIdCriado: String?
+                            if (editando == null) {
+                                val (success, newId) = criarItemEstudioAndroid(
                                     profissionalId = userId,
                                     titulo = form.titulo,
                                     descricao = form.descricao,
                                     tipo = "aula",
                                     preco = form.preco.toDoubleOrNull() ?: 0.0,
                                     precoOriginal = form.precoOriginal.toDoubleOrNull(),
-                                    capaUrl = capaPath.ifBlank { null },
+                                    capaUrl = capaPath,
                                     materia = form.materia.ifBlank { null },
                                     duracaoMinutos = form.duracaoMinutos.toIntOrNull(),
                                     nivelAula = form.nivelAula.ifBlank { null },
                                     destaque = form.destaque,
                                 )
+                                ok = success
+                                estudioIdCriado = newId
                             } else {
-                                editarItemEstudio(editando.id, EditarItemEstudioRequest(
+                                ok = editarItemEstudio(editando.id, EditarItemEstudioRequest(
                                     titulo = form.titulo,
                                     descricao = form.descricao.ifBlank { null },
                                     tipo = "aula",
                                     preco = form.preco.toDoubleOrNull() ?: 0.0,
                                     precoOriginal = form.precoOriginal.toDoubleOrNull(),
-                                    capaUrl = capaPath.ifBlank { null },
+                                    capaUrl = capaPath,
                                     materia = form.materia.ifBlank { null },
                                     duracaoMinutos = form.duracaoMinutos.toIntOrNull(),
                                     nivelAula = form.nivelAula.ifBlank { null },
                                     destaque = form.destaque,
                                 ))
+                                estudioIdCriado = null
                             }
                             if (ok && conteudosList.isNotEmpty()) {
-                                val novosItens = getEstudioProfissionalAndroid(userId, "aula")
-                                val novoItem = novosItens.find { it.titulo == form.titulo && it.profissionalId == userId }
-                                val estudioId = novoItem?.id ?: editando?.id ?: ""
+                                val estudioId = estudioIdCriado ?: editando?.id ?: ""
+                                salvandoState = EstudioSalvandoState.SalvandoConteudos(0, conteudosList.size)
                                 uploadEInserirConteudos(estudioId, conteudosList)
                             }
-                            toast = if (ok) "✅ Aula salva!" else "❌ Erro ao salvar."
                             if (ok) {
+                                salvandoState = EstudioSalvandoState.Sucesso
                                 itens = getEstudioProfissionalAndroid(userId, filtroTipo)
                                 resetForm()
+                                toast = "✅ Aula salva!"
+                            } else {
+                                salvandoState = EstudioSalvandoState.Idle
+                                toast = "❌ Erro ao salvar."
                             }
                         } catch (e: Exception) {
+                            salvandoState = EstudioSalvandoState.Erro(e.message ?: "Erro", "aula")
                             toast = "❌ Erro inesperado."
+                        } finally {
+                            if (salvandoState !is EstudioSalvandoState.Erro) {
+                                kotlinx.coroutines.delay(500)
+                                salvandoState = EstudioSalvandoState.Idle
+                            }
                         }
                     }
                 },
@@ -609,6 +685,7 @@ fun EstudioDashboardScreen(
                 destaque = form.destaque, onDestaque = { form = form.copy(destaque = it) },
                 conteudos = conteudosList, onConteudosChanged = { conteudosList = it },
                 isPmp = isPmpEstudio, verificado = verificadoEstudio,
+                salvandoState = salvandoState,
             )
         }
         "curso" -> {
@@ -623,17 +700,28 @@ fun EstudioDashboardScreen(
                     val editando = itemParaEditar
                     scope.launch {
                         try {
-                            var capaPath = form.capaUrl
-                            capaUri?.let { capaPath = uploadCapa(userId, it, capaPath) }
-                            val ok = if (editando == null) {
-                                criarItemEstudioAndroid(
+                            salvandoState = EstudioSalvandoState.FazendoUploadCapa(0f)
+                            var capaPath: String? = form.capaUrl
+                            if (capaUri != null) {
+                                capaPath = uploadCapa(userId, capaUri!!, capaPath ?: "")
+                                if (capaPath == null) {
+                                    toast = "❌ Erro ao fazer upload da capa."
+                                    salvandoState = EstudioSalvandoState.Idle
+                                    return@launch
+                                }
+                            }
+                            salvandoState = EstudioSalvandoState.SalvandoMetadados
+                            val ok: Boolean
+                            val estudioIdCriado: String?
+                            if (editando == null) {
+                                val (success, newId) = criarItemEstudioAndroid(
                                     profissionalId = userId,
                                     titulo = form.titulo,
                                     descricao = form.descricao,
                                     tipo = "curso",
                                     preco = form.preco.toDoubleOrNull() ?: 0.0,
                                     precoOriginal = form.precoOriginal.toDoubleOrNull(),
-                                    capaUrl = capaPath.ifBlank { null },
+                                    capaUrl = capaPath,
                                     cargaHorariaH = form.cargaHorariaH.toIntOrNull(),
                                     numModulos = form.numModulos.toIntOrNull(),
                                     nivelCurso = form.nivelCurso.ifBlank { null },
@@ -641,14 +729,16 @@ fun EstudioDashboardScreen(
                                     materia = form.materia.ifBlank { null },
                                     destaque = form.destaque,
                                 )
+                                ok = success
+                                estudioIdCriado = newId
                             } else {
-                                editarItemEstudio(editando.id, EditarItemEstudioRequest(
+                                ok = editarItemEstudio(editando.id, EditarItemEstudioRequest(
                                     titulo = form.titulo,
                                     descricao = form.descricao.ifBlank { null },
                                     tipo = "curso",
                                     preco = form.preco.toDoubleOrNull() ?: 0.0,
                                     precoOriginal = form.precoOriginal.toDoubleOrNull(),
-                                    capaUrl = capaPath.ifBlank { null },
+                                    capaUrl = capaPath,
                                     cargaHorariaH = form.cargaHorariaH.toIntOrNull(),
                                     numModulos = form.numModulos.toIntOrNull(),
                                     nivelCurso = form.nivelCurso.ifBlank { null },
@@ -656,20 +746,30 @@ fun EstudioDashboardScreen(
                                     materia = form.materia.ifBlank { null },
                                     destaque = form.destaque,
                                 ))
+                                estudioIdCriado = null
                             }
                             if (ok && conteudosList.isNotEmpty()) {
-                                val novosItens = getEstudioProfissionalAndroid(userId, "curso")
-                                val novoItem = novosItens.find { it.titulo == form.titulo && it.profissionalId == userId }
-                                val estudioId = novoItem?.id ?: editando?.id ?: ""
+                                val estudioId = estudioIdCriado ?: editando?.id ?: ""
+                                salvandoState = EstudioSalvandoState.SalvandoConteudos(0, conteudosList.size)
                                 uploadEInserirConteudos(estudioId, conteudosList)
                             }
-                            toast = if (ok) "✅ Curso salvo!" else "❌ Erro ao salvar."
                             if (ok) {
+                                salvandoState = EstudioSalvandoState.Sucesso
                                 itens = getEstudioProfissionalAndroid(userId, filtroTipo)
                                 resetForm()
+                                toast = "✅ Curso salvo!"
+                            } else {
+                                salvandoState = EstudioSalvandoState.Idle
+                                toast = "❌ Erro ao salvar."
                             }
                         } catch (e: Exception) {
+                            salvandoState = EstudioSalvandoState.Erro(e.message ?: "Erro", "curso")
                             toast = "❌ Erro inesperado."
+                        } finally {
+                            if (salvandoState !is EstudioSalvandoState.Erro) {
+                                kotlinx.coroutines.delay(500)
+                                salvandoState = EstudioSalvandoState.Idle
+                            }
                         }
                     }
                 },
@@ -686,6 +786,7 @@ fun EstudioDashboardScreen(
                 destaque = form.destaque, onDestaque = { form = form.copy(destaque = it) },
                 conteudos = conteudosList, onConteudosChanged = { conteudosList = it },
                 isPmp = isPmpEstudio, verificado = verificadoEstudio,
+                salvandoState = salvandoState,
             )
         }
         "livro" -> {
@@ -700,49 +801,80 @@ fun EstudioDashboardScreen(
                     val editando = itemParaEditar
                     scope.launch {
                         try {
-                            var capaPath = form.capaUrl
-                            capaUri?.let { capaPath = uploadCapa(userId, it, capaPath) }
-                            var pdfPath = form.arquivoUrl
-                            pdfUri?.let { pdfPath = uploadPdf(userId, it, pdfPath) }
-                            val ok = if (editando == null) {
-                                criarItemEstudioAndroid(
+                            salvandoState = EstudioSalvandoState.FazendoUploadCapa(0f)
+                            var capaPath: String? = form.capaUrl
+                            if (capaUri != null) {
+                                capaPath = uploadCapa(userId, capaUri!!, capaPath ?: "")
+                                if (capaPath == null) {
+                                    toast = "❌ Erro ao fazer upload da capa."
+                                    salvandoState = EstudioSalvandoState.Idle
+                                    return@launch
+                                }
+                            }
+                            var pdfPath: String? = form.arquivoUrl
+                            if (pdfUri != null) {
+                                pdfPath = uploadPdf(userId, pdfUri!!, pdfPath ?: "")
+                                if (pdfPath == null) {
+                                    toast = "❌ Erro ao fazer upload do PDF."
+                                    salvandoState = EstudioSalvandoState.Idle
+                                    return@launch
+                                }
+                            }
+                            salvandoState = EstudioSalvandoState.SalvandoMetadados
+                            val ok: Boolean
+                            val estudioIdCriado: String?
+                            if (editando == null) {
+                                val (success, newId) = criarItemEstudioAndroid(
                                     profissionalId = userId,
                                     titulo = form.titulo,
                                     descricao = form.descricao,
                                     tipo = "livro",
                                     preco = form.preco.toDoubleOrNull() ?: 0.0,
                                     precoOriginal = form.precoOriginal.toDoubleOrNull(),
-                                    capaUrl = capaPath.ifBlank { null },
-                                    arquivoUrl = pdfPath.ifBlank { null },
+                                    capaUrl = capaPath,
+                                    arquivoUrl = pdfPath,
                                     autorLivro = form.autorLivro.ifBlank { null },
                                     isbn = form.isbn.ifBlank { null },
                                     numPaginas = form.numPaginas.toIntOrNull(),
                                     edicao = form.edicao.ifBlank { null },
                                     destaque = form.destaque,
                                 )
+                                ok = success
+                                estudioIdCriado = newId
                             } else {
-                                editarItemEstudio(editando.id, EditarItemEstudioRequest(
+                                ok = editarItemEstudio(editando.id, EditarItemEstudioRequest(
                                     titulo = form.titulo,
                                     descricao = form.descricao.ifBlank { null },
                                     tipo = "livro",
                                     preco = form.preco.toDoubleOrNull() ?: 0.0,
                                     precoOriginal = form.precoOriginal.toDoubleOrNull(),
-                                    capaUrl = capaPath.ifBlank { null },
-                                    arquivoUrl = pdfPath.ifBlank { null },
+                                    capaUrl = capaPath,
+                                    arquivoUrl = pdfPath,
                                     autorLivro = form.autorLivro.ifBlank { null },
                                     isbn = form.isbn.ifBlank { null },
                                     numPaginas = form.numPaginas.toIntOrNull(),
                                     edicao = form.edicao.ifBlank { null },
                                     destaque = form.destaque,
                                 ))
+                                estudioIdCriado = null
                             }
-                            toast = if (ok) "✅ Livro salvo!" else "❌ Erro ao salvar."
                             if (ok) {
+                                salvandoState = EstudioSalvandoState.Sucesso
                                 itens = getEstudioProfissionalAndroid(userId, filtroTipo)
                                 resetForm()
+                                toast = "✅ Livro salvo!"
+                            } else {
+                                salvandoState = EstudioSalvandoState.Idle
+                                toast = "❌ Erro ao salvar."
                             }
                         } catch (e: Exception) {
+                            salvandoState = EstudioSalvandoState.Erro(e.message ?: "Erro", "livro")
                             toast = "❌ Erro inesperado."
+                        } finally {
+                            if (salvandoState !is EstudioSalvandoState.Erro) {
+                                kotlinx.coroutines.delay(500)
+                                salvandoState = EstudioSalvandoState.Idle
+                            }
                         }
                     }
                 },
@@ -758,6 +890,7 @@ fun EstudioDashboardScreen(
                 pdfUri = pdfUri, onPdfChanged = { pdfUri = it },
                 destaque = form.destaque, onDestaque = { form = form.copy(destaque = it) },
                 isPmp = isPmpEstudio, verificado = verificadoEstudio,
+                salvandoState = salvandoState,
             )
         }
         "saas_digital" -> {
@@ -772,29 +905,40 @@ fun EstudioDashboardScreen(
                     val editando = itemParaEditar
                     scope.launch {
                         try {
-                            var capaPath = form.capaUrl
-                            capaUri?.let { capaPath = uploadCapa(userId, it, capaPath) }
-                            val ok = if (editando == null) {
-                                criarItemEstudioAndroid(
+                            salvandoState = EstudioSalvandoState.FazendoUploadCapa(0f)
+                            var capaPath: String? = form.capaUrl
+                            if (capaUri != null) {
+                                capaPath = uploadCapa(userId, capaUri!!, capaPath ?: "")
+                                if (capaPath == null) {
+                                    toast = "❌ Erro ao fazer upload da capa."
+                                    salvandoState = EstudioSalvandoState.Idle
+                                    return@launch
+                                }
+                            }
+                            salvandoState = EstudioSalvandoState.SalvandoMetadados
+                            val ok: Boolean
+                            if (editando == null) {
+                                val (success, _) = criarItemEstudioAndroid(
                                     profissionalId = userId,
                                     titulo = form.titulo,
                                     descricao = form.descricao,
                                     tipo = "saas_digital",
                                     preco = 0.0,
-                                    capaUrl = capaPath.ifBlank { null },
+                                    capaUrl = capaPath,
                                     plataforma = form.plataforma.ifBlank { null },
                                     versaoProduto = form.versaoProduto.ifBlank { null },
                                     suporteIncluido = form.suporteIncluido,
                                     linkAcessoDigital = form.linkAcessoDigital.ifBlank { null },
                                     destaque = form.destaque,
                                 )
+                                ok = success
                             } else {
-                                editarItemEstudio(editando.id, EditarItemEstudioRequest(
+                                ok = editarItemEstudio(editando.id, EditarItemEstudioRequest(
                                     titulo = form.titulo,
                                     descricao = form.descricao.ifBlank { null },
                                     tipo = "saas_digital",
                                     preco = 0.0,
-                                    capaUrl = capaPath.ifBlank { null },
+                                    capaUrl = capaPath,
                                     plataforma = form.plataforma.ifBlank { null },
                                     versaoProduto = form.versaoProduto.ifBlank { null },
                                     suporteIncluido = form.suporteIncluido,
@@ -802,13 +946,23 @@ fun EstudioDashboardScreen(
                                     destaque = form.destaque,
                                 ))
                             }
-                            toast = if (ok) "✅ Produto salvo!" else "❌ Erro ao salvar."
                             if (ok) {
+                                salvandoState = EstudioSalvandoState.Sucesso
                                 itens = getEstudioProfissionalAndroid(userId, filtroTipo)
                                 resetForm()
+                                toast = "✅ Produto salvo!"
+                            } else {
+                                salvandoState = EstudioSalvandoState.Idle
+                                toast = "❌ Erro ao salvar."
                             }
                         } catch (e: Exception) {
+                            salvandoState = EstudioSalvandoState.Erro(e.message ?: "Erro", "saas")
                             toast = "❌ Erro inesperado."
+                        } finally {
+                            if (salvandoState !is EstudioSalvandoState.Erro) {
+                                kotlinx.coroutines.delay(500)
+                                salvandoState = EstudioSalvandoState.Idle
+                            }
                         }
                     }
                 },
@@ -820,6 +974,7 @@ fun EstudioDashboardScreen(
                 linkAcessoDigital = form.linkAcessoDigital, onLinkAcessoDigital = { form = form.copy(linkAcessoDigital = it) },
                 capaUri = capaUri, onCapaChanged = { capaUri = it },
                 destaque = form.destaque, onDestaque = { form = form.copy(destaque = it) },
+                salvandoState = salvandoState,
             )
         }
     }
@@ -906,6 +1061,7 @@ fun ModalAulaScreen(
     destaque: Boolean, onDestaque: (Boolean) -> Unit,
     conteudos: List<ConteudoItem>, onConteudosChanged: (List<ConteudoItem>) -> Unit,
     isPmp: Boolean, verificado: Boolean,
+    salvandoState: EstudioSalvandoState,
 ) {
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { onCapaChanged(it) }
     var mostrarAdicionarConteudo by remember { mutableStateOf(false) }
@@ -974,7 +1130,19 @@ fun ModalAulaScreen(
             }
             Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.White).padding(horizontal = 20.dp, vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(onClick = onCancelar, modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(10.dp)) { Text("Cancelar", fontSize = 14.sp) }
-                Button(onClick = onPublicar, modifier = Modifier.weight(2f).height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White), shape = RoundedCornerShape(10.dp)) { Text(if (isEditando) "Salvar alterações" else "Publicar Aula", fontSize = 14.sp, fontWeight = FontWeight.Bold) }
+                Button(
+                    onClick = onPublicar,
+                    modifier = Modifier.weight(2f).height(50.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
+                    shape = RoundedCornerShape(10.dp),
+                    enabled = salvandoState == EstudioSalvandoState.Idle
+                ) {
+                    if (salvandoState != EstudioSalvandoState.Idle) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                    } else {
+                        Text(if (isEditando) "Salvar alterações" else "Publicar Aula", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }
@@ -1011,6 +1179,7 @@ fun ModalCursoScreen(
     destaque: Boolean, onDestaque: (Boolean) -> Unit,
     conteudos: List<ConteudoItem>, onConteudosChanged: (List<ConteudoItem>) -> Unit,
     isPmp: Boolean, verificado: Boolean,
+    salvandoState: EstudioSalvandoState,
 ) {
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { onCapaChanged(it) }
     var mostrarAdicionarConteudo by remember { mutableStateOf(false) }
@@ -1219,6 +1388,7 @@ fun ModalLivroScreen(
     pdfUri: Uri?, onPdfChanged: (Uri?) -> Unit,
     destaque: Boolean, onDestaque: (Boolean) -> Unit,
     isPmp: Boolean, verificado: Boolean,
+    salvandoState: EstudioSalvandoState,
 ) {
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { onCapaChanged(it) }
     val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { onPdfChanged(it) }
@@ -1363,6 +1533,7 @@ fun ModalSaaSDigitalScreen(
     linkAcessoDigital: String, onLinkAcessoDigital: (String) -> Unit,
     capaUri: Uri?, onCapaChanged: (Uri?) -> Unit,
     destaque: Boolean, onDestaque: (Boolean) -> Unit,
+    salvandoState: EstudioSalvandoState,
 ) {
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { onCapaChanged(it) }
 

@@ -33,7 +33,7 @@ val httpClient = HttpClient(OkHttp) {
         config {
             connectTimeout(30, TimeUnit.SECONDS)
             readTimeout(30, TimeUnit.SECONDS)
-            writeTimeout(30, TimeUnit.SECONDS)
+            writeTimeout(300, TimeUnit.SECONDS)
             pingInterval(10, TimeUnit.SECONDS)  // mantém WebSocket ativo
             retryOnConnectionFailure(true)
         }
@@ -120,6 +120,8 @@ data class AuthRequest(val email: String, val password: String)
 @Serializable
 data class AuthResponse(
     val access_token: String? = null,
+    val refresh_token: String? = null,
+    val expires_in: Int? = null,
     val user: AuthUser? = null,
     val error_code: String? = null,
     val msg: String? = null,
@@ -349,6 +351,8 @@ private fun JsonElement?.extrairNota(): Int {
 // ----------------------------------------------------------------------
 
 // ── REQUEST DTOs ──────────────────────────────────────────────────────
+@Serializable
+private data class ItemEstudioCriadoResponse(val id: String)
 @Serializable
 private data class CriarItemEstudioRequest(
     val profissional_id: String,
@@ -609,7 +613,12 @@ suspend fun signInAndroid(email: String, senha: String): AuthResult {
         if (response.access_token != null && response.user != null) {
             val perfil = getPerfilAndroid(response.user.id)
             if (perfil != null) {
-                AuthRepository.login(token = response.access_token, perfil = perfil)
+                AuthRepository.login(
+                    token = response.access_token,
+                    perfil = perfil,
+                    refreshToken = response.refresh_token,
+                    expiresIn = response.expires_in ?: 3600,
+                )
                 AuthResult.Sucesso(perfil)
             } else {
                 AuthResult.Desconhecido
@@ -650,7 +659,12 @@ suspend fun signUpAndroid(
             id = userId, nome = nome, email = email, telefone = telefone,
             tipo = tipo, cpf = cpf, cidade = cidade, estado = estado,
         )
-        AuthRepository.login(token = token, perfil = perfilProvisorio)
+        AuthRepository.login(
+            token = token,
+            perfil = perfilProvisorio,
+            refreshToken = response.refresh_token,
+            expiresIn = response.expires_in ?: 3600,
+        )
         inserirPerfil(perfilProvisorio)
         true
     } catch (e: Exception) {
@@ -1059,13 +1073,13 @@ suspend fun criarItemEstudioAndroid(
     nivelCurso: String? = null, autorLivro: String? = null, isbn: String? = null,
     numPaginas: Int? = null, edicao: String? = null, plataforma: String? = null,
     versaoProduto: String? = null, suporteIncluido: Boolean = false, linkAcessoDigital: String? = null,
-): Boolean {
+): Pair<Boolean, String?> {
     return try {
         val response = httpClient.post("$SUPABASE_URL/rest/v1/estudio") {
             header("apikey", SUPABASE_KEY)
             header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
             header("Content-Type", "application/json")
-            header("Prefer", "return=minimal")
+            header("Prefer", "return=representation")
             setBody(CriarItemEstudioRequest(
                 profissional_id = profissionalId, titulo = titulo, descricao = descricao,
                 tipo = tipo, preco = preco, preco_original = precoOriginal,
@@ -1080,10 +1094,16 @@ suspend fun criarItemEstudioAndroid(
                 linkAcessoDigital = linkAcessoDigital,
             ))
         }
-        response.status.value in 200..299
+        if (response.status.value in 200..299) {
+            val criado = response.body<List<ItemEstudioCriadoResponse>>().firstOrNull()
+            Pair(true, criado?.id)
+        } else {
+            AppLogger.aviso("criarItemEstudioAndroid", "HTTP ${response.status.value}: ${response.bodyAsText()}")
+            Pair(false, null)
+        }
     } catch (e: Exception) {
         AppLogger.erroRede("criarItemEstudioAndroid", e, "profId=$profissionalId")
-        false
+        Pair(false, null)
     }
 }
 
@@ -1776,19 +1796,40 @@ suspend fun uploadKycDocumento(userId: String, tipo: String, bytes: ByteArray, m
 suspend fun uploadArquivoEstudio(
     bytes: ByteArray,
     mimeType: String,
-    caminho: String,        // ex: "${userId}/${itemId}/video.mp4"
+    caminho: String,
+    bucket: String = "estudio-assets",
+    returnPublicUrl: Boolean = false,
 ): String? {
     return try {
+        val token = getValidToken()
+        if (token == null) {
+            AppLogger.erro("uploadArquivoEstudio", "Token indisponível – upload cancelado.")
+            return null
+        }
+
         val response = httpClient.put(
-            "$SUPABASE_URL/storage/v1/object/estudio-assets/$caminho"
+            "$SUPABASE_URL/storage/v1/object/$bucket/$caminho"
         ) {
-            header("apikey", SUPABASE_KEY)
-            header("Authorization", "Bearer ${currentToken ?: SUPABASE_KEY}")
-            header("Content-Type", mimeType)
-            header("x-upsert", "true")
+            header("apikey",        SUPABASE_KEY)
+            header("Authorization", "Bearer $token")
+            header("Content-Type",  mimeType)
+            header("x-upsert",     "true")
             setBody(bytes)
         }
-        if (response.status.value in 200..299) caminho else null
+
+        if (response.status.value in 200..299) {
+            if (returnPublicUrl) {
+                "$SUPABASE_URL/storage/v1/object/public/$bucket/$caminho"
+            } else {
+                // Para buckets privados, retorna apenas o caminho interno.
+                // URLs assinadas devem ser geradas posteriormente sob demanda.
+                caminho
+            }
+        } else {
+            val errorBody = response.bodyAsText()
+            AppLogger.erro("uploadArquivoEstudio", "HTTP ${response.status.value}: $errorBody")
+            null
+        }
     } catch (e: Exception) {
         AppLogger.erroRede("uploadArquivoEstudio", e, "caminho=$caminho")
         null
@@ -2073,12 +2114,66 @@ suspend fun verificarBloqueioValorMinuto(profissionalId: String): StatusBloqueio
         StatusBloqueioValorMinuto(bloqueado = true)
     }
 }
+
+// ── RENOVAÇÃO AUTOMÁTICA DE TOKEN ──────────────────────────────────
+@Serializable
+private data class RefreshTokenRequest(val refresh_token: String)
+
+@Serializable
+private data class RefreshTokenResponse(
+    val access_token: String? = null,
+    val refresh_token: String? = null,
+    val expires_in: Int? = null,
+)
+
+/**
+ * Retorna um token válido garantido.
+ * - Token ainda vivo → devolve direto (zero latência).
+ * - Token expirado + refresh disponível → renova silenciosamente.
+ * - Sem refresh ou falha de rede → retorna null (caller cancela a operação).
+ */
+suspend fun getValidToken(): String? {
+    val token = AuthRepository.token
+    if (token != null && !AuthRepository.tokenEstaExpirado) return token
+
+    val refresh = AuthRepository.refreshToken ?: run {
+        AppLogger.aviso("getValidToken", "Token expirado e sem refresh_token – login necessário")
+        return null
+    }
+
+    return try {
+        val response = httpClient.post("$SUPABASE_URL/auth/v1/token?grant_type=refresh_token") {
+            header("apikey", SUPABASE_KEY)
+            header("Content-Type", "application/json")
+            setBody(RefreshTokenRequest(refresh_token = refresh))
+        }.body<RefreshTokenResponse>()
+
+        if (response.access_token != null) {
+            val perfilAtual = (AuthRepository.estado.value as? AuthState.Autenticado)?.perfil
+                ?: return response.access_token
+            AuthRepository.login(
+                token        = response.access_token,
+                perfil       = perfilAtual,
+                refreshToken = response.refresh_token ?: refresh,
+                expiresIn    = response.expires_in ?: 3600,
+            )
+            AppLogger.info("getValidToken", "Token renovado com sucesso")
+            response.access_token
+        } else {
+            AppLogger.aviso("getValidToken", "Renovação falhou – sem access_token na resposta")
+            null
+        }
+    } catch (e: Exception) {
+        AppLogger.erroRede("getValidToken", e, "grant=refresh_token")
+        null
+    }
+}
 fun createWebSocketClient(): HttpClient = HttpClient(OkHttp) {
     engine {
         config {
             connectTimeout(30, TimeUnit.SECONDS)
             readTimeout(0, TimeUnit.SECONDS)    // REQUERIDO para WebSocket persistente
-            writeTimeout(30, TimeUnit.SECONDS)
+            writeTimeout(300, TimeUnit.SECONDS)
             pingInterval(25, TimeUnit.SECONDS)
             retryOnConnectionFailure(true)
         }

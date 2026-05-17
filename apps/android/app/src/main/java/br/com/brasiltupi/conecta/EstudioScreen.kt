@@ -24,6 +24,8 @@ import br.com.brasiltupi.conecta.ui.theme.*
 import kotlinx.coroutines.launch
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
+import androidx.compose.ui.draw.clip
+import coil.compose.AsyncImage
 
 // ── REGRA DE OURO: retenção padrão 30% / PMP 10% ─────────────────────────
 // Exibir esse aviso em TODOS os pontos de venda da plataforma.
@@ -236,7 +238,16 @@ fun CardEstudio(item: ItemEstudio, onClick: () -> Unit) {
                     .background(Brush.linearGradient(listOf(Color(0xFFF0F4FF), Color(0xFFE8F5E9)))),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(TipoEstudio.fromId(item.tipo)?.icon ?: "📦", fontSize = 48.sp)
+                if (!item.capaUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = item.capaUrl,
+                        contentDescription = "Capa do item",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                } else {
+                    Text(TipoEstudio.fromId(item.tipo)?.icon ?: "📦", fontSize = 48.sp)
+                }
                 if (item.destaque) {
                     Box(
                         modifier = Modifier.align(Alignment.TopStart).padding(10.dp)
@@ -358,7 +369,15 @@ fun EstudioDetalheScreen(
                             modifier         = Modifier.size(32.dp).background(Azul, RoundedCornerShape(50)),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(item.autorNome.split(" ").map { it[0] }.joinToString("").take(2), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            val iniciaisAutor = item.autorNome
+                                .split(" ")
+                                .filter { it.isNotEmpty() }
+                                .map { it[0] }
+                                .joinToString("")
+                                .take(2)
+                                .uppercase()
+                                .ifEmpty { "?" }
+                            Text(iniciaisAutor, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         }
                         Column {
                             Text("Criado por", fontSize = 10.sp, color = Color(0xFF9CA3AF))

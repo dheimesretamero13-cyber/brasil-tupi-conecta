@@ -62,7 +62,8 @@ object AuthRepository {
 
     // StateFlow interno — mutável apenas dentro deste objeto
     private val _estado = MutableStateFlow<AuthState>(AuthState.Carregando)
-
+    private var _refreshToken: String? = null
+    private var _tokenExpiresAt: Long = 0L
     /** Flow público somente-leitura. Observe em ViewModels ou Composables. */
     val estado: StateFlow<AuthState> = _estado.asStateFlow()
 
@@ -86,26 +87,28 @@ object AuthRepository {
     /**
      * Chamado após signIn ou signUp bem-sucedidos.
      * Atualiza o estado e garante que AppLogger registre o userId.
+
      */
-    fun login(token: String, perfil: PerfilUsuario) {
-        AppLogger.identificarUsuario(perfil.id)
-        AppLogger.chave("user_tipo", perfil.tipo)
-        _estado.value = AuthState.Autenticado(
-            userId = perfil.id,
-            token  = token,
-            perfil = perfil,
-        )
+    val refreshToken: String? get() = _refreshToken
+    val tokenExpiresAt: Long get() = _tokenExpiresAt
+    val tokenEstaExpirado: Boolean get() = System.currentTimeMillis() >= _tokenExpiresAt
+
+    fun login(
+        token: String,
+        perfil: PerfilUsuario,
+        refreshToken: String? = null,
+        expiresIn: Int = 3600,
+    ) {
+        _refreshToken = refreshToken
+        _tokenExpiresAt = System.currentTimeMillis() + (expiresIn * 1000L) - 60_000L
+        _estado.value = AuthState.Autenticado(perfil.id, token, perfil)
     }
 
-    /**
-     * Chamado após signOut ou quando o token expira.
-     * Limpa estado e identidade no Crashlytics.
-     */
     fun logout() {
-        AppLogger.limparUsuario()
+        _refreshToken = null
+        _tokenExpiresAt = 0L
         _estado.value = AuthState.Deslogado
     }
-
     /**
      * Chamado na inicialização do app quando ainda não sabemos o estado.
      * O LaunchedEffect no MainActivity resolve para Deslogado se o DataStore
