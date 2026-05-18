@@ -24,8 +24,6 @@ import br.com.brasiltupi.conecta.ui.theme.*
 import kotlinx.coroutines.launch
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
-import androidx.compose.ui.draw.clip
-import coil.compose.AsyncImage
 
 // ── REGRA DE OURO: retenção padrão 30% / PMP 10% ─────────────────────────
 // Exibir esse aviso em TODOS os pontos de venda da plataforma.
@@ -117,6 +115,7 @@ fun EstudioBuscaScreen(onVoltar: () -> Unit) {
                 item     = itemSelecionado!!,
                 onVoltar = { itemSelecionado = null },
                 onPagar  = { itemSelecionado = null; itemParaPagar = it },
+                onAcessarGratuito = { itemSelecionado = null }  // apenas fecha o detalhe
             )
         }
         else -> {
@@ -284,14 +283,18 @@ fun CardEstudio(item: ItemEstudio, onClick: () -> Unit) {
                     verticalAlignment     = Alignment.CenterVertically,
                 ) {
                     Column {
-                        if (item.precoOriginal != null) {
-                            Text(
-                                "R$ ${"%.2f".format(item.precoOriginal)}",
-                                fontSize = 11.sp, color = Color(0xFF9CA3AF),
-                                textDecoration = TextDecoration.LineThrough,
-                            )
+                        if (item.isGratuito) {
+                            Text("Acesso gratuito", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Verde)
+                        } else {
+                            if (item.precoOriginal != null) {
+                                Text(
+                                    "R$ ${"%.2f".format(item.precoOriginal)}",
+                                    fontSize = 11.sp, color = Color(0xFF9CA3AF),
+                                    textDecoration = TextDecoration.LineThrough,
+                                )
+                            }
+                            Text("R$ ${"%.2f".format(item.preco)}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Verde)
                         }
-                        Text("R$ ${"%.2f".format(item.preco)}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Verde)
                     }
                     Text("Ver →", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Verde)
                 }
@@ -306,6 +309,7 @@ fun EstudioDetalheScreen(
     item:     ItemEstudio,
     onVoltar: () -> Unit,
     onPagar:  ((ItemEstudio) -> Unit)? = null,
+    onAcessarGratuito: (() -> Unit)? = null,
 ) {
     val scope  = rememberCoroutineScope()
     val userId = currentUserId ?: ""
@@ -397,37 +401,55 @@ fun EstudioDetalheScreen(
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
-                    if (item.precoOriginal != null) {
-                        Text(
-                            "R$ ${"%.2f".format(item.precoOriginal)}",
-                            fontSize = 14.sp, color = Color(0xFF9CA3AF),
-                            textDecoration = TextDecoration.LineThrough,
-                        )
-                        val desconto = ((1 - item.preco / item.precoOriginal) * 100).toInt()
-                        Box(
-                            modifier = Modifier
-                                .background(Color(0xFFFEF3C7), RoundedCornerShape(20.dp))
-                                .padding(horizontal = 10.dp, vertical = 3.dp),
+                    if (item.isGratuito) {
+                        Text("Acesso gratuito", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Verde)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .background(Color(0xFFF0FDF4), RoundedCornerShape(8.dp))
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("$desconto% de desconto", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB45309))
+                            Text("🎁", fontSize = 13.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Este produto é oferecido gratuitamente pelo profissional.",
+                                fontSize = 11.sp, color = Verde, lineHeight = 16.sp,
+                            )
                         }
-                        Spacer(modifier = Modifier.height(6.dp))
-                    }
-                    Text("R$ ${"%.2f".format(item.preco)}", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Verde)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth()
-                            .background(Color(0xFFFFF8E1), RoundedCornerShape(8.dp))
-                            .padding(10.dp),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        Text("ℹ️", fontSize = 13.sp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            "A plataforma retém 30% do valor (10% para profissionais PMP). " +
-                                    "O repasse ocorre após o prazo de cancelamento de 7 dias.",
-                            fontSize = 11.sp, color = Color(0xFF92400E), lineHeight = 16.sp,
-                        )
+                    } else {
+                        if (item.precoOriginal != null) {
+                            Text(
+                                "R$ ${"%.2f".format(item.precoOriginal)}",
+                                fontSize = 14.sp, color = Color(0xFF9CA3AF),
+                                textDecoration = TextDecoration.LineThrough,
+                            )
+                            val desconto = ((1 - item.preco / item.precoOriginal) * 100).toInt()
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0xFFFEF3C7), RoundedCornerShape(20.dp))
+                                    .padding(horizontal = 10.dp, vertical = 3.dp),
+                            ) {
+                                Text("$desconto% de desconto", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB45309))
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                        }
+                        Text("R$ ${"%.2f".format(item.preco)}", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Verde)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .background(Color(0xFFFFF8E1), RoundedCornerShape(8.dp))
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Text("ℹ️", fontSize = 13.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "A plataforma retém 30% do valor (10% para profissionais PMP). " +
+                                        "O repasse ocorre após o prazo de cancelamento de 7 dias.",
+                                fontSize = 11.sp, color = Color(0xFF92400E), lineHeight = 16.sp,
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -454,23 +476,32 @@ fun EstudioDetalheScreen(
                         }
                         else -> {
                             Button(
-                                onClick  = { onPagar?.invoke(item) },
+                                onClick = {
+                                    if (item.isGratuito) onAcessarGratuito?.invoke()
+                                    else onPagar?.invoke(item)
+                                },
                                 modifier = Modifier.fillMaxWidth().height(52.dp),
                                 colors   = ButtonDefaults.buttonColors(containerColor = Verde, contentColor = Color.White),
                                 shape    = RoundedCornerShape(10.dp),
                             ) {
-                                Text("💳 Adquirir agora", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    if (item.isGratuito) "Acessar gratuitamente" else "💳 Adquirir agora",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                listOf("✓ PIX com desconto", "✓ Cartão em até 12x", "✓ Boleto bancário").forEach {
-                                    Text(it, fontSize = 12.sp, color = Color(0xFF6B7280))
+                            if (!item.isGratuito) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    listOf("✓ PIX com desconto", "✓ Cartão em até 12x", "✓ Boleto bancário").forEach {
+                                        Text(it, fontSize = 12.sp, color = Color(0xFF6B7280))
+                                    }
                                 }
                             }
                         }
                     }
 
-                    if (temAcesso && !reembolsoResultado.equals("ok")) {
+                    if (temAcesso && !item.isGratuito && !reembolsoResultado.equals("ok")) {
                         Spacer(modifier = Modifier.height(12.dp))
                         HorizontalDivider(color = Color(0xFFF0F0F0))
                         Spacer(modifier = Modifier.height(10.dp))
@@ -631,7 +662,10 @@ fun EstudioDetalheScreen(
 
         item {
             Column(modifier = Modifier.background(Color(0xFFF0FDF4)).padding(20.dp)) {
-                Text("Por que comprar aqui?", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Verde, modifier = Modifier.padding(bottom = 12.dp))
+                Text(
+                    if (item.isGratuito) "Por que acessar este conteúdo?" else "Por que comprar aqui?",
+                    fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Verde, modifier = Modifier.padding(bottom = 12.dp)
+                )
                 listOf(
                     "Profissional verificado pela Brasil Tupi Conecta",
                     "Pagamento seguro e criptografado",
@@ -699,6 +733,7 @@ fun EstudioVitrineScreen(profissionalId: String, onVoltar: () -> Unit) {
                 item     = itemSelecionado!!,
                 onVoltar = { itemSelecionado = null },
                 onPagar  = { itemSelecionado = null; itemParaPagar = it },
+                onAcessarGratuito = { itemSelecionado = null }  // apenas fecha o detalhe
             )
         }
         else -> {

@@ -54,7 +54,6 @@ private data class FormState(
     val arquivoUrl: String = "",
     val linkExterno: String = "",
     val capaUrl: String = "",
-    val temEntrega: Boolean = false,
     val destaque: Boolean = false,
     val materia: String = "",
     val duracaoMinutos: String = "",
@@ -71,6 +70,7 @@ private data class FormState(
     val versaoProduto: String = "",
     val suporteIncluido: Boolean = false,
     val linkAcessoDigital: String = "",
+    val isGratuito: Boolean = false,
 )
 sealed class EstudioSalvandoState {
     object Idle : EstudioSalvandoState()
@@ -518,12 +518,14 @@ fun EstudioDashboardScreen(
                                         )
                                         Text(TipoEstudio.fromId(item.tipo)?.label ?: item.tipo, fontSize = 11.sp, color = Color(0xFF6B7280))
                                         Text(
-                                            "${item.totalVendas} vendas · R$ ${"%.2f".format(item.preco)}${if (item.destaque) " · ⭐" else ""}",
+                                            "${item.totalVendas} vendas · ${if (item.isGratuito) "Acesso gratuito" else "R$ ${"%.2f".format(item.preco)}"}${if (item.destaque) " · ⭐" else ""}",
                                             fontSize = 11.sp,
                                             color = Color(0xFF9CA3AF)
                                         )
                                     }
-                                    if (item.tipo != "saas_digital") {
+                                    if (item.isGratuito) {
+                                        Text("Acesso gratuito", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Verde)
+                                    } else if (item.tipo != "saas_digital") {
                                         Text("R$ ${"%.0f".format(item.preco)}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Verde)
                                     } else {
                                         Text("Gratuito", fontSize = 12.sp, color = Verde, fontWeight = FontWeight.SemiBold)
@@ -543,11 +545,11 @@ fun EstudioDashboardScreen(
                                                 titulo = item.titulo,
                                                 descricao = item.descricao,
                                                 tipo = item.tipo,
-                                                preco = item.preco.toInt().toString(),
+                                                isGratuito = item.isGratuito,
+                                                preco = if (item.isGratuito) "" else item.preco.toInt().toString(),
                                                 precoOriginal = item.precoOriginal?.toInt()?.toString() ?: "",
                                                 arquivoUrl = item.linkExterno ?: "",
                                                 linkExterno = item.linkExterno ?: "",
-                                                temEntrega = item.temEntrega,
                                                 destaque = item.destaque,
                                             )
                                             itemParaEditar = item
@@ -598,8 +600,8 @@ fun EstudioDashboardScreen(
                 isEditando = itemParaEditar != null,
                 onCancelar = { resetForm() },
                 onPublicar = {
-                    if (form.titulo.isEmpty() || form.preco.isEmpty()) {
-                        toast = "Preencha título e preço."
+                    if (form.titulo.isEmpty() || (!form.isGratuito && form.preco.isEmpty())) {
+                        toast = if (form.isGratuito) "Preencha o título." else "Preencha título e preço."
                         return@ModalAulaScreen
                     }
                     val editando = itemParaEditar
@@ -624,7 +626,8 @@ fun EstudioDashboardScreen(
                                     titulo = form.titulo,
                                     descricao = form.descricao,
                                     tipo = "aula",
-                                    preco = form.preco.toDoubleOrNull() ?: 0.0,
+                                    preco = if (form.isGratuito) 0.0 else (form.preco.toDoubleOrNull() ?: 0.0),
+                                    isGratuito = form.isGratuito,
                                     precoOriginal = form.precoOriginal.toDoubleOrNull(),
                                     capaUrl = capaPath,
                                     materia = form.materia.ifBlank { null },
@@ -639,7 +642,8 @@ fun EstudioDashboardScreen(
                                     titulo = form.titulo,
                                     descricao = form.descricao.ifBlank { null },
                                     tipo = "aula",
-                                    preco = form.preco.toDoubleOrNull() ?: 0.0,
+                                    preco = if (form.isGratuito) 0.0 else (form.preco.toDoubleOrNull() ?: 0.0),
+                                    is_free = form.isGratuito,
                                     precoOriginal = form.precoOriginal.toDoubleOrNull(),
                                     capaUrl = capaPath,
                                     materia = form.materia.ifBlank { null },
@@ -686,6 +690,8 @@ fun EstudioDashboardScreen(
                 conteudos = conteudosList, onConteudosChanged = { conteudosList = it },
                 isPmp = isPmpEstudio, verificado = verificadoEstudio,
                 salvandoState = salvandoState,
+                isGratuito = form.isGratuito,
+                onIsGratuito = { form = form.copy(isGratuito = it) },
             )
         }
         "curso" -> {
@@ -693,8 +699,8 @@ fun EstudioDashboardScreen(
                 isEditando = itemParaEditar != null,
                 onCancelar = { resetForm() },
                 onPublicar = {
-                    if (form.titulo.isEmpty() || form.preco.isEmpty()) {
-                        toast = "Preencha título e preço."
+                    if (form.titulo.isEmpty() || (!form.isGratuito && form.preco.isEmpty())) {
+                        toast = if (form.isGratuito) "Preencha o título." else "Preencha título e preço."
                         return@ModalCursoScreen
                     }
                     val editando = itemParaEditar
@@ -719,7 +725,8 @@ fun EstudioDashboardScreen(
                                     titulo = form.titulo,
                                     descricao = form.descricao,
                                     tipo = "curso",
-                                    preco = form.preco.toDoubleOrNull() ?: 0.0,
+                                    preco = if (form.isGratuito) 0.0 else (form.preco.toDoubleOrNull() ?: 0.0),
+                                    isGratuito = form.isGratuito,
                                     precoOriginal = form.precoOriginal.toDoubleOrNull(),
                                     capaUrl = capaPath,
                                     cargaHorariaH = form.cargaHorariaH.toIntOrNull(),
@@ -736,7 +743,8 @@ fun EstudioDashboardScreen(
                                     titulo = form.titulo,
                                     descricao = form.descricao.ifBlank { null },
                                     tipo = "curso",
-                                    preco = form.preco.toDoubleOrNull() ?: 0.0,
+                                    preco = if (form.isGratuito) 0.0 else (form.preco.toDoubleOrNull() ?: 0.0),
+                                    is_free = form.isGratuito,
                                     precoOriginal = form.precoOriginal.toDoubleOrNull(),
                                     capaUrl = capaPath,
                                     cargaHorariaH = form.cargaHorariaH.toIntOrNull(),
@@ -787,6 +795,8 @@ fun EstudioDashboardScreen(
                 conteudos = conteudosList, onConteudosChanged = { conteudosList = it },
                 isPmp = isPmpEstudio, verificado = verificadoEstudio,
                 salvandoState = salvandoState,
+                isGratuito = form.isGratuito,
+                onIsGratuito = { form = form.copy(isGratuito = it) },
             )
         }
         "livro" -> {
@@ -794,8 +804,8 @@ fun EstudioDashboardScreen(
                 isEditando = itemParaEditar != null,
                 onCancelar = { resetForm() },
                 onPublicar = {
-                    if (form.titulo.isEmpty() || form.preco.isEmpty()) {
-                        toast = "Preencha título e preço."
+                    if (form.titulo.isEmpty() || (!form.isGratuito && form.preco.isEmpty())) {
+                        toast = if (form.isGratuito) "Preencha o título." else "Preencha título e preço."
                         return@ModalLivroScreen
                     }
                     val editando = itemParaEditar
@@ -829,7 +839,8 @@ fun EstudioDashboardScreen(
                                     titulo = form.titulo,
                                     descricao = form.descricao,
                                     tipo = "livro",
-                                    preco = form.preco.toDoubleOrNull() ?: 0.0,
+                                    preco = if (form.isGratuito) 0.0 else (form.preco.toDoubleOrNull() ?: 0.0),
+                                    isGratuito = form.isGratuito,
                                     precoOriginal = form.precoOriginal.toDoubleOrNull(),
                                     capaUrl = capaPath,
                                     arquivoUrl = pdfPath,
@@ -846,7 +857,8 @@ fun EstudioDashboardScreen(
                                     titulo = form.titulo,
                                     descricao = form.descricao.ifBlank { null },
                                     tipo = "livro",
-                                    preco = form.preco.toDoubleOrNull() ?: 0.0,
+                                    preco = if (form.isGratuito) 0.0 else (form.preco.toDoubleOrNull() ?: 0.0),
+                                    is_free = form.isGratuito,
                                     precoOriginal = form.precoOriginal.toDoubleOrNull(),
                                     capaUrl = capaPath,
                                     arquivoUrl = pdfPath,
@@ -891,6 +903,8 @@ fun EstudioDashboardScreen(
                 destaque = form.destaque, onDestaque = { form = form.copy(destaque = it) },
                 isPmp = isPmpEstudio, verificado = verificadoEstudio,
                 salvandoState = salvandoState,
+                isGratuito = form.isGratuito,
+                onIsGratuito = { form = form.copy(isGratuito = it) },
             )
         }
         "saas_digital" -> {
@@ -1062,6 +1076,8 @@ fun ModalAulaScreen(
     conteudos: List<ConteudoItem>, onConteudosChanged: (List<ConteudoItem>) -> Unit,
     isPmp: Boolean, verificado: Boolean,
     salvandoState: EstudioSalvandoState,
+    isGratuito: Boolean,
+    onIsGratuito: (Boolean) -> Unit,
 ) {
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { onCapaChanged(it) }
     var mostrarAdicionarConteudo by remember { mutableStateOf(false) }
@@ -1088,11 +1104,46 @@ fun ModalAulaScreen(
                             OutlinedTextField(duracaoMinutos, onDuracaoMinutos, label = { Text("Duração (min)") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)), singleLine = true)
                             OutlinedTextField(nivelAula, onNivelAula, label = { Text("Nível") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)), singleLine = true)
                         }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            OutlinedTextField(preco, onPreco, label = { Text("Preço R$ *") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)), singleLine = true)
-                            OutlinedTextField(precoOriginal, onPrecoOriginal, label = { Text("Preço original") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)), singleLine = true)
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isGratuito) VerdeClaro else Color(0xFFF8F9FA))
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    if (isGratuito) "🎁 Produto Gratuito" else "💰 Produto Pago",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (isGratuito) Verde else Color(0xFF374151)
+                                )
+                                Text(
+                                    if (isGratuito) "Todos os usuários terão acesso livre"
+                                    else "Defina o preço abaixo",
+                                    fontSize = 11.sp,
+                                    color = if (isGratuito) Verde.copy(alpha = 0.7f) else Color(0xFF9CA3AF)
+                                )
+                            }
+                            Switch(
+                                checked = isGratuito,
+                                onCheckedChange = onIsGratuito,
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = Verde
+                                )
+                            )
                         }
-                        preco.toDoubleOrNull()?.let { p -> if (p > 0) IndicadorTaxaPlataforma(p, isPmp, verificado) }
+
+                        if (!isGratuito) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                OutlinedTextField(preco, onPreco, label = { Text("Preço R$ *") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)), singleLine = true)
+                                OutlinedTextField(precoOriginal, onPrecoOriginal, label = { Text("Preço original") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)), singleLine = true)
+                            }
+                            preco.toDoubleOrNull()?.let { p -> if (p > 0) IndicadorTaxaPlataforma(p, isPmp, verificado) }
+                        }
                         Text("Capa da aula", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF374151))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Button(onClick = { imagePicker.launch("image/*") }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0C2D6B), contentColor = Color.White), shape = RoundedCornerShape(8.dp)) { Text("Selecionar imagem") }
@@ -1173,6 +1224,7 @@ fun ModalCursoScreen(
     numModulos: String, onNumModulos: (String) -> Unit,
     nivelCurso: String, onNivelCurso: (String) -> Unit,
     certificado: Boolean, onCertificado: (Boolean) -> Unit,
+    isGratuito: Boolean, onIsGratuito: (Boolean) -> Unit,
     preco: String, onPreco: (String) -> Unit,
     precoOriginal: String, onPrecoOriginal: (String) -> Unit,
     capaUri: Uri?, onCapaChanged: (Uri?) -> Unit,
@@ -1245,22 +1297,57 @@ fun ModalCursoScreen(
                             Switch(certificado, onCertificado, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Verde))
                         }
                         HorizontalDivider(color = Color(0xFFF0F0F0))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            OutlinedTextField(
-                                preco, onPreco, label = { Text("Preço R$ *") },
-                                modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)),
-                                singleLine = true
-                            )
-                            OutlinedTextField(
-                                precoOriginal, onPrecoOriginal, label = { Text("Preço original") },
-                                modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)),
-                                singleLine = true
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isGratuito) VerdeClaro else Color(0xFFF8F9FA))
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    if (isGratuito) "🎁 Produto Gratuito" else "💰 Produto Pago",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (isGratuito) Verde else Color(0xFF374151)
+                                )
+                                Text(
+                                    if (isGratuito) "Todos os usuários terão acesso livre"
+                                    else "Defina o preço abaixo",
+                                    fontSize = 11.sp,
+                                    color = if (isGratuito) Verde.copy(alpha = 0.7f) else Color(0xFF9CA3AF)
+                                )
+                            }
+                            Switch(
+                                checked = isGratuito,
+                                onCheckedChange = onIsGratuito,
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = Verde
+                                )
                             )
                         }
-                        preco.toDoubleOrNull()?.let { p ->
-                            if (p > 0) IndicadorTaxaPlataforma(p, isPmp, verificado)
+
+                        if (!isGratuito) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                OutlinedTextField(
+                                    preco, onPreco, label = { Text("Preço R$ *") },
+                                    modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)),
+                                    singleLine = true
+                                )
+                                OutlinedTextField(
+                                    precoOriginal, onPrecoOriginal, label = { Text("Preço original") },
+                                    modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)),
+                                    singleLine = true
+                                )
+                            }
+                            preco.toDoubleOrNull()?.let { p ->
+                                if (p > 0) IndicadorTaxaPlataforma(p, isPmp, verificado)
+                            }
                         }
                         HorizontalDivider(color = Color(0xFFF0F0F0))
                         Text("Capa do curso", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF374151))
@@ -1382,6 +1469,7 @@ fun ModalLivroScreen(
     isbn: String, onIsbn: (String) -> Unit,
     numPaginas: String, onNumPaginas: (String) -> Unit,
     edicao: String, onEdicao: (String) -> Unit,
+    isGratuito: Boolean, onIsGratuito: (Boolean) -> Unit,
     preco: String, onPreco: (String) -> Unit,
     precoOriginal: String, onPrecoOriginal: (String) -> Unit,
     capaUri: Uri?, onCapaChanged: (Uri?) -> Unit,
@@ -1447,22 +1535,57 @@ fun ModalLivroScreen(
                             singleLine = true
                         )
                         HorizontalDivider(color = Color(0xFFF0F0F0))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            OutlinedTextField(
-                                preco, onPreco, label = { Text("Preço R$ *") },
-                                modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)),
-                                singleLine = true
-                            )
-                            OutlinedTextField(
-                                precoOriginal, onPrecoOriginal, label = { Text("Preço original") },
-                                modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)),
-                                singleLine = true
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isGratuito) VerdeClaro else Color(0xFFF8F9FA))
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    if (isGratuito) "🎁 Produto Gratuito" else "💰 Produto Pago",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (isGratuito) Verde else Color(0xFF374151)
+                                )
+                                Text(
+                                    if (isGratuito) "Todos os usuários terão acesso livre"
+                                    else "Defina o preço abaixo",
+                                    fontSize = 11.sp,
+                                    color = if (isGratuito) Verde.copy(alpha = 0.7f) else Color(0xFF9CA3AF)
+                                )
+                            }
+                            Switch(
+                                checked = isGratuito,
+                                onCheckedChange = onIsGratuito,
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = Verde
+                                )
                             )
                         }
-                        preco.toDoubleOrNull()?.let { p ->
-                            if (p > 0) IndicadorTaxaPlataforma(p, isPmp, verificado)
+
+                        if (!isGratuito) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                OutlinedTextField(
+                                    preco, onPreco, label = { Text("Preço R$ *") },
+                                    modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)),
+                                    singleLine = true
+                                )
+                                OutlinedTextField(
+                                    precoOriginal, onPrecoOriginal, label = { Text("Preço original") },
+                                    modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Verde, unfocusedBorderColor = Color(0xFFE0E0E0)),
+                                    singleLine = true
+                                )
+                            }
+                            preco.toDoubleOrNull()?.let { p ->
+                                if (p > 0) IndicadorTaxaPlataforma(p, isPmp, verificado)
+                            }
                         }
                         HorizontalDivider(color = Color(0xFFF0F0F0))
                         Text("Capa do livro", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF374151))
@@ -1534,7 +1657,8 @@ fun ModalSaaSDigitalScreen(
     capaUri: Uri?, onCapaChanged: (Uri?) -> Unit,
     destaque: Boolean, onDestaque: (Boolean) -> Unit,
     salvandoState: EstudioSalvandoState,
-) {
+)
+{
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { onCapaChanged(it) }
 
     Dialog(onDismissRequest = onCancelar, properties = DialogProperties(usePlatformDefaultWidth = false)) {

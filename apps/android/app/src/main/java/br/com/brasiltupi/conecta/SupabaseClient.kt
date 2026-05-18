@@ -172,6 +172,7 @@ data class ItemEstudio(
     val versaoProduto: String? = null,
     val suporteIncluido: Boolean = false,
     val linkAcessoDigital: String? = null,
+    val isGratuito: Boolean = false,
 )
 
 // ── PROFISSIONAL PMP ──────────────────────────────────────────────────
@@ -293,6 +294,7 @@ private data class ItemEstudioSupabase(
     val suporte_incluido: Boolean? = null,
     val link_acesso_digital: String? = null,
     val perfis: PerfilEstudioNested? = null,
+    val is_free: Boolean? = null,
 )
 
 private fun ItemEstudioSupabase.toItemEstudio(): ItemEstudio = ItemEstudio(
@@ -331,6 +333,7 @@ private fun ItemEstudioSupabase.toItemEstudio(): ItemEstudio = ItemEstudio(
     versaoProduto    = versao_produto,
     suporteIncluido  = suporte_incluido ?: false,
     linkAcessoDigital = link_acesso_digital,
+    isGratuito = is_free ?: false,
 )
 
 // ----------------------------------------------------------------------
@@ -384,6 +387,7 @@ private data class CriarItemEstudioRequest(
     @SerialName("versao_produto") val versaoProduto: String? = null,
     @SerialName("suporte_incluido") val suporteIncluido: Boolean = false,
     @SerialName("link_acesso_digital") val linkAcessoDigital: String? = null,
+    val is_free: Boolean = false,
 )
 @Serializable
 data class EditarItemEstudioRequest(
@@ -414,6 +418,7 @@ data class EditarItemEstudioRequest(
     @SerialName("versao_produto") val versaoProduto: String? = null,
     @SerialName("suporte_incluido") val suporteIncluido: Boolean = false,
     @SerialName("link_acesso_digital") val linkAcessoDigital: String? = null,
+    val is_free: Boolean = false,
 )
 
 @Serializable
@@ -1065,7 +1070,7 @@ suspend fun getEstudioPMPPublico(
 
 suspend fun criarItemEstudioAndroid(
     profissionalId: String, titulo: String, descricao: String, tipo: String,
-    preco: Double, precoOriginal: Double? = null, capaUrl: String? = null,
+    preco: Double,isGratuito: Boolean = false, precoOriginal: Double? = null, capaUrl: String? = null,
     videoUrl: String? = null, arquivoUrl: String? = null, linkExterno: String? = null,
     temEntrega: Boolean = false, destaque: Boolean = false,
     materia: String? = null, duracaoMinutos: Int? = null, nivelAula: String? = null,
@@ -1082,7 +1087,7 @@ suspend fun criarItemEstudioAndroid(
             header("Prefer", "return=representation")
             setBody(CriarItemEstudioRequest(
                 profissional_id = profissionalId, titulo = titulo, descricao = descricao,
-                tipo = tipo, preco = preco, preco_original = precoOriginal,
+                tipo = tipo,  preco = if (isGratuito) 0.0 else preco, is_free = isGratuito, preco_original = precoOriginal,
                 capa_url = capaUrl,
                 video_url = videoUrl, arquivo_url = arquivoUrl, link_externo = linkExterno,
                 tem_entrega = temEntrega, destaque = destaque,
